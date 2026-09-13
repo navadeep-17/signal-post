@@ -1,0 +1,169 @@
+name: H1 Domain Discovery Experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/h1-domain-discovery
+    paths:
+      - '.github/workflows/h1-domain-discovery.yml'
+      - 'src/norway_company_agent/domain_discovery.py'
+      - 'scripts/run_registry_email_domain_discovery.py'
+      - 'tests/test_domain_discovery.py'
+      - 'docs/H1_DOMAIN_DISCOVERY.md'
+      - 'docs/CONNECTOR_STATUS.md'
+
+permissions:
+  contents: read
+
+jobs:
+  h1a-email-domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run H1 unit tests
+        run: uv run --with pytest pytest -q tests/test_domain_discovery.py
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate deterministic 1,000-company manifest
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          test "$(wc -l < entry-companies.jsonl)" -eq 1000
+
+      - name: Freeze zero-overlap H1 dev and validation slices
+        run: |
+          head -n 100 entry-companies.jsonl > h1-dev-100.jsonl
+          sed -n '101,200p' entry-companies.jsonl > h1-validation-100.jsonl
+          test "$(wc -l < h1-dev-100.jsonl)" -eq 100
+          test "$(wc -l < h1-validation-100.jsonl)" -eq 100
+          DEV_SHA="$(sha256sum h1-dev-100.jsonl | cut -d' ' -f1)"
+          VAL_SHA="$(sha256sum h1-validation-100.jsonl | cut -d' ' -f1)"
+          test "$DEV_SHA" = '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3'
+          test "$VAL_SHA" = '5cdbe6e976eb7e7011dd47b0617e80410b4410de13819465c21c9cc099a325c7'
+          printf '%s  %s\n' "$DEV_SHA" h1-dev-100.jsonl > h1-manifests.sha256
+          printf '%s  %s\n' "$VAL_SHA" h1-validation-100.jsonl >> h1-manifests.sha256
+          cat h1-dev-100.jsonl h1-validation-100.jsonl > h1-all-200.jsonl
+
+      - name: Build registry-only profiles for the frozen 200 companies
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path('src').resolve()))
+          from norway_company_agent.batch import profiles_from_bulk, read_organisation_inputs
+
+          inputs = read_organisation_inputs('h1-all-200.jsonl')
+          orgs = [item['organisation_number'] for item in inputs]
+          profiles, metadata = profiles_from_bulk('brreg-enheter.csv', orgs)
+          assert len(profiles) == 200
+
+          def write(path, rows):
+              Path(path).write_text(
+                  ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in rows),
+                  encoding='utf-8',
+              )
+
+          write('out/h1-dev-baseline-profiles.jsonl', profiles[:100])
+          write('out/h1-validation-baseline-profiles.jsonl', profiles[100:])
+          Path('out/h1-registry-profile-report.json').write_text(
+              json.dumps({'profiles': len(profiles), 'registry': metadata}, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Run H1a on development slice
+        run: |
+          uv run python scripts/run_registry_email_domain_discovery.py \
+            --input out/h1-dev-baseline-profiles.jsonl \
+            --output out/h1-dev-enriched-profiles.jsonl \
+            --predictions out/h1-dev-predictions.jsonl \
+            --report out/h1-dev-report.json \
+            --promote-verified
+
+      - name: Run H1a on zero-overlap validation slice
+        run: |
+          uv run python scripts/run_registry_email_domain_discovery.py \
+            --input out/h1-validation-baseline-profiles.jsonl \
+            --output out/h1-validation-enriched-profiles.jsonl \
+            --predictions out/h1-validation-predictions.jsonl \
+            --report out/h1-validation-report.json \
+            --promote-verified
+
+      - name: Verify experiment invariants and print comparison
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          dev = json.loads(Path('out/h1-dev-report.json').read_text())
+          val = json.loads(Path('out/h1-validation-report.json').read_text())
+          for label, report in [('dev', dev), ('validation', val)]:
+              assert report['search_provider_used'] is False, report
+              assert report['raw_search_results_persisted'] is False, report
+              assert report['operations']['third_party_cost_usd'] == 0.0, report
+              assert report['input_profiles'] == 100, report
+              print(label, json.dumps(report, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload H1 experiment artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1-domain-discovery-experiment
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            h1-dev-100.jsonl
+            h1-validation-100.jsonl
+            h1-manifests.sha256
+            brreg-enheter.sha256
+            signalpost-universe.sha256
+            out/h1-registry-profile-report.json
+            out/h1-dev-baseline-profiles.jsonl
+            out/h1-validation-baseline-profiles.jsonl
+            out/h1-dev-enriched-profiles.jsonl
+            out/h1-validation-enriched-profiles.jsonl
+            out/h1-dev-predictions.jsonl
+            out/h1-validation-predictions.jsonl
+            out/h1-dev-report.json
+            out/h1-validation-report.json
