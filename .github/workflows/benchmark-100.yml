@@ -1,0 +1,208 @@
+name: 100 Company Baseline Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - chore/phase1-100-benchmark
+    paths:
+      - '.github/workflows/benchmark-100.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv | tee brreg-enheter.sha256
+          ls -lh brreg-enheter.csv
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz | tee signalpost-universe.sha256
+
+      - name: Select deterministic 1,000-company manifest
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          test "$(wc -l < entry-companies.jsonl)" -eq 1000
+          sha256sum entry-companies.jsonl | tee entry-companies.sha256
+
+      - name: Freeze first 100 as development benchmark
+        run: |
+          head -n 100 entry-companies.jsonl > benchmark-dev-100.jsonl
+          test "$(wc -l < benchmark-dev-100.jsonl)" -eq 100
+          sha256sum benchmark-dev-100.jsonl | tee benchmark-dev-100.sha256
+
+      - name: Run untouched 100-company baseline
+        run: |
+          mkdir -p out
+          uv run python scripts/run_competition_batch.py \
+            --organisations benchmark-dev-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --profiles-output out/benchmark-profiles.jsonl \
+            --output out/benchmark-envelopes.jsonl \
+            --report out/benchmark-run-report.json \
+            --run-id phase1-baseline-100 \
+            --expected-count 100
+
+      - name: Build baseline failure-bucket report
+        run: |
+          uv run python - <<'PY'
+          import json
+          import math
+          import statistics
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          profiles = read_jsonl('out/benchmark-profiles.jsonl')
+          envelopes = read_jsonl('out/benchmark-envelopes.jsonl')
+          run_report = json.loads(Path('out/benchmark-run-report.json').read_text(encoding='utf-8'))
+
+          assert len(profiles) == 100
+          assert len(envelopes) == 100
+          assert run_report['validation']['passed'] is True
+
+          modules = list(run_report['modules'])
+          module_status = {module: Counter() for module in modules}
+          module_terminal = {module: Counter() for module in modules}
+          legal_forms = Counter()
+          registry_website_presence = Counter()
+          website_identity = Counter()
+          website_social_links = []
+          website_pages = []
+          profile_requests = []
+          errors = []
+
+          for profile, envelope in zip(profiles, envelopes):
+              legal_forms[str(profile.get('legal_form') or 'missing')] += 1
+              registry_website_presence['present' if str(profile.get('website') or '').strip() else 'missing'] += 1
+              evidence = profile.get('evidence') or {}
+              for module in modules:
+                  module_status[module][str((evidence.get(module) or {}).get('status') or 'missing_record')] += 1
+                  module_terminal[module][str((envelope.get('modules', {}).get(module) or {}).get('state') or 'missing_state')] += 1
+
+              website = evidence.get('website') or {}
+              value = website.get('value') or {}
+              assessment = value.get('identity_assessment') or {}
+              if website.get('status') == 'available':
+                  website_identity[str(assessment.get('status') or 'missing_assessment')] += 1
+                  website_social_links.append(len(value.get('social_links') or []))
+                  website_pages.append(len(value.get('pages') or []))
+              else:
+                  website_identity[f"website_{website.get('status') or 'missing'}"] += 1
+
+              metric = profile.get('run_metrics') or {}
+              profile_requests.append(int(metric.get('requests') or 0))
+              if envelope.get('state') != 'complete':
+                  errors.append({
+                      'organisation_number': profile.get('organisation_number'),
+                      'name': profile.get('name'),
+                      'entity_state': envelope.get('state'),
+                  })
+
+          def percentile(values, q):
+              if not values:
+                  return None
+              ordered = sorted(values)
+              index = max(0, min(len(ordered)-1, math.ceil(q * len(ordered)) - 1))
+              return ordered[index]
+
+          summary = {
+              'corpus': {
+                  'count': 100,
+                  'manifest_sha256': Path('benchmark-dev-100.sha256').read_text().split()[0],
+                  'entry_manifest_sha256': Path('entry-companies.sha256').read_text().split()[0],
+                  'universe_sha256': Path('signalpost-universe.sha256').read_text().split()[0],
+                  'brreg_snapshot_sha256': Path('brreg-enheter.sha256').read_text().split()[0],
+                  'selection_seed': 20260823,
+                  'slice': 'first_100_of_deterministic_1000',
+              },
+              'validation': run_report['validation'],
+              'operations': run_report['operations'],
+              'profile_request_distribution': {
+                  'min': min(profile_requests),
+                  'median': statistics.median(profile_requests),
+                  'p95': percentile(profile_requests, 0.95),
+                  'max': max(profile_requests),
+                  'mean': round(statistics.mean(profile_requests), 3),
+              },
+              'legal_forms': dict(sorted(legal_forms.items())),
+              'registry_website_presence': dict(registry_website_presence),
+              'module_evidence_status': {k: dict(v) for k, v in module_status.items()},
+              'module_terminal_state': {k: dict(v) for k, v in module_terminal.items()},
+              'website_identity_buckets': dict(website_identity),
+              'available_website_social_links': {
+                  'companies_with_any': sum(value > 0 for value in website_social_links),
+                  'total_links': sum(website_social_links),
+              },
+              'available_website_targeted_pages': {
+                  'companies_with_any': sum(value > 0 for value in website_pages),
+                  'total_pages': sum(website_pages),
+              },
+              'non_complete_entities': errors,
+              'confirmed_final_output_contract_gap': {
+                  'internal_envelope_has_state_modules_profile': True,
+                  'documented_contract_requires_run_claims_evidence_changes_errors_operations': True,
+              },
+          }
+          Path('out/benchmark-summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-baseline-100
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            benchmark-dev-100.jsonl
+            benchmark-dev-100.sha256
+            entry-companies.jsonl
+            entry-companies.sha256
+            brreg-enheter.sha256
+            signalpost-universe.sha256
+            out/benchmark-profiles.jsonl
+            out/benchmark-envelopes.jsonl
+            out/benchmark-run-report.json
+            out/benchmark-summary.json
