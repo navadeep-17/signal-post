@@ -11,7 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from norway_company_agent.domain_discovery import registry_email_domain_candidates  # noqa: E402
+from norway_company_agent.domain_discovery import (  # noqa: E402
+    corroborate_registry_email_domain_identity,
+    registry_email_domain_candidates,
+)
 from norway_company_agent.evidence import evidence, utc_now  # noqa: E402
 from norway_company_agent.identity import apply_website_identity_gate  # noqa: E402
 from norway_company_agent.website import fetch_website  # noqa: E402
@@ -99,7 +102,11 @@ def main() -> None:
             website["source_class"] = "company_owned_candidate"
             gated = apply_website_identity_gate(row, website)
             verified_website = gated["website"]
-            assessment = gated.get("assessment")
+            base_assessment = gated.get("assessment")
+            assessment = corroborate_registry_email_domain_identity(row, candidate["domain"], base_assessment)
+            if assessment is not base_assessment and assessment is not None:
+                (verified_website.get("value") or {})["identity_assessment"] = assessment
+                counts["identity_upgraded_by_email_domain_corroboration"] += 1
             final_url = ((verified_website.get("value") or {}).get("final_url") or verified_website.get("source_url"))
             result = {
                 "domain": candidate["domain"],
@@ -123,7 +130,7 @@ def main() -> None:
                 break
 
         discovery_value = {
-            "method": "brreg_registry_email_domain_then_independent_fetch_v1",
+            "method": "brreg_registry_email_domain_then_independent_fetch_v2",
             "candidate_domains": [item["domain"] for item in discovery.get("candidates", [])],
             "generic_domains_skipped": discovery.get("generic_domains", []),
             "selected_domain": selected[0]["domain"] if selected else None,
@@ -149,8 +156,6 @@ def main() -> None:
                 row["website"] = (verified_website.get("value") or {}).get("final_url") or verified_website.get("source_url") or ""
                 counts["promoted_sites"] += 1
         elif candidate_results:
-            # Retain the last independently fetched candidate only for audit. It remains quarantined.
-            last = candidate_results[-1]
             counts["quarantined_profiles"] += 1
 
         predictions.append(
@@ -174,7 +179,7 @@ def main() -> None:
     report = {
         "generated_at": utc_now(),
         "started_at": started_at,
-        "method": "H1a registry email domain -> independent website fetch -> exact entity gate",
+        "method": "H1a registry email domain -> independent website fetch -> exact entity gate/corroboration",
         "input_profiles": len(rows),
         "queried_profiles": queried,
         "counts": dict(sorted(counts.items())),
@@ -189,7 +194,7 @@ def main() -> None:
         "raw_search_results_persisted": False,
         "search_provider_used": False,
         "promote_verified_enabled": args.promote_verified,
-        "qualification": "experiment_only_pending_human_exact_domain_audit_and_zero_overlap_validation",
+        "qualification": "experiment_only_pending_human_exact_domain_audit_and_larger_hard-negative_validation",
     }
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
