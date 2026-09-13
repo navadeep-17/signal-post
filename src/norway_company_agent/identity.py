@@ -64,6 +64,10 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
         "domain is for sale", "domain for sale", "hugedomains", "parked at", "miss hosting",
         "her flytter snart en ny gjest", "has been informing visitors",
         "find the best information and most relevant links on all topics related to",
+        # Common Norwegian registrar/web-host placeholder language. These markers are
+        # deliberately provider-agnostic: a registered hostname is not company identity.
+        "registrert domene", "domenet er registrert av", "domenenavn og du har bestilt webhotell",
+        "oppgradere til webhotell", "bestilt webhotell",
     )
     normalized_raw = unicodedata.normalize("NFKD", candidate_text).encode("ascii", "ignore").decode().casefold()
     homepage_token_sets = [set(_tokens(part)) for part in homepage_identity_parts if part]
