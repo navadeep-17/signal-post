@@ -4,8 +4,6 @@ import re
 import unicodedata
 from typing import Any
 
-import tldextract
-
 
 # Consumer mailbox domains are useful contact evidence but are not evidence that the
 # mail domain is controlled by the legal entity. Keep this list intentionally narrow;
@@ -49,9 +47,20 @@ def distinctive_legal_name_compact(name: Any) -> str:
     return "".join(token for token in _ascii_tokens(name) if token not in LEGAL_NAME_TOKENS)
 
 
-def registrable_domain_label(domain: str) -> str:
-    extracted = tldextract.extract(str(domain or "").casefold())
-    return "".join(_ascii_tokens(extracted.domain))
+def simple_two_label_domain_name(domain: str) -> str:
+    """Return the normalized name label only for unambiguous two-label domains.
+
+    Corroboration deliberately abstains for subdomains and multi-label suffix cases rather
+    than consulting a public-suffix service/list at runtime. That keeps this path fully
+    deterministic and prevents hidden outbound requests outside the request ledger.
+    """
+    normalized = _normalise_domain(domain)
+    if not normalized:
+        return ""
+    labels = normalized.split(".")
+    if len(labels) != 2:
+        return ""
+    return "".join(_ascii_tokens(labels[0]))
 
 
 def corroborate_registry_email_domain_identity(
@@ -61,12 +70,10 @@ def corroborate_registry_email_domain_identity(
 ) -> dict[str, Any] | None:
     """Conservatively upgrade a fetched email-domain candidate from review to exact.
 
-    This is intentionally narrower than the general website identity gate. The candidate
-    must already be in `review`, which means independently fetched page content contains
-    substantial legal-name evidence. In addition, the registrable domain label itself
-    must exactly equal the normalized distinctive legal name. This excludes manager/
-    service-provider domains such as `gobb.no` or `notodden.bbl.no` even if those sites
-    contain pages mentioning the customer legal entity.
+    The candidate must already be in `review`, meaning independently fetched page content
+    contains substantial legal-name evidence. The domain must also be a simple two-label
+    domain whose name label exactly equals the normalized distinctive legal name. Manager,
+    subdomain and ambiguous public-suffix cases abstain rather than guess.
     """
     if not assessment or assessment.get("publishable"):
         return assessment
@@ -74,7 +81,7 @@ def corroborate_registry_email_domain_identity(
         return assessment
 
     legal_compact = distinctive_legal_name_compact(profile.get("name"))
-    domain_compact = registrable_domain_label(candidate_domain)
+    domain_compact = simple_two_label_domain_name(candidate_domain)
     if not legal_compact or legal_compact != domain_compact:
         return assessment
 
@@ -115,8 +122,6 @@ def registry_email_addresses(profile: dict[str, Any]) -> list[str]:
     value = str(raw.get("epostadresse") or "").strip()
     if not value:
         return []
-    # The registry field is normally one address, but handle common separators without
-    # persisting or inferring anything beyond the public registry value.
     addresses = []
     for part in re.split(r"[\s,;]+", value):
         candidate = part.strip("<>[](){}\"'")
@@ -159,8 +164,6 @@ def registry_email_domain_candidates(profile: dict[str, Any]) -> dict[str, Any]:
         candidates.append(
             {
                 "domain": domain,
-                # Deliberately omit a scheme so fetch_website can try HTTPS and its
-                # existing HTTP fallback without adding separate discovery behavior.
                 "url": domain,
                 "source": "brreg_public_registry_email_domain",
             }
