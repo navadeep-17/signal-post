@@ -1,0 +1,58 @@
+name: Baseline CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'chore/**'
+      - 'feature/**'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run full test suite
+        run: uv run --with pytest pytest -q
+
+      - name: Run deterministic refresh replay
+        run: |
+          uv run python scripts/run_refresh_replay.py \
+            --manifest tests/fixtures/refresh-snapshots.json \
+            --output /tmp/refresh-demo.json
+
+      - name: Verify refresh qualification output
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('/tmp/refresh-demo.json').read_text(encoding='utf-8'))
+          assert report['qualification_passed'] is True, report
+          assert report['false_positive'] == 0, report
+          assert report['false_negative'] == 0, report
+          assert report['evidence_complete'] is True, report
+          assert report['idempotent_rerun'] is True, report
+          print('Refresh replay qualification passed.')
+          PY
