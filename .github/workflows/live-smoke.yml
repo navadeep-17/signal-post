@@ -75,23 +75,39 @@ jobs:
             --run-id phase0-smoke-001 \
             --expected-count 10
 
-      - name: Verify terminal-output invariant
+      - name: Verify baseline terminal-output invariant
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
 
-          envelopes_path = Path('out/smoke-envelopes.jsonl')
-          rows = [json.loads(line) for line in envelopes_path.read_text(encoding='utf-8').splitlines() if line.strip()]
+          terminal_states = {
+              'complete', 'not_applicable', 'not_found', 'blocked_policy',
+              'blocked_robots', 'source_error', 'budget_exhausted', 'submission_error',
+          }
+          rows = [
+              json.loads(line)
+              for line in Path('out/smoke-envelopes.jsonl').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
           assert len(rows) == 10, f'expected 10 terminal envelopes, got {len(rows)}'
           orgs = [str(row.get('organisation_number') or '') for row in rows]
           assert len(set(orgs)) == 10, f'duplicate organisation numbers: {orgs}'
-          assert all(row.get('run', {}).get('terminal_status') for row in rows), 'missing terminal status'
+          assert all(row.get('state') in terminal_states for row in rows), 'non-terminal entity state'
+          assert all(
+              module.get('state') in terminal_states
+              for row in rows
+              for module in row.get('modules', {}).values()
+          ), 'non-terminal module state'
 
           report = json.loads(Path('out/smoke-report.json').read_text(encoding='utf-8'))
-          print('Smoke terminal statuses:')
+          assert report['validation']['passed'] is True, report['validation']
+          assert report['emitted_envelopes'] == 10, report
+          assert report['validation']['checks']['zero_silent_drops'] is True, report
+
+          print('Baseline entity states:')
           for row in rows:
-              print(row['organisation_number'], row['run']['terminal_status'])
+              print(row['organisation_number'], row['state'])
           print('Run report:')
           print(json.dumps(report, indent=2, ensure_ascii=False))
           PY
