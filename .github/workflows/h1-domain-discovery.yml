@@ -2,16 +2,6 @@ name: H1 Domain Discovery Experiment
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - experiment/h1-domain-discovery
-    paths:
-      - '.github/workflows/h1-domain-discovery.yml'
-      - 'src/norway_company_agent/domain_discovery.py'
-      - 'scripts/run_registry_email_domain_discovery.py'
-      - 'tests/test_domain_discovery.py'
-      - 'docs/H1_DOMAIN_DISCOVERY.md'
-      - 'docs/CONNECTOR_STATUS.md'
 
 permissions:
   contents: read
