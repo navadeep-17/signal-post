@@ -1,4 +1,10 @@
-from norway_company_agent.domain_discovery import registry_email_addresses, registry_email_domain_candidates
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.domain_discovery import registry_email_addresses, registry_email_domain_candidates  # noqa: E402
 
 
 def profile(*, website: str = "", email: str = "") -> dict:
