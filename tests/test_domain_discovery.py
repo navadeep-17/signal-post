@@ -4,7 +4,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from norway_company_agent.domain_discovery import registry_email_addresses, registry_email_domain_candidates  # noqa: E402
+from norway_company_agent.domain_discovery import (  # noqa: E402
+    corroborate_registry_email_domain_identity,
+    registry_email_addresses,
+    registry_email_domain_candidates,
+)
 from norway_company_agent.identity import assess_website_identity  # noqa: E402
 
 
@@ -108,3 +112,69 @@ def test_norwegian_webhotel_placeholder_cannot_be_exact_company_identity() -> No
     assert assessment["status"] == "related_or_uncertain"
     assert assessment["score"] == 0.1
     assert "hosting placeholder" in assessment["reasons"][0]
+
+
+def test_exact_legal_name_email_domain_can_corroborate_review() -> None:
+    row = {"name": "MASTER SURGERY SYSTEMS AS"}
+    review = {
+        "status": "review",
+        "score": 0.85,
+        "publishable": False,
+        "reasons": ["most legal-name tokens appear, but exact identity is incomplete"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+
+    result = corroborate_registry_email_domain_identity(row, "mastersurgerysystems.no", review)
+
+    assert result["publishable"] is True
+    assert result["status"] == "exact"
+    assert result["score"] == 0.97
+    assert result["method"] == "registry_email_domain_exact_name_plus_fetched_page_v1"
+
+
+def test_manager_domain_cannot_corroborate_customer_review() -> None:
+    row = {"name": "BONDELIA I BORETTSLAG"}
+    review = {
+        "status": "review",
+        "score": 0.85,
+        "publishable": False,
+        "reasons": ["most legal-name tokens appear, but exact identity is incomplete"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+
+    result = corroborate_registry_email_domain_identity(row, "gobb.no", review)
+
+    assert result == review
+    assert result["publishable"] is False
+
+
+def test_subdomain_manager_cannot_corroborate_customer_review() -> None:
+    row = {"name": "NORDLIEN OG HEDDAL BOLIGSTIFTELSE"}
+    review = {
+        "status": "review",
+        "score": 0.85,
+        "publishable": False,
+        "reasons": ["most legal-name tokens appear, but exact identity is incomplete"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+
+    result = corroborate_registry_email_domain_identity(row, "notodden.bbl.no", review)
+
+    assert result == review
+    assert result["publishable"] is False
+
+
+def test_corroboration_never_upgrades_related_or_uncertain() -> None:
+    row = {"name": "MARINOR AS"}
+    weak = {
+        "status": "related_or_uncertain",
+        "score": 0.3,
+        "publishable": False,
+        "reasons": ["insufficient page evidence"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+
+    result = corroborate_registry_email_domain_identity(row, "marinor.as", weak)
+
+    assert result == weak
+    assert result["publishable"] is False
