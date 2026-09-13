@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
+
+import tldextract
 
 
 # Consumer mailbox domains are useful contact evidence but are not evidence that the
@@ -29,6 +32,63 @@ GENERIC_EMAIL_DOMAINS = {
     "yahoo.com",
     "yahoo.no",
 }
+
+LEGAL_NAME_TOKENS = {
+    "as", "asa", "ans", "da", "enk", "iks", "sa", "sam", "sti", "stiftelsen",
+    "nuf", "ab", "limited", "ltd", "inc", "plc",
+}
+
+
+def _ascii_tokens(value: Any) -> list[str]:
+    text = str(value or "").translate(str.maketrans({"ø": "o", "Ø": "O", "å": "a", "Å": "A", "æ": "ae", "Æ": "AE"}))
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().casefold()
+    return [token for token in re.findall(r"[a-z0-9]+", text) if token]
+
+
+def distinctive_legal_name_compact(name: Any) -> str:
+    return "".join(token for token in _ascii_tokens(name) if token not in LEGAL_NAME_TOKENS)
+
+
+def registrable_domain_label(domain: str) -> str:
+    extracted = tldextract.extract(str(domain or "").casefold())
+    return "".join(_ascii_tokens(extracted.domain))
+
+
+def corroborate_registry_email_domain_identity(
+    profile: dict[str, Any],
+    candidate_domain: str,
+    assessment: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Conservatively upgrade a fetched email-domain candidate from review to exact.
+
+    This is intentionally narrower than the general website identity gate. The candidate
+    must already be in `review`, which means independently fetched page content contains
+    substantial legal-name evidence. In addition, the registrable domain label itself
+    must exactly equal the normalized distinctive legal name. This excludes manager/
+    service-provider domains such as `gobb.no` or `notodden.bbl.no` even if those sites
+    contain pages mentioning the customer legal entity.
+    """
+    if not assessment or assessment.get("publishable"):
+        return assessment
+    if assessment.get("status") != "review" or float(assessment.get("score") or 0) < 0.8:
+        return assessment
+
+    legal_compact = distinctive_legal_name_compact(profile.get("name"))
+    domain_compact = registrable_domain_label(candidate_domain)
+    if not legal_compact or legal_compact != domain_compact:
+        return assessment
+
+    return {
+        **assessment,
+        "status": "exact",
+        "score": 0.97,
+        "publishable": True,
+        "reasons": [
+            *list(assessment.get("reasons") or []),
+            "official registry email domain exactly matches the normalized distinctive legal name",
+        ],
+        "method": "registry_email_domain_exact_name_plus_fetched_page_v1",
+    }
 
 
 def _normalise_domain(value: str) -> str | None:
