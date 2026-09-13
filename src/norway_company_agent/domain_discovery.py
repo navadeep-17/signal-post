@@ -4,13 +4,12 @@ import re
 from typing import Any
 
 
-# Consumer mailboxes and ISP-hosted mailbox domains are useful contact evidence but are
-# not evidence that the mail domain is controlled by the legal entity. Keep this list
-# intentionally generic; company/service-provider domains are still allowed through and
-# must be rejected or accepted by the independent fetched-page identity gate.
+# Consumer mailbox domains are useful contact evidence but are not evidence that the
+# mail domain is controlled by the legal entity. Keep this list intentionally narrow;
+# service-provider/partner domains are allowed through and must be rejected or accepted
+# by the independent fetched-page identity gate rather than by benchmark-specific rules.
 GENERIC_EMAIL_DOMAINS = {
     "aol.com",
-    "broadpark.no",
     "fastmail.com",
     "gmail.com",
     "googlemail.com",
@@ -20,7 +19,6 @@ GENERIC_EMAIL_DOMAINS = {
     "icloud.com",
     "live.com",
     "live.no",
-    "lyse.net",
     "mail.com",
     "me.com",
     "msn.com",
@@ -31,8 +29,6 @@ GENERIC_EMAIL_DOMAINS = {
     "yahoo.com",
     "yahoo.no",
 }
-
-_EMAIL_DOMAIN_RE = re.compile(r"@([A-Za-z0-9.-]+\.[A-Za-z]{2,63})(?=$|[\s,;>])")
 
 
 def _normalise_domain(value: str) -> str | None:
