@@ -3,15 +3,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from pathlib import Path
 
-from norway_company_agent.evidence import evidence, utc_now
-from norway_company_agent.identity import apply_website_identity_gate
-from norway_company_agent.zero_cost_discovery import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.evidence import evidence, utc_now  # noqa: E402
+from norway_company_agent.identity import apply_website_identity_gate  # noqa: E402
+from norway_company_agent.zero_cost_discovery import (  # noqa: E402
     deterministic_domain_candidates,
     fetch_candidate_homepage,
     qualify_deterministic_domain_identity,
