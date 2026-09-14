@@ -106,6 +106,10 @@ def _tokens(value: Any) -> list[str]:
     return [token for token in re.findall(r"[a-z0-9]+", text) if len(token) > 1]
 
 
+def _distinctive_name_tokens(profile: dict[str, Any]) -> list[str]:
+    return [token for token in _tokens(profile.get("name")) if token not in GENERIC_NAME_TOKENS]
+
+
 def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_homepage(result.get("url"))
     if not normalized:
@@ -114,7 +118,7 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     if any(host == blocked or host.endswith("." + blocked) for blocked in BLOCKED_DISCOVERY_HOSTS):
         return {"status": "rejected", "score": 0.0, "publishable_candidate": False, "url": normalized, "host": host, "reasons": ["directory, aggregator, or social host is not a company website candidate"]}
 
-    name_tokens = [token for token in _tokens(profile.get("name")) if token not in GENERIC_NAME_TOKENS]
+    name_tokens = _distinctive_name_tokens(profile)
     title_tokens = _tokens(result.get("title"))
     snippet_tokens = _tokens(result.get("snippet"))
     evidence_tokens = set(title_tokens + snippet_tokens + _tokens(host))
@@ -174,4 +178,87 @@ def choose_search_candidate(profile: dict[str, Any], results: list[dict[str, Any
         "candidates": assessed,
         "abstained": not accepted,
         "policy": "A search result is only a crawl candidate. Publication still requires fetched-page exact-entity verification.",
+    }
+
+
+def _website_page_parts(website: dict[str, Any]) -> list[str]:
+    """Collect independently fetched page text while excluding URL/hostname strings."""
+    value = website.get("value") or {}
+    parts: list[Any] = [
+        value.get("title"),
+        value.get("description"),
+        value.get("identity_text_excerpt"),
+        value.get("main_text_excerpt"),
+    ]
+    for structured in value.get("structured_organisations") or []:
+        if isinstance(structured, dict):
+            parts.extend(structured.get(key) for key in ("name", "legalName", "alternateName"))
+    rendered = value.get("js_fallback") or {}
+    parts.extend([rendered.get("title"), rendered.get("main_text_excerpt")])
+    for page in value.get("pages") or []:
+        if isinstance(page, dict):
+            parts.extend([page.get("title"), page.get("identity_text_excerpt"), page.get("main_text_excerpt")])
+    return [str(part) for part in parts if str(part or "").strip()]
+
+
+def qualify_search_discovered_website(
+    profile: dict[str, Any],
+    website: dict[str, Any],
+    assessment: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Harden publication of a search-discovered domain using page evidence only.
+
+    Search-result snippets, ranking and hostname similarity are useful only for deciding
+    what to crawl. Publication requires the independent destination page to prove the
+    legal entity. The exact organisation number is strongest. Otherwise require the full
+    distinctive legal name plus either registry municipality corroboration or an exact
+    company-name hostname. This intentionally prefers false negatives to namesakes,
+    parent-company pages and directories.
+    """
+    if not assessment or not assessment.get("publishable") or website.get("status") != "available":
+        return assessment
+
+    parts = _website_page_parts(website)
+    org = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    if len(org) == 9 and any(org in re.sub(r"\D", "", part) for part in parts):
+        return {
+            **assessment,
+            "score": 1.0,
+            "reasons": [*list(assessment.get("reasons") or []), "H1b independently fetched page contains exact organisation number"],
+            "method": "search_discovered_page_identity_guard_v1",
+        }
+
+    name_tokens = _distinctive_name_tokens(profile)
+    full_name_on_page = bool(name_tokens and any(set(name_tokens).issubset(set(_tokens(part))) for part in parts))
+    municipality_tokens = set(_tokens(profile.get("municipality")))
+    municipality_on_page = bool(municipality_tokens and any(municipality_tokens <= set(_tokens(part)) for part in parts))
+
+    final_url = (website.get("value") or {}).get("final_url") or website.get("source_url") or ""
+    host = (urllib.parse.urlparse(final_url).hostname or "").casefold().removeprefix("www.")
+    first_label = host.split(".", 1)[0]
+    host_name_compact = "".join(_tokens(first_label))
+    legal_name_compact = "".join(name_tokens)
+    exact_name_host = bool(legal_name_compact and host_name_compact == legal_name_compact)
+
+    if full_name_on_page and (municipality_on_page or exact_name_host):
+        return {
+            **assessment,
+            "score": min(0.98, max(float(assessment.get("score") or 0.9), 0.95)),
+            "reasons": [
+                *list(assessment.get("reasons") or []),
+                "H1b independently fetched page contains complete legal name with registry-location or exact-domain corroboration",
+            ],
+            "method": "search_discovered_page_identity_guard_v1",
+        }
+
+    return {
+        **assessment,
+        "status": "review",
+        "score": min(float(assessment.get("score") or 0.85), 0.85),
+        "publishable": False,
+        "reasons": [
+            *list(assessment.get("reasons") or []),
+            "H1b independent page lacks exact organisation number or complete legal-name corroboration",
+        ],
+        "method": "search_discovered_page_identity_guard_v1",
     }
