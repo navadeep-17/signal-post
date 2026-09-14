@@ -8,6 +8,7 @@ Status meanings:
 - **CONDITIONAL** — usable only after an exact-source/company gate or field-specific requirement passes.
 - **EXPERIMENTAL** — useful for local measurement, not final publication yet.
 - **PLANNED** — preferred production acquisition path not yet implemented/qualified.
+- **BLOCKED** — do not use for qualification/production under the currently reviewed rights or technical conditions.
 - **DEFERRED** — not worth prioritizing until higher-value gaps are solved.
 
 | Source / connector | Current code/path | Status | Publication rule / next action |
@@ -16,11 +17,13 @@ Status meanings:
 | BRREG normalized financials | `official.py` | QUALIFIED BASELINE | Preserve reporting period; 404/not-returned is not zero |
 | BRREG roles/group/subunits | `official.py` | QUALIFIED BASELINE | Company-centric public role context only; preserve source state |
 | Registry-listed company website | `website.py` + `identity.py` | CONDITIONAL | Publish/use only when exact website identity gate passes |
+| BRREG email-domain website discovery (H1a) | `domain_discovery.py`, `run_registry_email_domain_discovery.py` | EXPERIMENTAL / AUDITED 200 | Candidate derives from official public email only; independently fetch and exact-entity gate; frozen dev+validation audit promoted 2/200 and both were manually correct, but sample is too small to claim 99.5% production precision; do not wire into competition runner yet |
 | Company-site structured data/text | `website.py`, Scrapy pipeline | CONDITIONAL | Must inherit exact verified site identity and source URL/hash/time |
 | Company-site social links | `identity.py`, `normalize_social_links.py` | CONDITIONAL | Company website must be exact and individual social handle must also pass its identity gate |
 | Company-site news/activity | `extract_company_site_news.py`, `extract_company_site_activity.py` | CONDITIONAL | Exact verified company site; dated/evidence-backed claims only |
 | Annual-report workforce | `run_annual_report_workforce_connector.py` | CONDITIONAL | Official filing evidence and correct reporting period required |
-| Search/Brave discovery | `run_brave_discovery.py`, `discovery.py` | CONDITIONAL DISCOVERY ONLY | Search result nominates candidates; candidate must be independently fetched and exact-entity verified before publication |
+| Brave Search API standard terms | `run_brave_discovery.py`, `discovery.py` | BLOCKED FOR H1 BENCHMARK | 2026-09-01 standard terms reviewed 2026-09-13 restrict retention and use of Search Results for evaluating/benchmarking AI models/services; keep code reference-only unless custom terms explicitly permit this use |
+| Tavily search | no promoted production integration | PLANNED / RIGHTS REVIEW | Candidate only; confirm exact current plan/terms, source-rights responsibilities, cost and transient-result handling before any H1b benchmark |
 | Existing Google Maps result normalization | `normalize_google_maps_results.py` | EXPERIMENTAL | Do not relabel experimental data; evaluate official Google Places API path and audit entity precision |
 | Official Google Places API | not yet promoted | PLANNED CANDIDATE | Implement only if Phase-1 failure map shows material value; document API terms/cost and exact-place/entity validation |
 | Existing YouTube search connector | `run_youtube_search_connector.py` | EXPERIMENTAL | Prefer website-declared exact channel plus official API; search-only similarity is insufficient proof |
