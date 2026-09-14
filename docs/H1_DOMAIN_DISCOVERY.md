@@ -1,6 +1,6 @@
 # H1 domain discovery experiment
 
-Status: **EXPERIMENTAL — not integrated into the competition runner**
+Status: **MERGEABLE EXPERIMENTAL INFRASTRUCTURE — not integrated into the competition runner**
 
 This document records the first measured coverage hypothesis after the frozen 100-company baseline.
 
@@ -25,12 +25,13 @@ Pipeline:
 3. Treat the remaining email domain as a candidate, not a fact.
 4. Fetch the candidate website through the existing safe URL/robots/redirect controls.
 5. Run the existing deterministic exact-entity website identity gate.
-6. Promote only an `exact` result; keep review/uncertain/error cases quarantined.
-7. Record request/latency/bytes and zero third-party API cost.
+6. Allow one narrow corroboration path only for an already-`review` result when a simple two-label email domain exactly matches the normalized distinctive legal name.
+7. Promote only an `exact` result; keep review/uncertain/error cases quarantined.
+8. Record request/latency/bytes and zero third-party API cost.
 
 This path has no search-provider dependency and introduces no paid API spend.
 
-The 2026-09-13 development baseline had 19 missing-website profiles with a parseable public registry email. The experiment deliberately does not hard-code service-provider domains observed in that sample; those domains are allowed through so the identity gate is tested against realistic negatives.
+The experiment deliberately does not hard-code service-provider domains observed in the sample; those domains are allowed through so the identity gate is tested against realistic negatives.
 
 ### H1b — licensed search-provider fallback
 
@@ -77,6 +78,70 @@ Zero-overlap validation slice:
 
 The H1 workflow recreates both manifests and fails if either hash changes.
 
+## Final frozen 200-company run
+
+Final audited experiment logic was run at commit `9497f0c77d3c49856ae2d63b8dac8f6e5214477a` in GitHub Actions run `34774831144`.
+
+Artifact digest:
+
+`sha256:faf5ae8e547fb4921b730cf8f7d905ca4ade8609b6205fa7520b78c552077f21`
+
+### Development 100
+
+- eligible email-domain profiles: 14
+- candidate domains fetched: 14
+- exact/promoted: 1
+- quarantined: 13
+- requests: 74
+- third-party API cost: $0
+- request latency p50: 568 ms
+- request latency p95: 15,150 ms
+
+Promoted domain:
+
+- `ARKITEKTFIRMA JON VIKØREN AS` / org `985589003` -> `arkjv.no`
+
+Human audit: **correct**. The company site publishes the exact legal name, organisation number `985 589 003`, address and `post@arkjv.no` on its own company-information page.
+
+### Zero-overlap validation 100
+
+- eligible email-domain profiles: 7
+- candidate domains fetched: 7
+- exact/promoted: 1
+- quarantined: 6
+- requests: 30
+- third-party API cost: $0
+- request latency p50: 954 ms
+- request latency p95: 15,000 ms
+
+Promoted domain:
+
+- `MASTER SURGERY SYSTEMS AS` / org `993550116` -> `mastersurgerysystems.no`
+
+Human audit: **correct**. The company site identifies Master Surgery Systems AS at the Horten address and uses the same domain for company email; independent public records link org `993550116` and the company to `mastersurgerysystems.no`.
+
+### Observed exact-domain audit result
+
+- promoted cases manually audited: 2
+- correct: 2
+- wrong-company domains: 0
+- observed precision on promoted cases: 100%
+
+This **does not prove** the starter's conservative 99.5% production-precision target because two promoted examples are far too small a statistical sample. H1a therefore remains experimental and is not automatically called by the competition runner.
+
+## Dangerous false positive found and fixed
+
+An earlier validation run incorrectly marked `mesco.no` exact for `MESCO AS`. The domain resolved to a generic Norwegian hosting/webhotel placeholder; the single legal-name token matched the hostname and the previous gate treated enough placeholder text as substantive company content.
+
+The fix is generic rather than company-specific:
+
+- Norwegian registered-domain/webhotel placeholder language is now detected as parked/hosting content;
+- a permanent regression test protects this class of false positive;
+- the same frozen 200-company experiment was rerun after the fix;
+- `mesco.no` now remains quarantined with identity score `0.1`.
+
+This failure is the main reason H1 stays conservative even when recall is low.
+
 ## Experiment outputs
 
 `.github/workflows/h1-domain-discovery.yml` produces separate development and validation artifacts:
@@ -87,7 +152,22 @@ The H1 workflow recreates both manifests and fails if either hash changes.
 - request/runtime/cost report;
 - exact input hashes.
 
-The workflow does not use a search API.
+The workflow does not use a search API and is manual-only after the qualification run so ordinary development commits do not repeatedly download the large BRREG snapshot.
+
+## Merge decision
+
+**Merge H1a tooling, tests, documentation and identity hardening into `main`, but do not wire H1a into `run_competition_batch.py` yet.**
+
+Reasoning:
+
+- the experiment uncovered and fixed a real wrong-domain failure mode;
+- the final frozen dev and zero-overlap validation runs each retained one manually verified domain and zero audited wrong-domain promotions;
+- the path is rights-safe and has zero third-party API cost;
+- coverage uplift is real but small;
+- sample size is insufficient to claim production-level 99.5% exact-domain precision;
+- request p95 is high because dead/slow candidate domains can consume the timeout budget.
+
+The next H1 step is a larger frozen hard-negative audit plus request/runtime optimization. H1b search-provider work remains blocked until a provider's current plan/terms are explicitly approved.
 
 ## Promotion gate
 
@@ -101,6 +181,6 @@ H1a or any later H1b provider may enter the competition runner only when all are
 6. Exact-domain precision meets the starter's conservative 99.5% target with zero wrong-company publications.
 7. Recall/coverage gain transfers to the zero-overlap validation corpus.
 8. Request/runtime/cost remain comfortably inside the final 100-company budget.
-9. Refresh/idempotency behavior is covered before final promotion.
+9. Refresh/idempotency behavior is covered before final production promotion.
 
-Until then, H1 remains an experiment even if local coverage rises.
+Until those production gates are satisfied, H1 remains an experiment even though its reusable infrastructure may live on `main`.
