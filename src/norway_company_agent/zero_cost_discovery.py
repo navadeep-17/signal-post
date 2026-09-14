@@ -165,13 +165,30 @@ def _title_contains_full_legal_name(profile: dict[str, Any], website: dict[str, 
     return bool(legal and legal.issubset(_normalised_tokens(title)))
 
 
+def _quarantine(assessment: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        **assessment,
+        "status": "review",
+        "score": min(float(assessment.get("score") or 0.85), 0.85),
+        "publishable": False,
+        "reasons": [*list(assessment.get("reasons") or []), reason],
+        "method": "deterministic_domain_page_identity_guard_v3",
+    }
+
+
 def qualify_deterministic_domain_identity(
     profile: dict[str, Any],
     candidate_domain: str,
     website: dict[str, Any],
     assessment: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """Require independent page proof before a guessed domain can be published."""
+    """Require independent page proof before a guessed domain can be published.
+
+    Single-token legal names are especially collision-prone. Without an exact org number,
+    they require registry-location corroboration; matching the title/hostname alone is not
+    enough. Multi-token names may also use an exact/multi-token final domain plus a title
+    containing the complete distinctive legal name.
+    """
     if not assessment or not assessment.get("publishable") or website.get("status") != "available":
         return assessment
 
@@ -180,37 +197,40 @@ def qualify_deterministic_domain_identity(
             **assessment,
             "score": 1.0,
             "reasons": [*list(assessment.get("reasons") or []), "H1c independently fetched page contains exact organisation number"],
-            "method": "deterministic_domain_page_identity_guard_v2",
+            "method": "deterministic_domain_page_identity_guard_v3",
         }
 
+    legal_tokens = distinctive_legal_name_tokens(profile.get("name"))
     if not _page_contains_full_legal_name(profile, website):
-        return {
-            **assessment,
-            "status": "review",
-            "score": min(float(assessment.get("score") or 0.85), 0.85),
-            "publishable": False,
-            "reasons": [*list(assessment.get("reasons") or []), "H1c page lacks complete legal name"],
-            "method": "deterministic_domain_page_identity_guard_v2",
-        }
+        return _quarantine(assessment, "H1c page lacks complete legal name")
+
+    location_match = _page_matches_registry_location(profile, website)
+    if len(legal_tokens) == 1:
+        if location_match:
+            return {
+                **assessment,
+                "score": min(0.98, max(float(assessment.get("score") or 0.95), 0.95)),
+                "reasons": [*list(assessment.get("reasons") or []), "H1c single-token legal name has independent registry-location corroboration"],
+                "method": "deterministic_domain_page_identity_guard_v3",
+            }
+        return _quarantine(
+            assessment,
+            "H1c single-token legal name requires exact org number or registry-location corroboration",
+        )
 
     final_url = (website.get("value") or {}).get("final_url") or website.get("source_url") or ""
     final_domain = str(final_url).split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
     final_strength = _domain_identity_strength(profile, final_domain)
-    location_match = _page_matches_registry_location(profile, website)
     title_match = _title_contains_full_legal_name(profile, website)
     if location_match or (title_match and final_strength in {"exact", "multi"}):
         return {
             **assessment,
             "score": min(0.99, max(float(assessment.get("score") or 0.95), 0.95)),
             "reasons": [*list(assessment.get("reasons") or []), "H1c full legal name has registry-location or title-plus-final-domain corroboration"],
-            "method": "deterministic_domain_page_identity_guard_v2",
+            "method": "deterministic_domain_page_identity_guard_v3",
         }
 
-    return {
-        **assessment,
-        "status": "review",
-        "score": min(float(assessment.get("score") or 0.85), 0.85),
-        "publishable": False,
-        "reasons": [*list(assessment.get("reasons") or []), "H1c legal-name mention lacks registry-location or title-plus-final-domain corroboration"],
-        "method": "deterministic_domain_page_identity_guard_v2",
-    }
+    return _quarantine(
+        assessment,
+        "H1c legal-name mention lacks registry-location or title-plus-final-domain corroboration",
+    )
