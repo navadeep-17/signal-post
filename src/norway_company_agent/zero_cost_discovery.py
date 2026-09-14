@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 import urllib.error
 import urllib.request
@@ -38,11 +39,7 @@ def _verified_website_present(profile: dict[str, Any]) -> bool:
 
 
 def deterministic_domain_candidates(profile: dict[str, Any], *, max_candidates: int = 2) -> dict[str, Any]:
-    """Generate a tiny deterministic .no candidate set from the legal name.
-
-    This is deliberately not a search engine. It generates only exact compact and
-    hyphenated legal-name forms and never treats a resolving domain as identity proof.
-    """
+    """Generate a tiny deterministic .no candidate set from the legal name."""
     if max_candidates < 1:
         raise ValueError("max_candidates must be positive")
     if _verified_website_present(profile):
@@ -157,6 +154,17 @@ def fetch_candidate_homepage(
         return evidence("website", "source_error", "deterministic_legal_name_domain_guess", normalized, note=f"{type(exc).__name__}: {str(exc)[:180]}"), {"requests": 2, "bytes": 0, "latencies_ms": [elapsed]}
 
 
+def _normalised_tokens(value: Any) -> set[str]:
+    text = str(value or "").translate(str.maketrans({"ø": "o", "Ø": "O", "å": "a", "Å": "A", "æ": "ae", "Æ": "AE"})).casefold()
+    return set(re.findall(r"[a-z0-9]+", text))
+
+
+def _title_contains_full_legal_name(profile: dict[str, Any], website: dict[str, Any]) -> bool:
+    legal = set(distinctive_legal_name_tokens(profile.get("name")))
+    title = (website.get("value") or {}).get("title") or ""
+    return bool(legal and legal.issubset(_normalised_tokens(title)))
+
+
 def qualify_deterministic_domain_identity(
     profile: dict[str, Any],
     candidate_domain: str,
@@ -172,7 +180,7 @@ def qualify_deterministic_domain_identity(
             **assessment,
             "score": 1.0,
             "reasons": [*list(assessment.get("reasons") or []), "H1c independently fetched page contains exact organisation number"],
-            "method": "deterministic_domain_page_identity_guard_v1",
+            "method": "deterministic_domain_page_identity_guard_v2",
         }
 
     if not _page_contains_full_legal_name(profile, website):
@@ -182,18 +190,20 @@ def qualify_deterministic_domain_identity(
             "score": min(float(assessment.get("score") or 0.85), 0.85),
             "publishable": False,
             "reasons": [*list(assessment.get("reasons") or []), "H1c page lacks complete legal name"],
-            "method": "deterministic_domain_page_identity_guard_v1",
+            "method": "deterministic_domain_page_identity_guard_v2",
         }
 
     final_url = (website.get("value") or {}).get("final_url") or website.get("source_url") or ""
     final_domain = str(final_url).split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
     final_strength = _domain_identity_strength(profile, final_domain)
-    if final_strength in {"exact", "multi"} or _page_matches_registry_location(profile, website):
+    location_match = _page_matches_registry_location(profile, website)
+    title_match = _title_contains_full_legal_name(profile, website)
+    if location_match or (title_match and final_strength in {"exact", "multi"}):
         return {
             **assessment,
             "score": min(0.99, max(float(assessment.get("score") or 0.95), 0.95)),
-            "reasons": [*list(assessment.get("reasons") or []), "H1c full legal name is independently present with final-domain/location corroboration"],
-            "method": "deterministic_domain_page_identity_guard_v1",
+            "reasons": [*list(assessment.get("reasons") or []), "H1c full legal name has registry-location or title-plus-final-domain corroboration"],
+            "method": "deterministic_domain_page_identity_guard_v2",
         }
 
     return {
@@ -201,6 +211,6 @@ def qualify_deterministic_domain_identity(
         "status": "review",
         "score": min(float(assessment.get("score") or 0.85), 0.85),
         "publishable": False,
-        "reasons": [*list(assessment.get("reasons") or []), "H1c legal-name mention lacks sufficient final-domain or registry-location corroboration"],
-        "method": "deterministic_domain_page_identity_guard_v1",
+        "reasons": [*list(assessment.get("reasons") or []), "H1c legal-name mention lacks registry-location or title-plus-final-domain corroboration"],
+        "method": "deterministic_domain_page_identity_guard_v2",
     }
