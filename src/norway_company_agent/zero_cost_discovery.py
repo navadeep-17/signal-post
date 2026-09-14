@@ -187,15 +187,12 @@ def qualify_deterministic_domain_identity(
 
     final_url = (website.get("value") or {}).get("final_url") or website.get("source_url") or ""
     final_domain = str(final_url).split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
-    strengths = {
-        _domain_identity_strength(profile, candidate_domain),
-        _domain_identity_strength(profile, final_domain),
-    }
-    if strengths.intersection({"exact", "multi"}) or _page_matches_registry_location(profile, website):
+    final_strength = _domain_identity_strength(profile, final_domain)
+    if final_strength in {"exact", "multi"} or _page_matches_registry_location(profile, website):
         return {
             **assessment,
             "score": min(0.99, max(float(assessment.get("score") or 0.95), 0.95)),
-            "reasons": [*list(assessment.get("reasons") or []), "H1c full legal name is independently present with company-compatible domain/location evidence"],
+            "reasons": [*list(assessment.get("reasons") or []), "H1c full legal name is independently present with final-domain/location corroboration"],
             "method": "deterministic_domain_page_identity_guard_v1",
         }
 
@@ -204,6 +201,6 @@ def qualify_deterministic_domain_identity(
         "status": "review",
         "score": min(float(assessment.get("score") or 0.85), 0.85),
         "publishable": False,
-        "reasons": [*list(assessment.get("reasons") or []), "H1c legal-name mention lacks sufficient domain or registry-location corroboration"],
+        "reasons": [*list(assessment.get("reasons") or []), "H1c legal-name mention lacks sufficient final-domain or registry-location corroboration"],
         "method": "deterministic_domain_page_identity_guard_v1",
     }
