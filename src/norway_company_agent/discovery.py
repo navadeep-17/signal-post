@@ -168,6 +168,10 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
         "rank": result.get("rank"),
         "provider": result.get("provider"),
         "query": result.get("query"),
+        "org_match": org_match,
+        "full_name_title_match": all_name_tokens_in_title,
+        "host_name_match": name_in_host,
+        "municipality_match": municipality_match,
         "reasons": reasons or ["insufficient exact-entity evidence"],
         "method": "deterministic_search_candidate_identity_v2",
     }
@@ -175,7 +179,17 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
 
 def choose_search_candidate(profile: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
     assessed = [score_search_candidate(profile, result) for result in results]
-    assessed.sort(key=lambda item: (-item.get("score", 0.0), item.get("rank") or 10_000, item.get("url") or ""))
+    # Search rank is not an identity signal. When scores tie, prefer a legal-name-aligned
+    # hostname before the provider's rank; acronym domains remain eligible when they are
+    # the strongest exact-org/full-name result available.
+    assessed.sort(
+        key=lambda item: (
+            -item.get("score", 0.0),
+            -int(bool(item.get("host_name_match"))),
+            item.get("rank") or 10_000,
+            item.get("url") or "",
+        )
+    )
     accepted = [item for item in assessed if item.get("publishable_candidate")]
     return {
         "selected": accepted[0] if accepted else None,
