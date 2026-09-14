@@ -66,16 +66,20 @@ jobs:
             --output entry-companies.jsonl
           test "$(wc -l < entry-companies.jsonl)" -eq 1000
 
-      - name: Create qualification and untouched held-out slices
+      - name: Freeze qualification and untouched held-out slices
         run: |
           sed -n '201,800p' entry-companies.jsonl > h1-qualification-600.jsonl
           sed -n '801,1000p' entry-companies.jsonl > h1-held-out-200.jsonl
           test "$(wc -l < h1-qualification-600.jsonl)" -eq 600
           test "$(wc -l < h1-held-out-200.jsonl)" -eq 200
-          sha256sum h1-qualification-600.jsonl h1-held-out-200.jsonl > h1-qualification-manifests.sha256
-          cat h1-qualification-manifests.sha256
+          QUAL_SHA="$(sha256sum h1-qualification-600.jsonl | cut -d' ' -f1)"
+          HELD_SHA="$(sha256sum h1-held-out-200.jsonl | cut -d' ' -f1)"
+          test "$QUAL_SHA" = '5a910aadec1c1a7c453e34bc5cb31df2ab8c31e536d1753451609654d424181a'
+          test "$HELD_SHA" = 'fb81f7695ee91606d1af7eee00e8323a326ebc33b79b3cb1a4f046573ae3368f'
+          printf '%s  %s\n' "$QUAL_SHA" h1-qualification-600.jsonl > h1-qualification-manifests.sha256
+          printf '%s  %s\n' "$HELD_SHA" h1-held-out-200.jsonl >> h1-qualification-manifests.sha256
 
-      - name: Build registry-only qualification profiles
+      - name: Build registry-only qualification profiles with snapshot-drift accounting
         run: |
           mkdir -p out
           uv run python - <<'PY'
@@ -85,19 +89,40 @@ jobs:
 
           sys.path.insert(0, str(Path('src').resolve()))
           from norway_company_agent.batch import profiles_from_bulk, read_organisation_inputs
+          from norway_company_agent.sampling import iter_bulk
 
           inputs = read_organisation_inputs('h1-qualification-600.jsonl')
-          orgs = [item['organisation_number'] for item in inputs]
-          profiles, metadata = profiles_from_bulk('brreg-enheter.csv', orgs)
-          assert len(profiles) == 600
+          requested = [item['organisation_number'] for item in inputs]
+          wanted = set(requested)
+          present = set()
+          for row in iter_bulk('brreg-enheter.csv'):
+              org = row['organisation_number']
+              if org in wanted:
+                  present.add(org)
+                  if len(present) == len(wanted):
+                      break
+
+          current_orgs = [org for org in requested if org in present]
+          missing = [org for org in requested if org not in present]
+          assert len(current_orgs) + len(missing) == 600
+          assert len(current_orgs) >= 595, {'present': len(current_orgs), 'missing': missing}
+
+          profiles, metadata = profiles_from_bulk('brreg-enheter.csv', current_orgs)
+          assert len(profiles) == len(current_orgs)
           Path('out/h1-qualification-baseline-profiles.jsonl').write_text(
               ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in profiles),
               encoding='utf-8',
           )
           Path('out/h1-qualification-registry-report.json').write_text(
-              json.dumps({'profiles': len(profiles), 'registry': metadata}, indent=2) + '\n',
+              json.dumps({
+                  'manifest_profiles': 600,
+                  'current_snapshot_present': len(current_orgs),
+                  'current_snapshot_missing': missing,
+                  'registry': metadata,
+              }, indent=2) + '\n',
               encoding='utf-8',
           )
+          print(json.dumps({'present': len(current_orgs), 'missing': missing}, indent=2))
           PY
 
       - name: Run H1 qualification audit
@@ -143,15 +168,18 @@ jobs:
           import json
           from pathlib import Path
 
+          registry = json.loads(Path('out/h1-qualification-registry-report.json').read_text())
           report = json.loads(Path('out/h1-qualification-report.json').read_text())
-          assert report['input_profiles'] == 600, report
+          assert registry['manifest_profiles'] == 600, registry
+          assert report['input_profiles'] == registry['current_snapshot_present'], (registry, report)
+          assert registry['current_snapshot_present'] + len(registry['current_snapshot_missing']) == 600, registry
           assert report['search_provider_used'] is False, report
           assert report['raw_search_results_persisted'] is False, report
           assert report['operations']['third_party_cost_usd'] == 0.0, report
           assert report['operations']['workers'] == 6, report
           assert report['operations']['requests'] < 1000, report
           assert report['operations']['wall_runtime_ms'] < 20 * 60 * 1000, report
-          print(json.dumps(report, indent=2, ensure_ascii=False))
+          print(json.dumps({'registry': registry, 'h1': report}, indent=2, ensure_ascii=False))
           PY
 
       - name: Upload H1 qualification artifacts
