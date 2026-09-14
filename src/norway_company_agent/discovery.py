@@ -26,20 +26,77 @@ def build_company_search_query(profile: dict[str, Any]) -> str:
     return f'"{name}" {org}{location}'
 
 
+def _normalized_result(
+    *,
+    url: Any,
+    title: Any,
+    snippet: Any,
+    rank: int,
+    provider: str,
+    query: str,
+) -> dict[str, Any] | None:
+    if not url:
+        return None
+    return {
+        "url": str(url),
+        "title": str(title or ""),
+        "snippet": str(snippet or ""),
+        "rank": rank,
+        "provider": provider,
+        "query": query,
+    }
+
+
 def parse_brave_web_results(payload: dict[str, Any], *, query: str) -> list[dict[str, Any]]:
+    """Normalize Brave output for the shared transient candidate scorer.
+
+    This parser remains for the starter's historical experiment. Standard Brave Search
+    terms reviewed for this project do not currently qualify for our benchmark use.
+    """
     results = (payload.get("web") or {}).get("results") or []
     parsed = []
     for rank, result in enumerate(results, start=1):
-        if not isinstance(result, dict) or not result.get("url"):
+        if not isinstance(result, dict):
             continue
-        parsed.append({
-            "url": result.get("url"),
-            "title": result.get("title") or "",
-            "snippet": result.get("description") or "",
-            "rank": rank,
-            "provider": "brave_search_api",
-            "query": query,
-        })
+        item = _normalized_result(
+            url=result.get("url"),
+            title=result.get("title"),
+            snippet=result.get("description"),
+            rank=rank,
+            provider="brave_search_api",
+            query=query,
+        )
+        if item:
+            parsed.append(item)
+    return parsed
+
+
+def parse_serpapi_web_results(payload: dict[str, Any], *, query: str) -> list[dict[str, Any]]:
+    """Normalize SerpApi organic results for transient candidate selection.
+
+    Only URL/title/snippet/rank are exposed to the in-memory scorer. Callers must not
+    persist the provider title/snippet/query as company evidence; accepted candidates
+    still require an independent fetch and the ordinary exact-company website gate.
+    """
+    results = payload.get("organic_results") or []
+    parsed = []
+    for fallback_rank, result in enumerate(results, start=1):
+        if not isinstance(result, dict):
+            continue
+        try:
+            rank = int(result.get("position") or fallback_rank)
+        except (TypeError, ValueError):
+            rank = fallback_rank
+        item = _normalized_result(
+            url=result.get("link"),
+            title=result.get("title"),
+            snippet=result.get("snippet"),
+            rank=rank,
+            provider="serpapi_google",
+            query=query,
+        )
+        if item:
+            parsed.append(item)
     return parsed
 
 
