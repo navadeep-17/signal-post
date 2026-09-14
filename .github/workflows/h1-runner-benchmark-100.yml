@@ -1,0 +1,207 @@
+name: H1 Runner 100 Company Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/h1-runner-integration
+    paths:
+      - '.github/workflows/h1-runner-benchmark-100.yml'
+      - 'scripts/run_competition_batch.py'
+      - 'src/norway_company_agent/domain_discovery.py'
+      - 'src/norway_company_agent/identity.py'
+
+permissions:
+  contents: read
+
+jobs:
+  h1-runner-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run full regression suite
+        run: uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate frozen 100-company development corpus
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          head -n 100 entry-companies.jsonl > benchmark-dev-100.jsonl
+          test "$(wc -l < benchmark-dev-100.jsonl)" -eq 100
+          DEV_SHA="$(sha256sum benchmark-dev-100.jsonl | cut -d' ' -f1)"
+          test "$DEV_SHA" = '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3'
+          printf '%s  %s\n' "$DEV_SHA" benchmark-dev-100.jsonl > benchmark-dev-100.sha256
+
+      - name: Run competition runner with H1a enabled
+        run: |
+          mkdir -p out
+          uv run python scripts/run_competition_batch.py \
+            --organisations benchmark-dev-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --profiles-output out/h1-runner-profiles.jsonl \
+            --output out/h1-runner-envelopes.jsonl \
+            --report out/h1-runner-report.json \
+            --run-id h1-runner-integration-100 \
+            --expected-count 100 \
+            --enable-email-domain-discovery \
+            --email-domain-timeout 8 \
+            --email-domain-retry-timeout 15
+
+      - name: Build comparison report
+        run: |
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          profiles = read_jsonl('out/h1-runner-profiles.jsonl')
+          envelopes = read_jsonl('out/h1-runner-envelopes.jsonl')
+          run = json.loads(Path('out/h1-runner-report.json').read_text(encoding='utf-8'))
+          assert len(profiles) == 100
+          assert len(envelopes) == 100
+          assert run['validation']['passed'] is True
+          assert run['h1_email_domain_discovery']['enabled'] is True
+          assert run['h1_email_domain_discovery']['third_party_cost_usd'] == 0.0
+          assert run['h1_email_domain_discovery']['search_provider_used'] is False
+
+          original_registry_website = Counter()
+          canonical_identity = Counter()
+          discovery_status = Counter()
+          promoted = []
+          h1_attempted = 0
+
+          for profile in profiles:
+              evidence = profile.get('evidence') or {}
+              raw = (evidence.get('registry') or {}).get('value') or {}
+              registry_site = str(raw.get('hjemmeside') or raw.get('Hjemmeside') or '').strip()
+              original_registry_website['present' if registry_site else 'missing'] += 1
+
+              website = evidence.get('website') or {}
+              assessment = ((website.get('value') or {}).get('identity_assessment') or {})
+              if website.get('status') == 'available':
+                  canonical_identity[str(assessment.get('status') or 'missing_assessment')] += 1
+              else:
+                  canonical_identity[f"website_{website.get('status') or 'missing'}"] += 1
+
+              discovery = evidence.get('website_email_discovery')
+              if discovery:
+                  h1_attempted += 1
+                  discovery_status[str(discovery.get('status') or 'missing')] += 1
+                  value = discovery.get('value') or {}
+                  if value.get('publishable'):
+                      promoted.append({
+                          'organisation_number': profile.get('organisation_number'),
+                          'name': profile.get('name'),
+                          'domain': value.get('selected_domain'),
+                          'url': value.get('selected_url'),
+                      })
+
+          baseline = {
+              'requests': 536,
+              'registry_website_present': 7,
+              'registry_website_missing': 93,
+              'canonical_exact_websites': 2,
+          }
+          current_exact = canonical_identity.get('exact', 0)
+          summary = {
+              'corpus': {
+                  'count': 100,
+                  'manifest_sha256': Path('benchmark-dev-100.sha256').read_text().split()[0],
+              },
+              'baseline_reference': baseline,
+              'current': {
+                  'requests': run['operations']['requests'],
+                  'request_delta': run['operations']['requests'] - baseline['requests'],
+                  'p50_ms': run['operations']['p50_ms'],
+                  'p95_ms': run['operations']['p95_ms'],
+                  'registry_website_presence': dict(original_registry_website),
+                  'canonical_website_identity': dict(canonical_identity),
+                  'canonical_exact_websites': current_exact,
+                  'exact_website_uplift': current_exact - baseline['canonical_exact_websites'],
+                  'h1_profiles_with_discovery_record': h1_attempted,
+                  'h1_discovery_status': dict(discovery_status),
+                  'h1_counts': run['h1_email_domain_discovery']['counts'],
+                  'h1_promotions': promoted,
+                  'third_party_cost_usd': run['h1_email_domain_discovery']['third_party_cost_usd'],
+              },
+              'validation': run['validation'],
+          }
+          Path('out/h1-runner-comparison.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify H1 integration invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path('out/h1-runner-comparison.json').read_text())
+          current = summary['current']
+          assert summary['validation']['passed'] is True, summary
+          assert current['registry_website_presence'] == {'present': 7, 'missing': 93}, summary
+          assert current['third_party_cost_usd'] == 0.0, summary
+          assert current['requests'] < 800, summary
+          assert current['canonical_exact_websites'] >= 2, summary
+          assert current['exact_website_uplift'] >= 0, summary
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload H1 runner benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1-runner-benchmark-100
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            benchmark-dev-100.jsonl
+            benchmark-dev-100.sha256
+            brreg-enheter.sha256
+            signalpost-universe.sha256
+            out/h1-runner-profiles.jsonl
+            out/h1-runner-envelopes.jsonl
+            out/h1-runner-report.json
+            out/h1-runner-comparison.json
