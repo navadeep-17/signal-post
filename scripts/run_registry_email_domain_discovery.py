@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import sys
 import time
 from collections import Counter
@@ -53,7 +52,7 @@ def _candidate_fetch(
     *,
     timeout: float,
     retry_timeout: float,
-) -> tuple[dict[str, Any], dict[str, Any], bool]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     """Fetch one candidate and apply the H1-specific publication gate.
 
     A slow/erroring candidate is retried once only when the official email domain itself
@@ -109,7 +108,7 @@ def _candidate_fetch(
         "content_sha256": verified_website.get("content_sha256"),
         "retried_with_long_timeout": retried,
     }
-    return verified_website, result, retried
+    return verified_website, result, metrics, retried
 
 
 def _process_profile(
@@ -121,7 +120,7 @@ def _process_profile(
     promote_verified: bool,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, Counter[str], dict[str, Any]]:
     counts: Counter[str] = Counter()
-    metrics = {"requests": 0, "bytes": 0, "latencies_ms": []}
+    metrics: dict[str, Any] = {"requests": 0, "bytes": 0, "latencies_ms": []}
     discovery = registry_email_domain_candidates(row)
     reason = discovery.get("reason") or "unknown"
     if not discovery.get("eligible"):
@@ -133,20 +132,17 @@ def _process_profile(
     selected = None
     for candidate in discovery.get("candidates", [])[:max_candidates_per_company]:
         counts["candidate_domains"] += 1
-        verified_website, result, retried = _candidate_fetch(
+        verified_website, result, candidate_metrics, retried = _candidate_fetch(
             row,
             candidate,
             timeout=timeout,
             retry_timeout=retry_timeout,
         )
-        metrics["requests"] += int(result.get("requests") or 0)
-        metrics["bytes"] += int(result.get("bytes") or 0)
-        # fetch_website does not expose per-candidate latency after aggregation in result;
-        # use the identity result's request metrics in the outer runner via a second field.
-        # Preserve actual latencies separately on the transient result for report aggregation.
-        # This field is removed from persisted predictions below.
-        _, raw_metrics = fetch_website("", timeout=timeout)
-        del raw_metrics  # explicit: no hidden network request occurs for an empty URL
+        metrics["requests"] += int(candidate_metrics.get("requests") or 0)
+        metrics["bytes"] += int(candidate_metrics.get("bytes") or 0)
+        metrics["latencies_ms"].extend(
+            int(value) for value in candidate_metrics.get("latencies_ms", []) if value is not None
+        )
 
         counts[f"fetch_{verified_website.get('status') or 'unknown'}"] += 1
         if retried:
@@ -277,11 +273,13 @@ def main() -> None:
     predictions_by_index: dict[int, dict[str, Any]] = {}
     requests = 0
     bytes_received = 0
+    latencies: list[int] = []
     for index, (row, prediction, local_counts, local_metrics) in results:
         rows[index] = row
         counts.update(local_counts)
         requests += int(local_metrics.get("requests") or 0)
         bytes_received += int(local_metrics.get("bytes") or 0)
+        latencies.extend(int(value) for value in local_metrics.get("latencies_ms", []) if value is not None)
         if prediction is not None:
             predictions_by_index[index] = prediction
 
@@ -301,6 +299,9 @@ def main() -> None:
             "requests": requests,
             "bytes": bytes_received,
             "wall_runtime_ms": wall_runtime_ms,
+            "p50_ms": percentile(latencies, 0.50),
+            "p95_ms": percentile(latencies, 0.95),
+            "max_ms": max(latencies) if latencies else None,
             "workers": args.workers,
             "normal_timeout_seconds": args.timeout,
             "retry_timeout_seconds": args.retry_timeout,
