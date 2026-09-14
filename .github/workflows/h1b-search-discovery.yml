@@ -1,0 +1,218 @@
+name: H1b Search Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Maximum unresolved companies to query in the live H1b audit'
+        required: true
+        default: '40'
+  push:
+    branches:
+      - experiment/h1b-search-discovery
+    paths:
+      - '.github/workflows/h1b-search-discovery.yml'
+      - 'src/norway_company_agent/discovery.py'
+      - 'scripts/run_search_discovery.py'
+      - 'tests/test_search_discovery.py'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run H1b regressions
+        run: uv run --with pytest pytest -q tests/test_search_discovery.py tests/test_domain_discovery.py
+
+      - name: Run full test suite
+        run: uv run --with pytest pytest -q
+
+  live-frozen-audit:
+    if: github.event_name == 'workflow_dispatch'
+    needs: offline-regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      SERPAPI_COST_PER_SEARCH_USD: ${{ secrets.SERPAPI_COST_PER_SEARCH_USD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Verify live provider configuration
+        run: |
+          test -n "$SERPAPI_API_KEY" || { echo 'Missing SERPAPI_API_KEY GitHub Actions secret'; exit 2; }
+          test -n "$SERPAPI_COST_PER_SEARCH_USD" || { echo 'Missing SERPAPI_COST_PER_SEARCH_USD GitHub Actions secret'; exit 2; }
+          uv run python - <<'PY'
+          import os
+          value = float(os.environ['SERPAPI_COST_PER_SEARCH_USD'])
+          assert value >= 0
+          print('Declared SerpApi cost/search USD:', value)
+          PY
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate frozen 100-company development corpus
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          head -n 100 entry-companies.jsonl > benchmark-dev-100.jsonl
+          DEV_SHA="$(sha256sum benchmark-dev-100.jsonl | cut -d' ' -f1)"
+          test "$DEV_SHA" = '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3'
+          printf '%s  %s\n' "$DEV_SHA" benchmark-dev-100.jsonl > benchmark-dev-100.sha256
+
+      - name: Build official + H1a profiles first
+        run: |
+          mkdir -p out
+          uv run python scripts/run_competition_batch.py \
+            --organisations benchmark-dev-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --profiles-output out/pre-h1b-profiles.jsonl \
+            --output out/pre-h1b-envelopes.jsonl \
+            --report out/pre-h1b-report.json \
+            --run-id h1b-preflight-100 \
+            --expected-count 100 \
+            --enable-email-domain-discovery \
+            --email-domain-timeout 8 \
+            --email-domain-retry-timeout 15
+
+      - name: Run transient H1b search discovery
+        run: |
+          uv run python scripts/run_search_discovery.py \
+            --input out/pre-h1b-profiles.jsonl \
+            --output out/h1b-profiles.jsonl \
+            --report out/h1b-report.json \
+            --limit '${{ inputs.limit }}' \
+            --count 10 \
+            --provider-timeout 10 \
+            --crawl-timeout 8 \
+            --promote-verified
+
+      - name: Build H1b audit summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          before = read_jsonl('out/pre-h1b-profiles.jsonl')
+          after = read_jsonl('out/h1b-profiles.jsonl')
+          report = json.loads(Path('out/h1b-report.json').read_text(encoding='utf-8'))
+          assert len(before) == len(after) == 100
+          before_by_org = {row['organisation_number']: row for row in before}
+          promoted = []
+          for row in after:
+              old = before_by_org[row['organisation_number']]
+              old_site = str(old.get('website') or '').strip()
+              new_site = str(row.get('website') or '').strip()
+              discovery = (row.get('evidence') or {}).get('website_search_discovery') or {}
+              if not old_site and new_site and discovery.get('status') == 'available':
+                  promoted.append({
+                      'organisation_number': row['organisation_number'],
+                      'name': row.get('name'),
+                      'website': new_site,
+                      'discovery': discovery.get('value'),
+                  })
+          Path('out/h1b-promotions.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in promoted),
+              encoding='utf-8',
+          )
+          summary = {
+              'frozen_manifest_sha256': Path('benchmark-dev-100.sha256').read_text().split()[0],
+              'queried_unresolved_profiles': report['queried_unresolved_profiles'],
+              'promotions': len(promoted),
+              'counts': report['counts'],
+              'operations': report['operations'],
+              'raw_search_results_persisted': report['raw_search_results_persisted'],
+              'qualification': report['qualification'],
+          }
+          Path('out/h1b-audit-summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Verify live audit invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/h1b-report.json').read_text())
+          assert report['raw_search_results_persisted'] is False, report
+          assert report['operations']['third_party_cost_usd'] < 10.0, report
+          total_requests = (
+              report['operations']['provider_requests'] +
+              report['operations']['independent_crawl_requests']
+          )
+          assert total_requests < 500, report
+          print('H1b live audit invariants passed.')
+          PY
+
+      - name: Upload H1b audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1b-search-audit-${{ inputs.limit }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            benchmark-dev-100.jsonl
+            benchmark-dev-100.sha256
+            brreg-enheter.sha256
+            signalpost-universe.sha256
+            out/pre-h1b-report.json
+            out/pre-h1b-profiles.jsonl
+            out/h1b-profiles.jsonl
+            out/h1b-report.json
+            out/h1b-promotions.jsonl
+            out/h1b-audit-summary.json
