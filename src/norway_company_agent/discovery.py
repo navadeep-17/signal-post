@@ -14,6 +14,7 @@ BLOCKED_DISCOVERY_HOSTS = {
     "linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "youtube.com", "tiktok.com",
 }
 GENERIC_NAME_TOKENS = {"as", "asa", "ans", "da", "enk", "sa", "nuf", "company", "norge", "norway", "gruppen", "group"}
+DIRECTORY_PATH_TOKENS = {"selskap", "company", "companies", "firma", "virksomhet", "organisation", "organization"}
 
 
 def build_company_search_query(profile: dict[str, Any]) -> str:
@@ -114,7 +115,8 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     normalized = normalize_homepage(result.get("url"))
     if not normalized:
         return {"status": "rejected", "score": 0.0, "publishable_candidate": False, "reasons": ["invalid HTTP(S) candidate URL"]}
-    host = (urllib.parse.urlparse(normalized).hostname or "").casefold().removeprefix("www.")
+    parsed_url = urllib.parse.urlparse(normalized)
+    host = (parsed_url.hostname or "").casefold().removeprefix("www.")
     if any(host == blocked or host.endswith("." + blocked) for blocked in BLOCKED_DISCOVERY_HOSTS):
         return {"status": "rejected", "score": 0.0, "publishable_candidate": False, "url": normalized, "host": host, "reasons": ["directory, aggregator, or social host is not a company website candidate"]}
 
@@ -133,6 +135,11 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     all_name_tokens_in_title = bool(name_tokens and set(name_tokens).issubset(set(title_tokens)))
     name_in_host = bool(name_compact and name_compact in host_compact)
     municipality_match = bool(municipality_tokens and municipality_tokens <= set(snippet_tokens))
+    path_tokens = [token.casefold() for token in parsed_url.path.split("/") if token]
+    org_in_path = bool(org and org in re.sub(r"\D", "", parsed_url.path))
+    directory_style_path = bool(set(path_tokens) & DIRECTORY_PATH_TOKENS) or (org_in_path and len(path_tokens) >= 2)
+    plausible_company_page = len(path_tokens) <= 1 and not directory_style_path
+
     score = 0.0
     reasons = []
     if org_match:
@@ -150,13 +157,15 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     if municipality_match:
         score += 0.1
         reasons.append("registry municipality appears in result snippet")
+    if directory_style_path and not name_in_host:
+        reasons.append("result URL has a directory-style company-record path")
     score = min(score, 1.0)
 
     # This is only a CRAWL gate, never a publication gate. Exact org-number + full
     # legal-name result evidence may nominate an acronym/brand domain for independent
-    # crawling even when the legal name is not present in the hostname. Directories and
-    # social hosts are blocked above; publication still requires independent page proof.
-    strong_exact_result = org_match and all_name_tokens_in_title
+    # crawling when the URL still resembles a first-party homepage/page. Directory-style
+    # record URLs remain excluded even when they repeat exact registry facts.
+    strong_exact_result = org_match and all_name_tokens_in_title and plausible_company_page
     strong_name_domain_result = name_in_host and (org_match or all_name_tokens_in_title)
     publishable_candidate = score >= 0.75 and (strong_exact_result or strong_name_domain_result)
     return {
@@ -172,6 +181,7 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
         "full_name_title_match": all_name_tokens_in_title,
         "host_name_match": name_in_host,
         "municipality_match": municipality_match,
+        "directory_style_path": directory_style_path,
         "reasons": reasons or ["insufficient exact-entity evidence"],
         "method": "deterministic_search_candidate_identity_v2",
     }
