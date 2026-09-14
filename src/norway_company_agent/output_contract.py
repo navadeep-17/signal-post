@@ -44,7 +44,7 @@ FINANCIAL_FIELDS = (
 def _source_class(record: dict[str, Any]) -> str:
     source = str(record.get("source_class") or record.get("source_type") or "unknown")
     lowered = source.casefold()
-    if lowered.startswith("official_") or "brreg" in lowered or "registry" in lowered and "website" not in lowered:
+    if lowered.startswith("official_") or "brreg" in lowered or ("registry" in lowered and "website" not in lowered):
         return "official"
     if "website" in lowered or "company_site" in lowered or "company_owned" in lowered:
         return "company_owned"
@@ -133,7 +133,7 @@ def _add_claim(
         return
     if state not in ALLOWED_AVAILABILITY:
         raise ValueError(f"Unsupported availability state: {state}")
-    evidence = _evidence_entry(org, evidence_key, record, claim_span=claim_span)
+    evidence = _evidence_entry(org, f"{evidence_key}:{field}", record, claim_span=claim_span)
     evidence_entries[evidence["id"]] = evidence
     claim = {
         "field": field,
@@ -253,7 +253,7 @@ def _financial_claims(
                 claims,
                 evidence_entries,
                 org=org,
-                evidence_key="financials",
+                evidence_key=f"financials:{period}",
                 record=record,
                 field=f"financial.{key}",
                 value=amount,
@@ -296,6 +296,20 @@ def _runtime_ms(started_at: str | None, completed_at: str | None) -> int | None:
         return max(0, int((end - start).total_seconds() * 1000))
     except (TypeError, ValueError):
         return None
+
+
+def _profile_runtime_ms(profile: dict[str, Any], envelope: dict[str, Any]) -> int | None:
+    metrics = profile.get("run_metrics") or {}
+    latencies = metrics.get("latencies_ms") or []
+    cleaned = []
+    for value in latencies:
+        try:
+            cleaned.append(max(0, int(value)))
+        except (TypeError, ValueError):
+            continue
+    if cleaned:
+        return sum(cleaned)
+    return _runtime_ms(envelope.get("started_at"), envelope.get("completed_at"))
 
 
 def project_terminal_envelope(
@@ -355,7 +369,7 @@ def project_terminal_envelope(
     terminal_status = "completed" if envelope.get("state") == "complete" else "failed"
     operations = {
         "requests": int(metrics.get("requests") or 0),
-        "runtime_ms": _runtime_ms(envelope.get("started_at"), envelope.get("completed_at")),
+        "runtime_ms": _profile_runtime_ms(profile, envelope),
         "third_party_cost_usd": float(third_party_cost_usd),
     }
     return {
