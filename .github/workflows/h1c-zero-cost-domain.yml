@@ -8,8 +8,11 @@ on:
     paths:
       - '.github/workflows/h1c-zero-cost-domain.yml'
       - 'src/norway_company_agent/zero_cost_discovery.py'
+      - 'src/norway_company_agent/zero_cost_registry_guard.py'
       - 'scripts/run_zero_cost_domain_discovery.py'
+      - 'scripts/apply_zero_cost_registry_guard.py'
       - 'tests/test_zero_cost_discovery.py'
+      - 'tests/test_zero_cost_registry_guard.py'
 
 permissions:
   contents: read
@@ -38,7 +41,7 @@ jobs:
 
       - name: Run H1c and full regressions
         run: |
-          uv run --with pytest pytest -q tests/test_zero_cost_discovery.py
+          uv run --with pytest pytest -q tests/test_zero_cost_discovery.py tests/test_zero_cost_registry_guard.py
           uv run --with pytest pytest -q
 
       - name: Download official BRREG bulk registry
@@ -90,14 +93,21 @@ jobs:
         run: |
           uv run python scripts/run_zero_cost_domain_discovery.py \
             --input out/h1a-profiles.jsonl \
-            --output out/h1c-profiles.jsonl \
+            --output out/h1c-pre-guard-profiles.jsonl \
             --report out/h1c-report.json \
             --timeout 6 \
             --max-candidates 2 \
             --workers 8 \
             --promote-verified
 
-      - name: Build H1c comparison
+      - name: Apply H1c registry-risk guard
+        run: |
+          uv run python scripts/apply_zero_cost_registry_guard.py \
+            --input out/h1c-pre-guard-profiles.jsonl \
+            --output out/h1c-hardened-profiles.jsonl \
+            --report out/h1c-registry-guard-report.json
+
+      - name: Build hardened H1c comparison
         run: |
           uv run python - <<'PY'
           import json
@@ -108,12 +118,17 @@ jobs:
               return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
 
           before = read_jsonl('out/h1a-profiles.jsonl')
-          after = read_jsonl('out/h1c-profiles.jsonl')
+          preliminary = read_jsonl('out/h1c-pre-guard-profiles.jsonl')
+          after = read_jsonl('out/h1c-hardened-profiles.jsonl')
           h1a = json.loads(Path('out/h1a-report.json').read_text())
           h1c = json.loads(Path('out/h1c-report.json').read_text())
-          assert len(before) == 100 == len(after)
+          guard = json.loads(Path('out/h1c-registry-guard-report.json').read_text())
+          assert len(before) == 100 == len(preliminary) == len(after)
           assert h1c['third_party_cost_usd'] == 0.0
           assert h1c['search_api_requests'] == 0
+          assert guard['third_party_cost_usd'] == 0.0
+          assert guard['search_api_requests'] == 0
+          assert guard['network_requests'] == 0
 
           def exact_count(rows):
               total = 0
@@ -127,6 +142,7 @@ jobs:
               return total, dict(states)
 
           before_exact, before_states = exact_count(before)
+          preliminary_exact, preliminary_states = exact_count(preliminary)
           after_exact, after_states = exact_count(after)
           total_requests = int(h1a['operations']['requests']) + int(h1c['counts'].get('requests', 0))
           summary = {
@@ -139,31 +155,40 @@ jobs:
                   'exact_websites': before_exact,
                   'identity_states': before_states,
               },
-              'h1c': h1c,
+              'h1c_preliminary': {
+                  **h1c,
+                  'exact_websites': preliminary_exact,
+                  'identity_states': preliminary_states,
+              },
+              'registry_risk_guard': guard,
               'combined': {
                   'requests': total_requests,
                   'under_2000_request_gate': total_requests < 2000,
                   'third_party_cost_usd': 0.0,
+                  'search_api_requests': 0,
                   'exact_websites_before_h1c': before_exact,
-                  'exact_websites_after_h1c': after_exact,
-                  'exact_website_uplift': after_exact - before_exact,
-                  'identity_states_after': after_states,
+                  'exact_websites_preliminary': preliminary_exact,
+                  'exact_websites_after_guard': after_exact,
+                  'hardened_exact_website_uplift': after_exact - before_exact,
+                  'identity_states_after_guard': after_states,
               },
           }
           Path('out/h1c-comparison.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           print(json.dumps(summary, ensure_ascii=False, indent=2))
           PY
 
-      - name: Verify zero-cost invariants
+      - name: Verify zero-cost and precision invariants
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
           summary = json.loads(Path('out/h1c-comparison.json').read_text())
           assert summary['combined']['third_party_cost_usd'] == 0.0, summary
-          assert summary['h1c']['search_api_requests'] == 0, summary
+          assert summary['combined']['search_api_requests'] == 0, summary
           assert summary['combined']['under_2000_request_gate'] is True, summary
-          assert summary['combined']['exact_website_uplift'] >= 0, summary
+          assert summary['combined']['hardened_exact_website_uplift'] >= 0, summary
+          assert summary['registry_risk_guard']['counts'].get('quarantined', 0) >= 1, summary
+          assert summary['combined']['exact_websites_after_guard'] <= summary['combined']['exact_websites_preliminary'], summary
           print(json.dumps(summary, indent=2, ensure_ascii=False))
           PY
 
@@ -181,6 +206,8 @@ jobs:
             signalpost-universe.sha256
             out/h1a-profiles.jsonl
             out/h1a-report.json
-            out/h1c-profiles.jsonl
+            out/h1c-pre-guard-profiles.jsonl
+            out/h1c-hardened-profiles.jsonl
             out/h1c-report.json
+            out/h1c-registry-guard-report.json
             out/h1c-comparison.json
