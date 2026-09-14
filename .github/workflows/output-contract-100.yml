@@ -1,0 +1,140 @@
+name: Output Contract 100 Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/output-contract-adapter
+    paths:
+      - '.github/workflows/output-contract-100.yml'
+      - 'src/norway_company_agent/output_contract.py'
+      - 'scripts/project_output_contract.py'
+      - 'tests/test_output_contract.py'
+
+permissions:
+  contents: read
+
+jobs:
+  output-contract-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and test
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_output_contract.py
+          uv run --with pytest pytest -q
+
+      - name: Download frozen inputs
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s brreg-enheter.csv
+          gzip -t signalpost-universe.jsonl.gz
+
+      - name: Recreate frozen development 100
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          head -n 100 entry-companies.jsonl > benchmark-dev-100.jsonl
+          test "$(wc -l < benchmark-dev-100.jsonl)" -eq 100
+          DEV_SHA="$(sha256sum benchmark-dev-100.jsonl | cut -d' ' -f1)"
+          test "$DEV_SHA" = '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3'
+
+      - name: Run internal 100-company envelope pipeline
+        run: |
+          mkdir -p out
+          uv run python scripts/run_competition_batch.py \
+            --organisations benchmark-dev-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --profiles-output out/profiles.jsonl \
+            --output out/internal-envelopes.jsonl \
+            --report out/internal-report.json \
+            --run-id output-contract-qualification-100 \
+            --expected-count 100 \
+            --enable-email-domain-discovery \
+            --email-domain-timeout 8 \
+            --email-domain-retry-timeout 15
+
+      - name: Project final output contract
+        run: |
+          uv run python scripts/project_output_contract.py \
+            --input out/internal-envelopes.jsonl \
+            --output out/final-contract.jsonl \
+            --report out/output-contract-report.json \
+            --expected-count 100
+
+      - name: Verify hard output invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows = [json.loads(line) for line in Path('out/final-contract.jsonl').read_text().splitlines() if line.strip()]
+          report = json.loads(Path('out/output-contract-report.json').read_text())
+          internal = json.loads(Path('out/internal-report.json').read_text())
+
+          assert len(rows) == 100
+          assert len({row['organisation_number'] for row in rows}) == 100
+          assert report['passed'] is True, report
+          assert internal['validation']['passed'] is True, internal
+          assert all(set(row) == {'organisation_number','run','claims','evidence','changes','errors','operations'} for row in rows)
+          assert all(row['run']['terminal_status'] in {'completed','failed'} for row in rows)
+          assert all(float(row['operations']['third_party_cost_usd']) == 0.0 for row in rows)
+          assert all(
+              claim['availability'] in {'available','not_available','blocked','not_applicable','ambiguous','failed'}
+              for row in rows for claim in row['claims']
+          )
+          assert all(
+              claim['value'] is None
+              for row in rows for claim in row['claims']
+              if claim['availability'] != 'available'
+          )
+          evidence_refs = [
+              (row['organisation_number'], claim['field'], evidence_id)
+              for row in rows
+              for claim in row['claims']
+              if claim['availability'] == 'available'
+              for evidence_id in claim['evidence_ids']
+          ]
+          assert evidence_refs, 'expected at least one available evidence-backed claim'
+          print(json.dumps({
+              'objects': len(rows),
+              'claims': sum(len(row['claims']) for row in rows),
+              'evidence': sum(len(row['evidence']) for row in rows),
+              'errors': sum(len(row['errors']) for row in rows),
+              'requests': internal['operations']['requests'],
+              'third_party_cost_usd': 0.0,
+              'report': report,
+          }, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload qualification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-contract-100
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            benchmark-dev-100.jsonl
+            out/internal-envelopes.jsonl
+            out/internal-report.json
+            out/final-contract.jsonl
+            out/output-contract-report.json
