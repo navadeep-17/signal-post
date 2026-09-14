@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import urllib.robotparser
 from copy import deepcopy
@@ -56,14 +57,8 @@ def _robots_allowed(url: str, timeout: float) -> tuple[bool, int]:
     allowed, but no deeper crawl occurs in this final evaluator path.
     """
     assert_public_url(url)
-    parsed = urllib.request.urlparse(url) if hasattr(urllib.request, "urlparse") else None
-    if parsed is None:
-        import urllib.parse
-
-        parsed = urllib.parse.urlparse(url)
-        robots_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
-    else:
-        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+    parsed = urllib.parse.urlparse(url)
+    robots_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
     try:
