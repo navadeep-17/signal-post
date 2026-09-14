@@ -11,6 +11,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 import trafilatura
 
+from .evidence import utc_now
 from .website import SAFE_OPENER, USER_AGENT, _registered_domain, _robots_allowed, assert_public_url
 
 CAREER_TERMS = (
@@ -133,6 +134,7 @@ def parse_career_page(url: str, raw: bytes) -> dict[str, Any]:
         "title": title[:500],
         "main_text_excerpt": text[:5000],
         "content_sha256": digest,
+        "retrieved_at": utc_now(),
         "specific_job_links": specific_job_links(url, html),
     }
 
@@ -214,7 +216,8 @@ def workforce_observation(profile: dict[str, Any], pages: list[dict[str, Any]]) 
     page = sorted(pages, key=lambda item: (-len(item.get("specific_job_links") or []), item.get("url") or ""))[0]
     url = str(page.get("url") or "")
     digest = str(page.get("content_sha256") or "")
-    if not url.startswith(("http://", "https://")) or len(digest) != 64:
+    retrieved_at = str(page.get("retrieved_at") or "").strip()
+    if not url.startswith(("http://", "https://")) or len(digest) != 64 or not retrieved_at:
         return None
     job_links = []
     for item in pages:
@@ -228,7 +231,7 @@ def workforce_observation(profile: dict[str, Any], pages: list[dict[str, Any]]) 
         "platform": "company_site",
         "signal_type": "workforce_snapshot",
         "source_url": url,
-        "retrieved_at": (profile.get("evidence") or {}).get("website", {}).get("retrieved_at"),
+        "retrieved_at": retrieved_at,
         "content_sha256": digest,
         "exact_entity": True,
         "identity_proof": [{"type": "website_identity_gate", "score": identity.get("score"), "method": identity.get("method")}],
