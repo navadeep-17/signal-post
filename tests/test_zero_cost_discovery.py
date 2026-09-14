@@ -89,10 +89,10 @@ def test_exact_org_number_on_page_is_strongest_h1c_proof():
     )
     assert result["publishable"] is True
     assert result["score"] == 1.0
-    assert result["method"] == "deterministic_domain_page_identity_guard_v1"
+    assert result["method"] == "deterministic_domain_page_identity_guard_v2"
 
 
-def test_full_legal_name_on_exact_domain_can_publish_without_org_number():
+def test_full_legal_name_in_title_on_exact_domain_can_publish_without_org_number():
     result = qualify_deterministic_domain_identity(
         profile(),
         "mastersurgerysystems.no",
@@ -110,6 +110,21 @@ def test_parent_or_namesake_page_without_company_compatible_domain_is_quarantine
             title="Parent Group",
             text="Our portfolio includes Master Surgery Systems AS.",
             final_url="https://parent-group.no/",
+        ),
+        exact_assessment(),
+    )
+    assert result["publishable"] is False
+    assert result["status"] == "review"
+
+
+def test_buried_subsidiary_mention_on_exact_guessed_domain_is_still_quarantined():
+    result = qualify_deterministic_domain_identity(
+        profile(),
+        "mastersurgerysystems.no",
+        website(
+            title="Parent Group Portfolio",
+            text="Our portfolio includes Master Surgery Systems AS among several subsidiaries.",
+            final_url="https://mastersurgerysystems.no/",
         ),
         exact_assessment(),
     )
