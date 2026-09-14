@@ -1,0 +1,56 @@
+name: Refresh Contract Qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/norway_company_agent/refresh.py"
+      - "src/norway_company_agent/refresh_contract.py"
+      - "src/norway_company_agent/output_contract.py"
+      - "scripts/run_refresh_replay.py"
+      - "scripts/project_output_contract.py"
+      - "scripts/qualify_refresh_contract.py"
+      - "tests/test_refresh_contract.py"
+      - "tests/fixtures/refresh-snapshots.json"
+      - ".github/workflows/refresh-contract.yml"
+  push:
+    branches:
+      - main
+      - "feature/**"
+    paths:
+      - "src/norway_company_agent/refresh.py"
+      - "src/norway_company_agent/refresh_contract.py"
+      - "src/norway_company_agent/output_contract.py"
+      - "scripts/run_refresh_replay.py"
+      - "scripts/project_output_contract.py"
+      - "scripts/qualify_refresh_contract.py"
+      - "tests/test_refresh_contract.py"
+      - "tests/fixtures/refresh-snapshots.json"
+      - ".github/workflows/refresh-contract.yml"
+
+jobs:
+  refresh-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Run full test suite
+        run: uv run --with pytest pytest -q
+      - name: Qualify refresh changes in final contract
+        run: |
+          uv run python scripts/qualify_refresh_contract.py \
+            --manifest tests/fixtures/refresh-snapshots.json \
+            --output out/refresh-contract.jsonl \
+            --report out/refresh-contract-report.json
+      - name: Upload refresh qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: refresh-contract-qualification
+          path: |
+            out/refresh-contract.jsonl
+            out/refresh-contract-report.json

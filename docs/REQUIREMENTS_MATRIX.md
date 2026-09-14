@@ -22,8 +22,8 @@ Status meanings: **PASS** = reproduced or directly verified; **PARTIAL** = found
 | Weighted external company recall >=60% | Live challenge | H1c improves verified-site discovery but current qualified external footprint remains far below final recall target | OPEN | Expand only qualified zero-cost external/company-owned signals and measure recall |
 | Coverage >=21/35 | Live challenge | Not directly measurable from current official + limited verified-site stack | OPEN | Evaluate after qualified source expansion |
 | Overall score >=65/100 | Live challenge | Hidden judge authoritative; local proxy not equivalent | OPEN | Use local proxy for diagnostics only; submit for independent evaluation when gates are supported |
-| Idempotent refresh | Live challenge | Refresh replay fixture reproduced: 2 TP, 0 FP, 0 FN, idempotent rerun | PASS | Extend tests when external observations enter refresh |
-| Previous snapshot/history preserved | Live challenge | Snapshot/refresh implementation exists | PASS for fixture | Audit external connector refresh semantics later |
+| Idempotent refresh | Live challenge | Final refresh-contract qualification reproduced exactly 2 expected changes and a current→current rerun produced zero changes | PASS | Extend the same normalization when qualified external observations enter refresh |
+| Previous snapshot/history preserved | Live challenge | Final `changes[]` preserves previous/current values plus previous/current content hashes and source provenance; deterministic fixture qualification passed | PASS for current tracked fields | Audit external connector refresh semantics later |
 | 45-minute wall-clock for 100-company batch | Live challenge | Frozen output-contract qualification's internal 100-company pipeline completed in ~95 seconds after frozen inputs were available | PASS current stack | Revalidate final connector stack with evaluator-style end-to-end runner |
 | <=2,000 outbound requests per 100-company batch | Live challenge | Hardened output-contract qualification used 622 research requests | PASS current stack | Add final global budget guard and remeasure with future qualified layers |
 | <=$10 third-party API cost per 100-company batch | Live challenge + project decision | Frozen output-contract qualification declared and verified $0 third-party spend; project policy targets $0 | PASS current stack | Preserve $0 production constraint in final orchestrator |
@@ -33,7 +33,7 @@ Status meanings: **PASS** = reproduced or directly verified; **PARTIAL** = found
 | Server-side secrets/private keys not committed | Live challenge + how-to-enter | Final strategy currently requires no paid API secrets | PASS current stack | Keep release secret scan even with $0 architecture |
 | Safe URL handling | Live challenge | Website/HTTP stack includes private-network/redirect protections | PASS design/tests | Preserve and extend regression coverage for new URL-taking connectors |
 | Pinned/reproducible dependencies | README | `uv.lock` exists; `uv sync --locked` passes CI | PASS | Consider pinning CI uv tool version separately |
-| Core regression suite | Starter | Full GitHub Actions suite passes with added H1c/output-contract regressions | PASS | Required on every PR |
+| Core regression suite | Starter | Full GitHub Actions suite passes with added H1c/output-contract/refresh-contract regressions | PASS | Required on every PR |
 | Live baseline smoke | Starter README | 10-company live run reproduced successfully | PASS | Keep manual/reproducible workflow |
 | Frozen 100-company development benchmark | Project plan | Exact manifest/input hashes and failure-bucket report recorded in `BASELINE_100.md`; reused for H1c and output-contract qualification | PASS | Continue same manifest for before/after development comparisons |
 | Search candidates independently verified before publication | Live challenge/starter docs | H1a/H1c candidate discovery is separated from independent fetch + exact identity publication gate | PASS for promoted zero-cost domain paths | Preserve zero-overlap precision audit before any new discovery source |
@@ -79,5 +79,16 @@ Status meanings: **PASS** = reproduced or directly verified; **PARTIAL** = found
 - 622 total research requests; $0 third-party cost.
 - Per-company measured runtime is derived from that profile's request latencies when available, rather than copying the whole batch wall-clock into every output object.
 - Qualification artifact digest: `sha256:1a2ba378e16d8a1f9a47983fa38853ad4ae9aa4a8c623c37a30fc7f18816e070`.
+
+## Refresh-contract qualification record
+
+- Workflow: `Refresh Contract Qualification`, run `34878326293`.
+- Deterministic evaluator-owned fixture: 1 company, `registry_live` + `financials`, 2 old-source requests and 2 new-source requests.
+- Expected changes: 2; observed changes: 2; attached final `changes[]` events: 2.
+- Changed fields: `registry.employees` and `financials.records`.
+- Every change preserves previous/current value, source URL/class, retrieval/effective time, previous/current 64-character content hashes, and current source status.
+- Wrong-company events, duplicate field events, unchanged old/new values and invalid hashes are regression-tested and rejected.
+- Current→current diff produces zero events and therefore an empty final `changes[]` set.
+- Qualification artifact digest: `sha256:e317bdf7612e2327324e34a9895a27d82db89702712c82c7b981ac274d3291cf`.
 
 Update this matrix when a requirement changes state; link the PR/benchmark evidence rather than changing status from memory.
