@@ -6,6 +6,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.domain_discovery import (  # noqa: E402
     corroborate_registry_email_domain_identity,
+    qualify_registry_email_domain_identity,
     registry_email_addresses,
     registry_email_domain_candidates,
 )
@@ -23,6 +24,20 @@ def profile(*, website: str = "", email: str = "") -> dict:
                     "epostadresse": email,
                 }
             }
+        },
+    }
+
+
+def website_record(*, title: str = "", text: str = "", pages: list[dict] | None = None) -> dict:
+    return {
+        "status": "available",
+        "source_url": "https://candidate.example/",
+        "value": {
+            "title": title,
+            "description": "",
+            "main_text_excerpt": text,
+            "structured_organisations": [],
+            "pages": pages or [],
         },
     }
 
@@ -178,3 +193,82 @@ def test_corroboration_never_upgrades_related_or_uncertain() -> None:
 
     assert result == weak
     assert result["publishable"] is False
+
+
+def test_h1_rejects_hostname_only_multitoken_identity() -> None:
+    row = {"organisation_number": "123456789", "name": "EXAMPLE BEDRIFT AS"}
+    base_exact = {
+        "status": "exact",
+        "score": 0.95,
+        "publishable": True,
+        "reasons": ["all normalized legal-name tokens appear together in homepage identity evidence"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+    site = website_record(
+        title="Provider Hosting",
+        text="This page belongs to Provider Hosting and contains no customer legal identity.",
+    )
+
+    result = qualify_registry_email_domain_identity(row, "example-bedrift.provider.no", site, base_exact)
+
+    assert result["publishable"] is False
+    assert result["status"] == "review"
+    assert result["method"] == "registry_email_domain_page_identity_guard_v1"
+
+
+def test_h1_rejects_single_token_client_subdomain_even_when_page_mentions_name() -> None:
+    row = {"organisation_number": "123456789", "name": "MESCO AS"}
+    base_exact = {
+        "status": "exact",
+        "score": 0.95,
+        "publishable": True,
+        "reasons": ["single distinctive legal-name token appears in homepage identity evidence with substantive content"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+    site = website_record(
+        title="MESCO",
+        text=("MESCO customer portal. " * 20),
+    )
+
+    result = qualify_registry_email_domain_identity(row, "mesco.provider.no", site, base_exact)
+
+    assert result["publishable"] is False
+    assert result["status"] == "review"
+    assert "single-token legal name" in result["reasons"][-1]
+
+
+def test_h1_keeps_legitimate_multitoken_company_page_on_acronym_domain() -> None:
+    row = {"organisation_number": "985589003", "name": "ARKITEKTFIRMA JON VIKØREN AS"}
+    base_exact = {
+        "status": "exact",
+        "score": 0.95,
+        "publishable": True,
+        "reasons": ["all normalized legal-name tokens appear together in homepage identity evidence"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+    site = website_record(
+        title="Arkitektfirma Jon Vikøren AS",
+        text="Arkitektfirma Jon Vikøren AS er et arkitektkontor i Norge.",
+    )
+
+    result = qualify_registry_email_domain_identity(row, "arkjv.no", site, base_exact)
+
+    assert result["publishable"] is True
+    assert result["status"] == "exact"
+
+
+def test_h1_keeps_exact_org_number_as_strongest_page_identity() -> None:
+    row = {"organisation_number": "993550116", "name": "MASTER SURGERY SYSTEMS AS"}
+    base_exact = {
+        "status": "exact",
+        "score": 1.0,
+        "publishable": True,
+        "reasons": ["exact organisation number appears in homepage identity evidence"],
+        "method": "deterministic_name_org_evidence_v2",
+    }
+    site = website_record(title="MSS", text="Org nr 993 550 116")
+
+    result = qualify_registry_email_domain_identity(row, "mastersurgerysystems.no", site, base_exact)
+
+    assert result["publishable"] is True
+    assert result["score"] == 1.0
