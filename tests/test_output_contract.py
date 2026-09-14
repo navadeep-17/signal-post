@@ -90,12 +90,20 @@ def claim(item, field):
     return matches[0]
 
 
+def evidence_for_claim(item, field):
+    item_claim = claim(item, field)
+    evidence = {entry["id"]: entry for entry in item["evidence"]}
+    assert len(item_claim["evidence_ids"]) == 1
+    return evidence[item_claim["evidence_ids"][0]]
+
+
 def test_projection_matches_required_top_level_shape_and_validates():
     item = project_terminal_envelope(envelope())
     assert set(item) == {"organisation_number", "run", "claims", "evidence", "changes", "errors", "operations"}
     assert item["organisation_number"] == "923609016"
     assert item["run"]["terminal_status"] == "completed"
     assert item["operations"]["requests"] == 7
+    assert item["operations"]["runtime_ms"] == 300
     assert item["operations"]["third_party_cost_usd"] == 0.0
     assert validate_contract_object(item) == []
 
@@ -163,6 +171,20 @@ def test_every_available_claim_has_existing_evidence_with_source_and_time():
                 assert evidence[evidence_id]["source_url"]
                 assert evidence[evidence_id]["retrieved_at"]
                 assert evidence[evidence_id]["claim_span"]
+
+
+def test_claims_from_same_source_keep_distinct_claim_level_evidence_spans():
+    item = project_terminal_envelope(envelope())
+    legal_name = evidence_for_claim(item, "legal_name")
+    employees = evidence_for_claim(item, "employee_count")
+    revenue = evidence_for_claim(item, "financial.revenue")
+    operating = evidence_for_claim(item, "financial.operating_result")
+    assert legal_name["id"] != employees["id"]
+    assert legal_name["claim_span"] == "legal_name=ACME NORGE AS"
+    assert employees["claim_span"] == "employee_count=0"
+    assert revenue["id"] != operating["id"]
+    assert "revenue=0" in revenue["claim_span"]
+    assert "operating_result=125000" in operating["claim_span"]
 
 
 def test_financial_none_is_omitted_but_zero_is_preserved():
