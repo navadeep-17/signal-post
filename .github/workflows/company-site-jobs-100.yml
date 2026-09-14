@@ -1,0 +1,143 @@
+name: Company Site Jobs 100 Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/company-site-jobs-only
+    paths:
+      - '.github/workflows/company-site-jobs-100.yml'
+      - 'src/norway_company_agent/company_site_jobs.py'
+      - 'scripts/run_company_site_jobs.py'
+      - 'tests/test_company_site_jobs.py'
+
+permissions:
+  contents: read
+
+jobs:
+  company-site-jobs-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and test
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_company_site_jobs.py
+          uv run --with pytest pytest -q
+
+      - name: Download frozen inputs
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s brreg-enheter.csv
+          gzip -t signalpost-universe.jsonl.gz
+
+      - name: Recreate frozen development 100
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          head -n 100 entry-companies.jsonl > benchmark-dev-100.jsonl
+          DEV_SHA="$(sha256sum benchmark-dev-100.jsonl | cut -d' ' -f1)"
+          test "$DEV_SHA" = '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3'
+
+      - name: Run H1a parent pipeline
+        run: |
+          mkdir -p out
+          uv run python scripts/run_competition_batch.py \
+            --organisations benchmark-dev-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --profiles-output out/h1a-profiles.jsonl \
+            --output out/h1a-envelopes.jsonl \
+            --report out/h1a-report.json \
+            --run-id jobs-parent-h1a-100 \
+            --expected-count 100 \
+            --enable-email-domain-discovery \
+            --email-domain-timeout 8 \
+            --email-domain-retry-timeout 15
+
+      - name: Run H1c zero-cost site discovery
+        run: |
+          uv run python scripts/run_zero_cost_domain_discovery.py \
+            --input out/h1a-profiles.jsonl \
+            --output out/h1c-pre-guard-profiles.jsonl \
+            --report out/h1c-report.json \
+            --timeout 6 \
+            --max-candidates 2 \
+            --workers 8 \
+            --promote-verified
+          uv run python scripts/apply_zero_cost_registry_guard.py \
+            --input out/h1c-pre-guard-profiles.jsonl \
+            --output out/h1c-profiles.jsonl \
+            --report out/h1c-guard-report.json
+
+      - name: Extract company-site jobs
+        run: |
+          uv run python scripts/run_company_site_jobs.py \
+            --profiles out/h1c-profiles.jsonl \
+            --output out/company-site-jobs.jsonl \
+            --report out/company-site-jobs-report.json \
+            --timeout 8 \
+            --max-career-pages 2 \
+            --workers 8
+
+      - name: Verify budget and build summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          h1a = json.loads(Path('out/h1a-report.json').read_text())
+          h1c = json.loads(Path('out/h1c-report.json').read_text())
+          jobs = json.loads(Path('out/company-site-jobs-report.json').read_text())
+          observations = [json.loads(line) for line in Path('out/company-site-jobs.jsonl').read_text().splitlines() if line.strip()]
+          total_requests = int(h1a['operations']['requests']) + int(h1c['counts'].get('requests', 0)) + int(jobs['requests'])
+          summary = {
+              'corpus_count': 100,
+              'h1a_requests': h1a['operations']['requests'],
+              'h1c_requests': h1c['counts'].get('requests', 0),
+              'jobs': jobs,
+              'job_observations': len(observations),
+              'unique_job_companies': len({item['organisation_number'] for item in observations}),
+              'combined_requests': total_requests,
+              'third_party_cost_usd': 0.0,
+              'under_2000_request_gate': total_requests < 2000,
+          }
+          assert jobs['third_party_cost_usd'] == 0.0, summary
+          assert jobs['search_api_requests'] == 0, summary
+          assert summary['under_2000_request_gate'], summary
+          Path('out/company-site-jobs-comparison.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload jobs benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-site-jobs-100
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            benchmark-dev-100.jsonl
+            out/h1a-report.json
+            out/h1c-report.json
+            out/h1c-guard-report.json
+            out/h1c-profiles.jsonl
+            out/company-site-jobs.jsonl
+            out/company-site-jobs-report.json
+            out/company-site-jobs-comparison.json
