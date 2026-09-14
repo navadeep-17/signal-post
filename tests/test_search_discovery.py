@@ -114,6 +114,38 @@ def test_candidate_selection_prefers_exact_company_hostname_and_search_evidence(
     assert decision["selected"]["url"] == "https://examplebedrift.no/"
 
 
+def test_exact_org_and_full_name_can_nominate_acronym_domain_for_crawl():
+    item = score_search_candidate(
+        profile(name="ARKITEKTFIRMA JON VIKØREN AS", org="985589003", municipality="OSLO"),
+        {
+            "url": "https://arkjv.no/",
+            "title": "Arkitektfirma Jon Vikøren AS",
+            "snippet": "Org nr 985 589 003 Oslo",
+            "rank": 1,
+            "provider": "serpapi_google",
+            "query": "q",
+        },
+    )
+    assert item["publishable_candidate"] is True
+    assert item["status"] == "accepted_for_crawl"
+    assert item["method"] == "deterministic_search_candidate_identity_v2"
+
+
+def test_acronym_domain_with_name_only_but_no_org_stays_out_of_crawl_stage():
+    item = score_search_candidate(
+        profile(name="ARKITEKTFIRMA JON VIKØREN AS", org="985589003", municipality="OSLO"),
+        {
+            "url": "https://arkjv.no/",
+            "title": "Arkitektfirma Jon Vikøren AS",
+            "snippet": "Arkitektkontor i Oslo",
+            "rank": 1,
+            "provider": "serpapi_google",
+            "query": "q",
+        },
+    )
+    assert item["publishable_candidate"] is False
+
+
 def test_search_result_success_cannot_publish_without_independent_page_identity():
     result = qualify_search_discovered_website(
         profile(),
