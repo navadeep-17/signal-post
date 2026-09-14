@@ -151,10 +151,14 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
         score += 0.1
         reasons.append("registry municipality appears in result snippet")
     score = min(score, 1.0)
-    # Registry/directory pages routinely reproduce both the legal name and org
-    # number. A candidate must therefore also have the distinctive company name
-    # in its hostname before it is worth crawling as a company-owned website.
-    publishable_candidate = score >= 0.75 and name_in_host and (org_match or all_name_tokens_in_title)
+
+    # This is only a CRAWL gate, never a publication gate. Exact org-number + full
+    # legal-name result evidence may nominate an acronym/brand domain for independent
+    # crawling even when the legal name is not present in the hostname. Directories and
+    # social hosts are blocked above; publication still requires independent page proof.
+    strong_exact_result = org_match and all_name_tokens_in_title
+    strong_name_domain_result = name_in_host and (org_match or all_name_tokens_in_title)
+    publishable_candidate = score >= 0.75 and (strong_exact_result or strong_name_domain_result)
     return {
         "status": "accepted_for_crawl" if publishable_candidate else "review" if score >= 0.6 else "rejected",
         "score": score,
@@ -165,7 +169,7 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
         "provider": result.get("provider"),
         "query": result.get("query"),
         "reasons": reasons or ["insufficient exact-entity evidence"],
-        "method": "deterministic_search_candidate_identity_v1",
+        "method": "deterministic_search_candidate_identity_v2",
     }
 
 
