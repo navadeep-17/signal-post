@@ -1,186 +1,184 @@
-# H1 domain discovery experiment
+# H1 domain discovery
 
-Status: **MERGEABLE EXPERIMENTAL INFRASTRUCTURE — not integrated into the competition runner**
+Status: **HARDENED EXPERIMENTAL STRATEGY — integrated into the competition runner behind an off-by-default flag**
 
-This document records the first measured coverage hypothesis after the frozen 100-company baseline.
-
-## Why H1 exists
-
-The frozen development slice showed 93/100 companies without a registry website. Only 2/100 had a registry-linked website that already passed the exact-entity identity gate. The first useful optimization is therefore finding safe candidate official domains, not deepening crawling for the small set that already has a site seed.
-
-The publication invariant does not change:
+H1 exists because the frozen first-100 baseline showed 93/100 companies without a registry website and only 2/100 canonical websites already passing the exact-entity gate. The publication invariant never changes:
 
 > Discovery may nominate a domain. Only independently fetched exact-entity evidence may publish it as the canonical company website.
 
-## H1 is split into two stages
+## H1a — BRREG registry-email-domain candidate
 
-### H1a — official registry email-domain candidate
+For companies whose BRREG website field is missing:
 
-Before paying for or licensing search, inspect the public BRREG registry email field for companies whose registry website is missing.
+1. Read the public `epostadresse` already present in official registry evidence.
+2. Reject clearly generic consumer mailbox domains.
+3. Treat any remaining email domain as a candidate, never as a company fact.
+4. Fetch the candidate through the existing safe URL, robots and redirect controls.
+5. Apply the general website identity gate plus the H1 page-level hardening gate.
+6. Require independently fetched page evidence; hostname-only similarity cannot publish.
+7. Protect against parent, franchise, namesake, manager/service-provider, hosting-placeholder and customer-subdomain failure modes.
+8. Allow the narrow deterministic corroboration paths covered by regression tests.
+9. Promote only exact independently verified sites; quarantine review/uncertain/error cases.
+10. Record requests, bytes, latency, evidence and $0 third-party API cost.
 
-Pipeline:
+The strategy uses no search provider.
 
-1. Read the public `epostadresse` value already present in official registry evidence.
-2. Reject only clearly generic consumer mailbox domains.
-3. Treat the remaining email domain as a candidate, not a fact.
-4. Fetch the candidate website through the existing safe URL/robots/redirect controls.
-5. Run the existing deterministic exact-entity website identity gate.
-6. Allow one narrow corroboration path only for an already-`review` result when a simple two-label email domain exactly matches the normalized distinctive legal name.
-7. Promote only an `exact` result; keep review/uncertain/error cases quarantined.
-8. Record request/latency/bytes and zero third-party API cost.
+## Dangerous false positive found and fixed
 
-This path has no search-provider dependency and introduces no paid API spend.
+An early validation run incorrectly marked `mesco.no` exact for `MESCO AS`. The domain resolved to a generic Norwegian hosting/webhotel placeholder; a single legal-name token plus hostname evidence was too permissive.
 
-The experiment deliberately does not hard-code service-provider domains observed in the sample; those domains are allowed through so the identity gate is tested against realistic negatives.
+The correction is generic rather than company-specific:
 
-### H1b — licensed search-provider fallback
+- Norwegian registered-domain/webhotel placeholder language is detected;
+- H1 requires page-derived identity rather than hostname-only identity;
+- parent/franchise/namesake/service-provider regressions are permanent tests;
+- `mesco.no` remains quarantined.
 
-Only companies unresolved by registry website + H1a should reach search. Search results remain candidate discovery only and must never be treated as publication evidence.
+This is why H1 remains biased toward abstention.
 
-H1b is currently **blocked on provider rights selection**.
-
-## Current provider-rights review
-
-### Brave Search API — standard terms blocked for our benchmark use
-
-Reviewed: 2026-09-13
-
-Current terms: https://api-dashboard.search.brave.com/documentation/resources/terms-of-service
-
-The current Search API Terms of Use are dated 2026-09-01. The standard terms prohibit storage/cache/database creation from Search Results beyond transient operational storage and also prohibit using Search Results to create, evaluate, train, re-train, fine-tune, benchmark or otherwise improve AI models or services.
-
-Because H1 requires a measured benchmark of our agent/service, standard Brave Search API terms are **not approved for H1 evaluation**. A custom/enterprise order form could change the permitted use, but that must be documented before use.
-
-The existing `scripts/run_brave_discovery.py` remains reference/experimental code. Do not run it as the qualification benchmark under standard terms.
-
-### Tavily — candidate, not yet approved
-
-Reviewed: 2026-09-13
-
-Terms: https://www.tavily.com/terms
-Pricing: https://docs.tavily.com/documentation/api-credits
-
-Tavily's current terms explicitly support Customer Applications that may include AI tools, require customers to verify outputs, and do not contain the same explicit standard-plan prohibition on evaluating the customer's own AI service found in Brave's current terms. However, Tavily also places responsibility for applicable third-party source terms on the customer.
-
-Therefore Tavily is a **rights-review candidate**, not yet a promoted connector. If used later, keep search results transient, retain only independently fetched page evidence, and record the exact account/plan terms in effect for the run.
-
-## Frozen H1 corpora
+## Frozen initial 200-company experiment
 
 Development slice:
-
-- first 100 companies of deterministic seed `20260823` entry manifest
-- SHA-256: `51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3`
+- first 100 companies of deterministic seed `20260823`
+- SHA-256 `51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3`
 
 Zero-overlap validation slice:
+- rows 101–200
+- SHA-256 `5cdbe6e976eb7e7011dd47b0617e80410b4410de13819465c21c9cc099a325c7`
 
-- rows 101–200 of the same deterministic 1,000-company manifest
-- SHA-256: `5cdbe6e976eb7e7011dd47b0617e80410b4410de13819465c21c9cc099a325c7`
-
-The H1 workflow recreates both manifests and fails if either hash changes.
-
-## Final frozen 200-company run
-
-Final audited experiment logic was run at commit `9497f0c77d3c49856ae2d63b8dac8f6e5214477a` in GitHub Actions run `34774831144`.
-
-Artifact digest:
-
-`sha256:faf5ae8e547fb4921b730cf8f7d905ca4ade8609b6205fa7520b78c552077f21`
+Final audited results from that stage:
 
 ### Development 100
-
 - eligible email-domain profiles: 14
-- candidate domains fetched: 14
 - exact/promoted: 1
 - quarantined: 13
 - requests: 74
 - third-party API cost: $0
-- request latency p50: 568 ms
-- request latency p95: 15,150 ms
-
-Promoted domain:
-
-- `ARKITEKTFIRMA JON VIKØREN AS` / org `985589003` -> `arkjv.no`
-
-Human audit: **correct**. The company site publishes the exact legal name, organisation number `985 589 003`, address and `post@arkjv.no` on its own company-information page.
+- promoted: `ARKITEKTFIRMA JON VIKØREN AS` / `985589003` -> `arkjv.no`
 
 ### Zero-overlap validation 100
-
 - eligible email-domain profiles: 7
-- candidate domains fetched: 7
 - exact/promoted: 1
 - quarantined: 6
 - requests: 30
 - third-party API cost: $0
-- request latency p50: 954 ms
-- request latency p95: 15,000 ms
+- promoted: `MASTER SURGERY SYSTEMS AS` / `993550116` -> `mastersurgerysystems.no`
 
-Promoted domain:
+Both promotions were manually audited as correct. Two examples were not enough to claim production precision, so H1 was not promoted at that stage.
 
-- `MASTER SURGERY SYSTEMS AS` / org `993550116` -> `mastersurgerysystems.no`
+## Larger 600-company qualification audit
 
-Human audit: **correct**. The company site identifies Master Surgery Systems AS at the Horten address and uses the same domain for company email; independent public records link org `993550116` and the company to `mastersurgerysystems.no`.
+A later qualification branch froze rows 201–800 of the same deterministic 1,000-company manifest and left rows 801–1000 untouched for later release validation.
 
-### Observed exact-domain audit result
+Frozen hashes:
+- qualification 600: `5a910aadec1c1a7c453e34bc5cb31df2ab8c31e536d1753451609654d424181a`
+- untouched final 200: `fb81f7695ee91606d1af7eee00e8323a326ebc33b79b3cb1a4f046573ae3368f`
 
-- promoted cases manually audited: 2
-- correct: 2
-- wrong-company domains: 0
-- observed precision on promoted cases: 100%
+One frozen Builderr organisation was absent from the current BRREG snapshot. The corpus was **not** replaced or resampled; snapshot drift is recorded explicitly.
 
-This **does not prove** the starter's conservative 99.5% production-precision target because two promoted examples are far too small a statistical sample. H1a therefore remains experimental and is not automatically called by the competition runner.
+Final qualification result:
+- frozen companies: 600
+- present in current BRREG snapshot: 599
+- snapshot-missing: 1
+- eligible H1 candidates: 62
+- promoted exact sites: 8
+- quarantined candidates: 54
+- requests: 267
+- third-party API cost: $0
+- H1 wall runtime: about 84 seconds
+- previously observed ~15s long tail reduced by bounded concurrency / shorter normal timeout
 
-## Dangerous false positive found and fixed
+All eight promoted sites were manually audited as the exact legal entity. The quarantined set included realistic parent/group/manager/provider hard negatives rather than only synthetic cases.
 
-An earlier validation run incorrectly marked `mesco.no` exact for `MESCO AS`. The domain resolved to a generic Norwegian hosting/webhotel placeholder; the single legal-name token matched the hostname and the previous gate treated enough placeholder text as substantive company content.
+This still does not statistically prove a 99.5% production-precision target. The strategy therefore remains optional and conservative.
 
-The fix is generic rather than company-specific:
+## Competition-runner integration
 
-- Norwegian registered-domain/webhotel placeholder language is now detected as parked/hosting content;
-- a permanent regression test protects this class of false positive;
-- the same frozen 200-company experiment was rerun after the fix;
-- `mesco.no` now remains quarantined with identity score `0.1`.
+`run_competition_batch.py` now supports:
 
-This failure is the main reason H1 stays conservative even when recall is low.
+```text
+--enable-email-domain-discovery
+--email-domain-timeout 8
+--email-domain-retry-timeout 15
+--email-domain-max-candidates 2
+```
 
-## Experiment outputs
+The strategy is **off by default**. Without the flag, baseline runner behavior is unchanged.
 
-`.github/workflows/h1-domain-discovery.yml` produces separate development and validation artifacts:
+When enabled:
 
-- registry-only baseline profiles;
-- H1a enriched profiles;
-- compact candidate/prediction JSONL;
-- request/runtime/cost report;
-- exact input hashes.
+```text
+BRREG official modules
+        ↓
+registry website present?
+   yes       no
+    ↓         ↓
+normal      H1a candidate discovery
+website       ↓
+flow       independent fetch
+              ↓
+         hardened exact-entity gate
+              ↓
+         exact? promote : quarantine
+```
 
-The workflow does not use a search API and is manual-only after the qualification run so ordinary development commits do not repeatedly download the large BRREG snapshot.
+Resume semantics also account for the H1 attempt. A no-registry-website profile is not considered complete under an H1-enabled resume unless `website_email_discovery` evidence exists.
 
-## Merge decision
+## Frozen 100-company runner benchmark
 
-**Merge H1a tooling, tests, documentation and identity hardening into `main`, but do not wire H1a into `run_competition_batch.py` yet.**
+The opt-in integration was evaluated on the exact original development corpus:
 
-Reasoning:
+- manifest SHA-256: `51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3`
+- baseline requests: 536
+- H1-enabled requests: 622
+- request delta: +86
+- baseline canonical exact websites: 2
+- H1-enabled canonical exact websites: 3
+- exact-site uplift: +1
+- H1 candidate domains: 14
+- H1 exact promotions: 1
+- H1 quarantined: 13
+- third-party API cost: $0
+- terminal envelopes: 100/100
+- zero silent drops: yes
+- runner duration: about 94 seconds
+- request p50: 640 ms
+- request p95: 761 ms
 
-- the experiment uncovered and fixed a real wrong-domain failure mode;
-- the final frozen dev and zero-overlap validation runs each retained one manually verified domain and zero audited wrong-domain promotions;
-- the path is rights-safe and has zero third-party API cost;
-- coverage uplift is real but small;
-- sample size is insufficient to claim production-level 99.5% exact-domain precision;
-- request p95 is high because dead/slow candidate domains can consume the timeout budget.
+The single H1 promotion was the previously audited `arkjv.no` case. This demonstrates a real but modest coverage gain with comfortable resource headroom.
 
-The next H1 step is a larger frozen hard-negative audit plus request/runtime optimization. H1b search-provider work remains blocked until a provider's current plan/terms are explicitly approved.
+## H1b — licensed search-provider fallback
 
-## Promotion gate
+Only companies unresolved by registry website + H1a should reach H1b. Search output may nominate candidate URLs only; publication still requires independent fetch and exact-company proof.
 
-H1a or any later H1b provider may enter the competition runner only when all are true:
+H1b remains blocked on provider selection and rights review.
 
-1. Acquisition rights are documented for the exact plan/mode used.
-2. Candidate discovery and publication evidence remain separate.
-3. Every published domain has an independently fetched page URL, retrieval time, content hash and exact-entity reason.
-4. Human audit finds zero wrong-domain publications on the frozen development and zero-overlap validation sets.
-5. A larger frozen audit includes parent/franchise/namesake/service-provider hard negatives.
-6. Exact-domain precision meets the starter's conservative 99.5% target with zero wrong-company publications.
-7. Recall/coverage gain transfers to the zero-overlap validation corpus.
-8. Request/runtime/cost remain comfortably inside the final 100-company budget.
-9. Refresh/idempotency behavior is covered before final production promotion.
+### Brave Search API
 
-Until those production gates are satisfied, H1 remains an experiment even though its reusable infrastructure may live on `main`.
+Standard terms reviewed for this project are not approved for the H1 benchmark because of restrictions around retention and evaluating/benchmarking AI services. The existing Brave script remains reference/experimental unless custom terms explicitly permit our use.
+
+### Other providers
+
+Any Tavily/Serper/other search path remains `PLANNED / RIGHTS REVIEW` until exact plan terms, storage/transient handling, benchmark use and cost are documented.
+
+## Current decision
+
+- Keep H1a implementation, tests and qualification tooling on `main`.
+- Keep competition-runner integration **off by default**.
+- Use the flag for controlled benchmarks and later strategy-freeze experiments.
+- Do not lower the identity threshold to improve recall.
+- Do not touch the untouched final 200-company holdout yet.
+- Move development attention to H1b provider selection and/or company-owned signal extraction after the opt-in runner PR lands.
+
+## Promotion / strategy-freeze gate
+
+Before H1a becomes part of the final default submission strategy, require:
+
+1. current acquisition rights remain valid;
+2. candidate discovery and publication evidence stay separate;
+3. every promoted site has independently fetched URL/time/hash/exact-entity reasoning;
+4. no wrong-company publication appears in audited corpora;
+5. gain transfers beyond the original development examples;
+6. request/runtime/cost remain comfortably within the final 100-company budget;
+7. refresh/resume/idempotency semantics remain correct;
+8. final strategy is frozen before touching the untouched release holdout.
