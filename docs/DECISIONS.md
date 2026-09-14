@@ -56,6 +56,8 @@ Do not make evidence publishable by simply changing `rights_status` or `acquisit
 
 **Decision:** Where external evidence is worth pursuing, prefer an official API, licensed API/provider, company-authorized export, or permitted public page. Examples to evaluate include official Google Places and YouTube Data API paths.
 
+This decision is subordinate to D018: paid APIs are not part of the final strategy unless the user explicitly changes the zero-cost requirement.
+
 ## D011 — Do not build a new frontend early
 
 **Decision:** Use and, later, improve `scripts/build_prototype.py` unless a measured UX limitation justifies replacement. UX is 5 official points; engine coverage/correctness/refresh dominate scoring.
@@ -97,3 +99,11 @@ Do not destroy useful internal state just to make the external schema look corre
 **Decision:** Fast offline CI runs on every PR. Live network benchmarks are separate/manual or targeted because they download large snapshots and consume public/API requests.
 
 This prevents slow/flaky external access from weakening the core regression gate.
+
+## D018 — Final production strategy must remain zero-cost
+
+**Decision:** Target **$0 third-party API spend per 100-company run** and do not require paid APIs, paid search, paid places, paid news, or other metered commercial services in the final competition strategy.
+
+Free/public official sources and ordinary permitted public-page fetches remain allowed. A connector with a free introductory quota but a paid continuation path is not a production dependency.
+
+Existing paid-provider experiments may remain in the repository as dormant research code, but they must not be enabled by the final runner unless the user explicitly reverses this decision.
