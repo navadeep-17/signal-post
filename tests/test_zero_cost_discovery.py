@@ -89,7 +89,7 @@ def test_exact_org_number_on_page_is_strongest_h1c_proof():
     )
     assert result["publishable"] is True
     assert result["score"] == 1.0
-    assert result["method"] == "deterministic_domain_page_identity_guard_v2"
+    assert result["method"] == "deterministic_domain_page_identity_guard_v3"
 
 
 def test_full_legal_name_in_title_on_exact_domain_can_publish_without_org_number():
@@ -151,6 +151,49 @@ def test_registry_location_can_corroborate_full_name_after_redirect():
             title="Master Surgery Systems AS",
             text="Master Surgery Systems AS, Bekkajordet 8A, 3187 Horten.",
             final_url="https://mss-medical.no/",
+        ),
+        exact_assessment(),
+    )
+    assert result["publishable"] is True
+
+
+def test_single_token_name_title_and_domain_alone_are_not_enough():
+    item = profile(name="WEDO AS", org="914810795", municipality="RINGERIKE")
+    item["evidence"]["registry"]["value"] = {
+        "forretningsadresse.postnummer": "3514",
+        "forretningsadresse.poststed": "HØNEFOSS",
+        "forretningsadresse.kommune": "RINGERIKE",
+        "forretningsadresse.adresse": "Færdenbakken 19",
+    }
+    result = qualify_deterministic_domain_identity(
+        item,
+        "wedo.no",
+        website(
+            title="WeDo | Festival of Contemporary Polish Culture",
+            text="WeDo festival returns with events in Oslo.",
+            final_url="https://wedo.no/",
+        ),
+        exact_assessment(),
+    )
+    assert result["publishable"] is False
+    assert result["status"] == "review"
+
+
+def test_single_token_name_with_registry_location_can_publish():
+    item = profile(name="BRANDMAKER AS", org="982942942", municipality="BERGEN")
+    item["evidence"]["registry"]["value"] = {
+        "forretningsadresse.postnummer": "5014",
+        "forretningsadresse.poststed": "BERGEN",
+        "forretningsadresse.kommune": "BERGEN",
+        "forretningsadresse.adresse": "Rådhusgaten 2",
+    }
+    result = qualify_deterministic_domain_identity(
+        item,
+        "brandmaker.no",
+        website(
+            title="Webdesign Bergen - Brandmaker.no",
+            text="Kontakt Brandmaker AS. Rådhusgaten 2, 5014 Bergen.",
+            final_url="https://brandmaker.no/",
         ),
         exact_assessment(),
     )
