@@ -117,3 +117,15 @@ Publication still requires an independently fetched company page to contain eith
 **Rights/access basis:** Wikidata structured data is published under CC0. Programmatic access must follow Wikidata access best practices: identify the client with a proper User-Agent, request compressed responses, keep queries bounded, avoid fuzzy/text search through WDQS, and stop/abstain on service errors or throttling. Signalpost batches at most 100 exact IDs per query, performs no retries inside the connector, and keeps third-party API spend at $0.
 
 **Qualified evidence:** H1e fresh zero-overlap validation (seed `20260921`, excluding 2,800 prior/touched companies) improved verified websites from 16 to 17 on 300 companies with zero lost sites. The sole promotion, NORSKE SELSKAB (`971424079`) → `norskeselskab.no`, was manually verified against the current BRREG legal name/location and the independently fetched site. The structural conservative ceiling is 1,802 requests per 100 companies, below the official 2,000-request cap.
+
+## D020 — Do not promote low-yield company-site deep crawls without material recall gain
+
+**Decision:** Do not promote H2b company-owned dated activity or revive the existing company-careers experiment in their measured forms.
+
+**Why:** The H2b fresh zero-overlap run `34966322464` excluded 3,400 previously touched companies and evaluated a new 300-company cohort. Thirty-one companies had verified websites and all 31 had enough remaining site-request headroom for a production-compatible activity-page fetch, but only one company produced qualifying dated activity: 5 observations on CHIIJE AS. That is 1/300 = 0.33% company-level gain. The observations validated cleanly and the entity was manually corroborated, so precision was not the limiting factor; reach was.
+
+The older company-careers frozen-100 audit `34857612452` was weaker: 6 verified sites, 11 extra careers requests and 0 publishable observations.
+
+H2b could theoretically fit under the existing 1,802 conservative requests/100 ceiling by capturing activity links during the already-paid homepage fetch and using only remaining site-request headroom. We still decline production integration because the measured recall improvement is too small relative to the challenge's mandatory weighted external-company-recall gate.
+
+**Follow-up rule:** Future external-signal experiments must target sources with substantially broader company coverage than the current verified-site subset. Keep H2b/careers code experimental unless new evidence materially changes expected population reach.
