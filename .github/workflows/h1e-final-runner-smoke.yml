@@ -1,0 +1,121 @@
+name: H1e Final Runner Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/run_signalpost_final.py"
+      - "src/norway_company_agent/wikidata_*.py"
+      - "tests/test_final_orchestrator.py"
+      - ".github/workflows/h1e-final-runner-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked environment and run tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+      - name: Download current BRREG bulk
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+      - name: Create audited regression corpus
+        run: |
+          cat > h1e-final-smoke.jsonl <<'EOF'
+          {"organisation_number":"971424079","evaluation_split":"h1e_final_runner_smoke","sample_slice":"audited_positive"}
+          {"organisation_number":"933200353","evaluation_split":"h1e_final_runner_smoke","sample_slice":"known_wrong_domain"}
+          {"organisation_number":"925531618","evaluation_split":"h1e_final_runner_smoke","sample_slice":"known_wrong_domain"}
+          {"organisation_number":"983928323","evaluation_split":"h1e_final_runner_smoke","sample_slice":"known_wrong_domain"}
+          EOF
+      - name: Run production final runner with H1e
+        run: |
+          uv run python scripts/run_signalpost_final.py \
+            --organisations h1e-final-smoke.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/h1e-final-smoke.jsonl \
+            --report out/h1e-final-smoke-report.json \
+            --work-dir out/h1e-final-smoke-work \
+            --run-id h1e-final-runner-smoke \
+            --expected-count 4 \
+            --workers 4 \
+            --site-timeout 6 \
+            --wikidata-timeout 10 \
+            --max-challenge-requests 74 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 900
+      - name: Assert audited promotion and precision regressions
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/h1e-final-smoke-report.json').read_text())
+          assert report['passed'] is True, report
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          assert report['request_budget']['shared_wikidata_logical_requests'] == 1
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 74
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 74
+
+          profiles = [json.loads(line) for line in Path('out/h1e-final-smoke-work/profiles.jsonl').read_text().splitlines() if line.strip()]
+          by_org = {row['organisation_number']: row for row in profiles}
+
+          positive = by_org['971424079']
+          website = ((positive.get('evidence') or {}).get('website') or {})
+          value = website.get('value') or {}
+          assessment = value.get('identity_assessment') or {}
+          assert website.get('status') == 'available', website
+          assert website.get('source_type') == 'wikidata_official_website_candidate', website
+          assert assessment.get('publishable') is True, assessment
+          assert (value.get('registered_domain') or '') == 'norskeselskab.no', value
+
+          wrong = {
+              '933200353': 'oslomikrosement.no',
+              '925531618': 'okonomibistand.no',
+              '983928323': 'venstre.no',
+          }
+          for org, bad_domain in wrong.items():
+              record = ((by_org[org].get('evidence') or {}).get('website') or {})
+              candidate = record.get('value') or {}
+              identity = candidate.get('identity_assessment') or {}
+              published = record.get('status') == 'available' and bool(identity.get('publishable'))
+              url = str(candidate.get('final_url') or record.get('source_url') or '')
+              assert not (published and bad_domain in url), (org, url, identity)
+
+          print(json.dumps({
+              'production_h1e_promotion_verified': True,
+              'known_wrong_domains_quarantined': True,
+              'verified_site_sources': report['site_discovery']['selected_sources'],
+              'wikidata': report['site_discovery']['wikidata'],
+              'request_budget': report['request_budget'],
+          }, indent=2))
+          PY
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1e-final-runner-smoke
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            brreg-enheter.sha256
+            h1e-final-smoke.jsonl
+            out/h1e-final-smoke.jsonl
+            out/h1e-final-smoke-report.json
+            out/h1e-final-smoke-work/profiles.jsonl
