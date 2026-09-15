@@ -121,13 +121,30 @@ def evaluate_hyphenated_no_fallback(
     profile: dict[str, Any],
     *,
     timeout: float = 6.0,
+    base_site_logical_requests: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Evaluate H1g only inside request headroom left by unchanged production discovery."""
+    """Evaluate H1g only inside request headroom left by prior qualified discovery.
+
+    The standalone evaluator derives site requests from ``profile.run_metrics``. Production
+    orchestration can instead pass the already-measured site request count directly so the
+    same four-request ceiling remains authoritative while discovery is still in progress.
+    """
 
     row = deepcopy(profile)
     website = (row.get("evidence") or {}).get("website") or {}
     candidate = hyphenated_no_candidate(row)
-    base_site_requests = _base_site_logical_requests(row)
+    if base_site_logical_requests is None:
+        base_site_requests = _base_site_logical_requests(row)
+    else:
+        try:
+            requested = int(base_site_logical_requests)
+        except (TypeError, ValueError):
+            requested = -1
+        base_site_requests = (
+            requested
+            if 0 <= requested <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
+            else None
+        )
     result: dict[str, Any] = {
         "organisation_number": str(row.get("organisation_number") or ""),
         "candidate_available": bool(candidate),
