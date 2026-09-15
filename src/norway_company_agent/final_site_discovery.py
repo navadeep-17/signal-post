@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -37,26 +38,26 @@ BRREG_BULK_URL = "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv
 MAX_REDIRECTS_PER_REQUEST = 1
 MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE = 4
 SECONDARY_IDENTITY_TERMS = (
-    "kontakt",
-    "contact",
-    "kontaktinformasjon",
     "personvern",
-    "privacy",
     "privacy-policy",
-    "om-oss",
-    "om_oss",
-    "about",
+    "privacy",
     "legal",
     "impressum",
     "vilkar",
     "terms",
-    "company",
-    "company-info",
-    "firma",
-    "selskapsinfo",
     "organisasjonsnummer",
     "orgnr",
     "org-nr",
+    "selskapsinfo",
+    "company-info",
+    "kontaktinformasjon",
+    "kontakt",
+    "contact",
+    "om-oss",
+    "om_oss",
+    "about",
+    "company",
+    "firma",
 )
 IDENTITY_CONTAINER_TERMS = (
     "footer",
@@ -74,6 +75,10 @@ IDENTITY_CONTAINER_TERMS = (
     "org-nr",
     "address",
     "adresse",
+)
+EXPLICIT_ORG_NUMBER_RE = re.compile(
+    r"(?i)\b(?:organisasjonsnummer|org(?:anisasjons)?\.?\s*(?:nr|nummer)\.?)"
+    r"\s*[:#-]?\s*((?:\d[\s.\-]?){8}\d)\b"
 )
 
 
@@ -152,6 +157,65 @@ def _identity_text_excerpt(soup: BeautifulSoup, limit: int = 5000) -> str:
         chunks.append(chunk)
         used += len(chunk) + 1
     return "\n".join(chunks)[:limit]
+
+
+def _website_identity_text_parts(website: dict[str, Any]) -> list[str]:
+    """Return bounded fetched-page text used only for explicit legal-ID conflict checks."""
+    value = website.get("value") or {}
+    parts: list[Any] = [
+        value.get("title"),
+        value.get("description"),
+        value.get("identity_text_excerpt"),
+        value.get("main_text_excerpt"),
+        value.get("structured_organisations"),
+    ]
+    for page in value.get("pages") or []:
+        if not isinstance(page, dict):
+            continue
+        parts.extend([
+            page.get("title"),
+            page.get("identity_text_excerpt"),
+            page.get("main_text_excerpt"),
+        ])
+    return [str(part) for part in parts if str(part or "").strip()]
+
+
+def _explicit_org_numbers(website: dict[str, Any]) -> set[str]:
+    """Extract only nine-digit identifiers explicitly labelled as organisation numbers."""
+    found: set[str] = set()
+    for part in _website_identity_text_parts(website):
+        for match in EXPLICIT_ORG_NUMBER_RE.finditer(part):
+            digits = re.sub(r"\D", "", match.group(1))
+            if len(digits) == 9:
+                found.add(digits)
+    return found
+
+
+def _has_conflicting_explicit_org_number(profile: dict[str, Any], website: dict[str, Any]) -> bool:
+    """Reject explicit legal-ID proof for another entity unless the target ID also appears."""
+    target = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    observed = _explicit_org_numbers(website)
+    return len(target) == 9 and bool(observed) and target not in observed
+
+
+def _page_matches_registry_location_without_identity_excerpt(
+    profile: dict[str, Any],
+    website: dict[str, Any],
+) -> bool:
+    """Check location using pre-H1d content, excluding newly recovered footer/legal text."""
+    stripped = deepcopy(website)
+    value = stripped.get("value") or {}
+    value["identity_text_excerpt"] = ""
+    pages = []
+    for page in value.get("pages") or []:
+        if not isinstance(page, dict):
+            continue
+        item = dict(page)
+        item["identity_text_excerpt"] = ""
+        pages.append(item)
+    value["pages"] = pages
+    stripped["value"] = value
+    return _page_matches_registry_location(profile, stripped)
 
 
 def _secondary_identity_links(base_url: str, soup: BeautifulSoup) -> list[str]:
@@ -343,8 +407,9 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
     Order:
     1. registry website, when present; otherwise one registry-email-domain candidate;
     2. one deterministic legal-name .no candidate if still unresolved;
-    3. for H1c title+domain-only matches, one same-domain identity page only when two
-       logical requests remain. Without that budget, the weak candidate abstains.
+    3. for weak H1c matches, one same-domain legal/identity page only when two logical
+       requests remain. Recovered footer/location text can nominate this check but cannot
+       by itself bypass it unless the exact target organisation number is present.
 
     Every publication requires the existing exact-identity gates. H1c additionally passes
     the registry-risk guard. Failed guesses never replace a registry-linked terminal record.
@@ -454,17 +519,27 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
             candidate_record["value"] = value
 
         initially_selected = bool(assessment and assessment.get("publishable") and candidate_record.get("status") == "available")
+        if initially_selected and assessment is not None and _has_conflicting_explicit_org_number(row, candidate_record):
+            assessment = _secondary_required(
+                assessment,
+                "H1d independently fetched homepage explicitly identifies a different organisation number",
+            )
+            value = candidate_record.get("value") or {}
+            value["identity_assessment"] = assessment
+            candidate_record["value"] = value
+            initially_selected = False
+
         homepage_strong = bool(
             initially_selected
             and (
                 _page_contains_org_number(row, candidate_record)
-                or _page_matches_registry_location(row, candidate_record)
+                or _page_matches_registry_location_without_identity_excerpt(row, candidate_record)
             )
         )
         if initially_selected and not homepage_strong and assessment is not None:
             assessment = _secondary_required(
                 assessment,
-                "H1c title/domain match requires a same-domain identity page with organisation-number or registry-location corroboration",
+                "H1c title/domain or recovered-footer match requires a same-domain identity page with organisation-number or registry-location corroboration",
             )
             value = candidate_record.get("value") or {}
             value["identity_assessment"] = assessment
@@ -481,7 +556,12 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
                 _add_metrics(total, secondary_ops)
                 evidence_map["website_h1c_secondary_identity"] = secondary_record
                 merged = _merge_secondary_page(candidate_record, secondary_record)
-                if merged and (
+                if merged and _has_conflicting_explicit_org_number(row, candidate_record):
+                    assessment = _secondary_required(
+                        assessment,
+                        "same-domain legal/identity page explicitly identifies a different organisation number",
+                    )
+                elif merged and (
                     _page_contains_org_number(row, candidate_record)
                     or _page_matches_registry_location(row, candidate_record)
                 ):
@@ -529,7 +609,7 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
                 "secondary_identity_verified": total["h1c_secondary_verified"],
                 "third_party_cost_usd": 0.0,
             },
-            note="One deterministic .no candidate independently fetched; weak title/domain matches require bounded secondary identity corroboration.",
+            note="One deterministic .no candidate independently fetched; weak title/domain or recovered-footer matches require bounded secondary identity corroboration.",
             content_sha256=candidate_record.get("content_sha256"),
         )
         evidence_map["website_discovered_zero_cost"] = candidate_record
