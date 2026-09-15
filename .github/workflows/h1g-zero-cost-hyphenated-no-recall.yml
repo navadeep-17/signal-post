@@ -1,4 +1,4 @@
-name: H1g Zero-Cost Hyphenated NO Recall Qualification
+name: H1g Integrated Production Qualification
 
 on:
   workflow_dispatch:
@@ -7,8 +7,9 @@ on:
       - "experiment/h1g-zero-cost-hyphenated-no-recall"
     paths:
       - "src/norway_company_agent/h1g_hyphenated_no_recall.py"
-      - "scripts/evaluate_h1g_hyphenated_no_recall.py"
+      - "scripts/run_signalpost_final.py"
       - "tests/test_h1g_hyphenated_no_recall.py"
+      - "tests/test_h1g_final_runner_integration.py"
       - ".github/workflows/h1g-zero-cost-hyphenated-no-recall.yml"
 
 permissions:
@@ -32,7 +33,7 @@ jobs:
       - name: Sync and run regressions
         run: |
           uv sync --locked
-          uv run --with pytest pytest -q tests/test_h1g_hyphenated_no_recall.py
+          uv run --with pytest pytest -q tests/test_h1g_hyphenated_no_recall.py tests/test_h1g_final_runner_integration.py
           uv run --with pytest pytest -q
 
       - name: Download official BRREG bulk registry
@@ -198,16 +199,16 @@ jobs:
           print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
           PY
 
-      - name: Run unchanged production pipeline on fresh H1g 300
+      - name: Run integrated production pipeline on fresh H1g 300
         run: |
           mkdir -p out
           uv run python scripts/run_signalpost_final.py \
             --organisations fresh-h1g-300.jsonl \
             --bulk brreg-enheter.csv \
-            --output out/base-final.jsonl \
-            --report out/base-report.json \
-            --work-dir out/base-work \
-            --run-id h1g-fresh-production-baseline \
+            --output out/integrated-final.jsonl \
+            --report out/integrated-report.json \
+            --work-dir out/integrated-work \
+            --run-id h1g-integrated-production-qualification \
             --expected-count 300 \
             --workers 8 \
             --site-timeout 6 \
@@ -215,56 +216,63 @@ jobs:
             --max-third-party-cost-usd 0 \
             --max-wall-runtime-seconds 2400
 
-      - name: Evaluate H1g only inside unused request headroom
-        run: |
-          uv run python scripts/evaluate_h1g_hyphenated_no_recall.py \
-            --profiles out/base-work/profiles.jsonl \
-            --base-report out/base-report.json \
-            --output-profiles out/h1g-profiles.jsonl \
-            --audit out/h1g-audit.jsonl \
-            --report out/h1g-report.json \
-            --workers 8 \
-            --timeout 6
-
-      - name: Verify H1g qualification invariants
+      - name: Verify integrated H1g invariants
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
-          base = json.loads(Path('out/base-report.json').read_text())
-          h1g = json.loads(Path('out/h1g-report.json').read_text())
+
+          report = json.loads(Path('out/integrated-report.json').read_text())
           selection = json.loads(Path('fresh-h1g-selection.json').read_text())
-          assert base['passed'] is True, base
-          assert h1g['passed'] is True, h1g
-          assert selection['count'] == 300
-          assert selection['excluded_rows'] == 4300
-          assert selection['overlap_count'] == 0
-          assert h1g['third_party_cost_usd_added'] == 0.0
-          assert h1g['request_budget']['post_h1g_conservative_challenge_request_charge'] <= 5406
-          assert h1g['request_budget']['theoretical_challenge_request_charge_ceiling'] == 5406
-          assert not h1g['validation_errors']
-          assert not h1g['budget_violations']
+          profiles = [
+              json.loads(line)
+              for line in Path('out/integrated-work/profiles.jsonl').read_text().splitlines()
+              if line.strip()
+          ]
+
+          assert report['passed'] is True, report
+          assert selection['count'] == 300, selection
+          assert selection['excluded_rows'] == 4300, selection
+          assert selection['overlap_count'] == 0, selection
+          assert report['final_objects'] == 300, report
+          assert report['source_policy']['third_party_cost_usd'] == 0.0, report
+          assert report['source_policy']['h1g_hyphenated_no_fallback_enabled'] is True, report
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 5406, report
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 5406, report
+          assert not report['external_signals']['validation_errors'], report
+
+          selected = report['site_discovery']['selected_sources']
+          h1g_verified = int(selected.get('h1g_hyphenated_no', 0))
+          assert h1g_verified == int(report['site_discovery']['h1g']['verified']), report
+          h1g_evidence_rows = sum(
+              1
+              for profile in profiles
+              if 'website_h1g_hyphenated_no_discovery' in (profile.get('evidence') or {})
+          )
+          assert h1g_evidence_rows == int(report['site_discovery']['h1g']['attempted']), report
+
           summary = {
               'fresh_companies': 300,
               'fresh_manifest_sha256': Path('fresh-h1g-manifest.sha256').read_text().strip(),
-              'base_verified_websites': base['site_discovery']['profiles_with_verified_site'],
-              'h1g_attempted': h1g['attempted'],
-              'h1g_verified': h1g['verified'],
-              'net_new_verified_websites': h1g['net_new_verified_websites'],
-              'requests_added': h1g['requests_added'],
-              'post_h1g_conservative_challenge_request_charge': h1g['request_budget']['post_h1g_conservative_challenge_request_charge'],
-              'structural_ceiling': h1g['request_budget']['theoretical_challenge_request_charge_ceiling'],
-              'third_party_cost_usd_added': 0.0,
-              'downstream_zero_network_gain': h1g['downstream_zero_network_gain'],
+              'verified_websites': report['site_discovery']['profiles_with_verified_site'],
+              'h1g_attempted': report['site_discovery']['h1g']['attempted'],
+              'h1g_verified': h1g_verified,
+              'contact_email_observations': report['external_signals']['contact_email_observations'],
+              'companies_with_contact_emails': report['external_signals']['companies_with_contact_emails'],
+              'observed_conservative_challenge_request_charge': report['request_budget']['observed_conservative_challenge_request_charge'],
+              'structural_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
+              'third_party_cost_usd': report['source_policy']['third_party_cost_usd'],
           }
-          Path('out/h1g-qualification-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
+          Path('out/h1g-integrated-qualification-summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n'
+          )
           print(json.dumps(summary, ensure_ascii=False, indent=2))
           PY
 
-      - name: Upload H1g qualification artifacts
+      - name: Upload integrated H1g qualification artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: h1g-zero-cost-hyphenated-no-recall
+          name: h1g-integrated-production-qualification
           if-no-files-found: error
           path: |
             signalpost-universe.sha256
@@ -272,10 +280,8 @@ jobs:
             fresh-h1g-300.jsonl
             fresh-h1g-selection.json
             fresh-h1g-manifest.sha256
-            out/base-report.json
-            out/base-final.jsonl
-            out/base-work/profiles.jsonl
-            out/h1g-profiles.jsonl
-            out/h1g-audit.jsonl
-            out/h1g-report.json
-            out/h1g-qualification-summary.json
+            out/integrated-report.json
+            out/integrated-final.jsonl
+            out/integrated-work/profiles.jsonl
+            out/integrated-work/internal-envelopes.jsonl
+            out/h1g-integrated-qualification-summary.json
