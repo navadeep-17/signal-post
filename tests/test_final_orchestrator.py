@@ -13,6 +13,7 @@ import norway_company_agent.http as http_module  # noqa: E402
 from norway_company_agent.evidence import evidence  # noqa: E402
 from norway_company_agent.http import FetchResult, fetch_json  # noqa: E402
 from norway_company_agent.run_budget import RunBudget  # noqa: E402
+from norway_company_agent.wikidata_discovery import theoretical_wikidata_lookup_requests  # noqa: E402
 
 
 def website_record(*, status="available", title="Example AS", main_text="Example AS builds reliable systems. " * 8):
@@ -79,6 +80,26 @@ def test_run_budget_proves_1800_request_ceiling_for_100_companies():
     assert budget.charge_requests(logical) == 1800
     assert budget.validate(logical_requests=logical, third_party_cost_usd=0.0, wall_runtime_seconds=100) == []
     assert budget.validate(logical_requests=901, third_party_cost_usd=0.0, wall_runtime_seconds=100)
+
+
+def test_h1e_final_runner_proves_1802_request_ceiling_for_100_companies():
+    budget = RunBudget(max_challenge_requests=1802)
+    shared = theoretical_wikidata_lookup_requests(100)
+    logical = 100 * 9 + shared
+    assert shared == 1
+    assert logical == 901
+    assert budget.charge_requests(logical) == 1802
+    assert budget.validate(logical_requests=logical, third_party_cost_usd=0.0, wall_runtime_seconds=100) == []
+
+
+def test_h1e_final_runner_scales_shared_lookup_ceiling_in_batches():
+    budget = RunBudget(max_challenge_requests=5406)
+    shared = theoretical_wikidata_lookup_requests(300)
+    logical = 300 * 9 + shared
+    assert shared == 3
+    assert logical == 2703
+    assert budget.charge_requests(logical) == 5406
+    assert budget.validate(logical_requests=logical, third_party_cost_usd=0.0, wall_runtime_seconds=100) == []
 
 
 def test_robots_allowed_parses_url_without_local_import_scope_error(monkeypatch):
