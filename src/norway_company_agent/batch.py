@@ -10,6 +10,8 @@ from .official import accounting_obligation_assessment
 from .sampling import iter_bulk
 
 
+REGISTRY_BULK_URL = "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv"
+
 TERMINAL_STATES = {
     "complete",
     "not_applicable",
@@ -55,6 +57,50 @@ def read_organisation_numbers(path: str | Path) -> list[str]:
     return [record["organisation_number"] for record in read_organisation_inputs(path)]
 
 
+def _snapshot_missing_profile(
+    organisation_number: str,
+    *,
+    retrieved_at: str,
+    snapshot_sha256: str,
+) -> dict[str, Any]:
+    """Represent snapshot drift explicitly instead of dropping or inventing an entity.
+
+    The final runner will still attempt the independently counted live official modules for
+    this organisation number. Until then, no legal name, form, address or accounting status
+    is inferred from a row that is absent from the frozen/current bulk snapshot.
+    """
+    note = "Organisation number is absent from the supplied BRREG bulk registry snapshot."
+    return {
+        "organisation_number": organisation_number,
+        "registry_snapshot_missing": True,
+        "evidence": {
+            "registry": evidence(
+                "registry",
+                "not_found",
+                "official_registry_bulk",
+                REGISTRY_BULK_URL,
+                note=note,
+                retrieved_at=retrieved_at,
+                content_sha256=snapshot_sha256,
+                source_row_key=organisation_number,
+            ),
+            "accounting_obligation": evidence(
+                "accounting_obligation",
+                "not_found",
+                "official_registry_bulk_dependency",
+                REGISTRY_BULK_URL,
+                note=(
+                    "Accounting-obligation classification is unavailable because the "
+                    "organisation is absent from the supplied BRREG bulk snapshot."
+                ),
+                retrieved_at=retrieved_at,
+                content_sha256=snapshot_sha256,
+                source_row_key=organisation_number,
+            ),
+        },
+    }
+
+
 def profiles_from_bulk(path: str | Path, organisation_numbers: Iterable[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     requested = list(organisation_numbers)
     wanted = set(requested)
@@ -73,7 +119,7 @@ def profiles_from_bulk(path: str | Path, organisation_numbers: Iterable[str]) ->
                 "registry",
                 "available",
                 "official_registry_bulk",
-                "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv",
+                REGISTRY_BULK_URL,
                 value=raw,
                 retrieved_at=retrieved_at,
                 content_sha256=snapshot_sha256,
@@ -84,14 +130,23 @@ def profiles_from_bulk(path: str | Path, organisation_numbers: Iterable[str]) ->
         found[org] = profile
         if len(found) == len(wanted):
             break
+
+    snapshot_selected = len(found)
     missing = [org for org in requested if org not in found]
-    if missing:
-        raise ValueError(f"Organisation numbers absent from registry snapshot: {missing[:10]}")
+    for org in missing:
+        found[org] = _snapshot_missing_profile(
+            org,
+            retrieved_at=retrieved_at,
+            snapshot_sha256=snapshot_sha256,
+        )
+
     return [found[org] for org in requested], {
         "registry_snapshot_sha256": snapshot_sha256,
         "registry_rows_scanned": scanned,
         "requested": len(requested),
-        "selected": len(found),
+        "selected": snapshot_selected,
+        "missing_count": len(missing),
+        "missing_organisation_numbers": missing,
     }
 
 
