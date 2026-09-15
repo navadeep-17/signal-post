@@ -6,6 +6,7 @@ on:
     branches:
       - "experiment/h2a-company-social-observations"
     paths:
+      - "scripts/run_signalpost_final.py"
       - "src/norway_company_agent/company_site_social.py"
       - "src/norway_company_agent/external_contract.py"
       - "scripts/apply_h2a_social_observations.py"
@@ -13,6 +14,10 @@ on:
       - "tests/test_h2a_external_contract.py"
       - "validation/h1e-fresh-300-exclusion.jsonl"
       - ".github/workflows/h2a-social-qualification.yml"
+
+concurrency:
+  group: h2a-company-social-qualification
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -38,14 +43,16 @@ jobs:
           uv run --with pytest pytest -q tests/test_company_site_social.py tests/test_h2a_external_contract.py
           uv run --with pytest pytest -q
 
-      - name: Assert production runner is unchanged from main
+      - name: Assert request and discovery primitives are unchanged from main
         run: |
           git fetch origin main
           git diff --exit-code origin/main -- \
-            scripts/run_signalpost_final.py \
             src/norway_company_agent/output_contract.py \
             src/norway_company_agent/final_site_discovery.py \
-            src/norway_company_agent/wikidata_discovery.py
+            src/norway_company_agent/wikidata_discovery.py \
+            src/norway_company_agent/run_budget.py \
+            src/norway_company_agent/http.py \
+            src/norway_company_agent/official.py
           git rev-parse origin/main > baseline-main.sha
           git rev-parse HEAD > h2a-code.sha
 
@@ -186,20 +193,21 @@ jobs:
           assert report['excluded_rows'] == 3100, report
           assert report['overlap_count'] == 0, report
           digest = hashlib.sha256(Path('fresh-h2a-300.jsonl').read_bytes()).hexdigest()
+          assert digest == '1d1da002538c0a493303934de53925984c36f641bef2e7623df48897b2e4a88f', digest
           Path('fresh-h2a-manifest.sha256').write_text(digest + '\n')
           print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
           PY
 
-      - name: Run unchanged production pipeline on fresh H2a 300
+      - name: Run integrated production pipeline on fresh H2a 300
         run: |
           mkdir -p out
           uv run python scripts/run_signalpost_final.py \
             --organisations fresh-h2a-300.jsonl \
             --bulk brreg-enheter.csv \
-            --output out/base-final.jsonl \
-            --report out/base-report.json \
-            --work-dir out/base-work \
-            --run-id h2a-fresh-production-base \
+            --output out/h2a-final.jsonl \
+            --report out/h2a-report.json \
+            --work-dir out/h2a-work \
+            --run-id h2a-fresh-integrated \
             --expected-count 300 \
             --workers 8 \
             --site-timeout 6 \
@@ -207,17 +215,7 @@ jobs:
             --max-third-party-cost-usd 0 \
             --max-wall-runtime-seconds 2400
 
-      - name: Apply zero-network H2a observations
-        run: |
-          uv run python scripts/apply_h2a_social_observations.py \
-            --profiles out/base-work/profiles.jsonl \
-            --contracts out/base-final.jsonl \
-            --base-report out/base-report.json \
-            --profiles-output out/h2a-profiles.jsonl \
-            --contracts-output out/h2a-final.jsonl \
-            --report out/h2a-report.json
-
-      - name: Build H2a manual-audit sheet and verify invariants
+      - name: Verify integrated H2a invariants and build audit sheet
         run: |
           uv run python - <<'PY'
           import json
@@ -226,10 +224,22 @@ jobs:
           def read_jsonl(path):
               return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
 
-          profiles = read_jsonl('out/h2a-profiles.jsonl')
+          profiles = read_jsonl('out/h2a-work/profiles.jsonl')
           contracts = read_jsonl('out/h2a-final.jsonl')
           report = json.loads(Path('out/h2a-report.json').read_text())
-          base_report = json.loads(Path('out/base-report.json').read_text())
+          assert len(profiles) == len(contracts) == 300
+          assert report['passed'] is True, report
+          assert report['source_policy']['third_party_cost_usd'] == 0.0, report
+          assert report['source_policy']['search_api_requests'] == 0, report
+          assert report['source_policy']['social_platform_requests'] == 0, report
+          assert report['external_signals']['social_platform_requests'] == 0, report
+          assert report['external_signals']['validation_errors'] == [], report
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 5406, report
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 5406, report
+          assert report['request_budget']['max_challenge_requests'] == 5406, report
+          assert report['contract_errors'] == [], report
+          assert report['budget_errors'] == [], report
+
           audit = []
           observed = {}
           for profile in profiles:
@@ -277,15 +287,8 @@ jobs:
               else:
                   assert not social_claims, (org, social_claims)
 
-          assert report['passed'] is True, report
-          assert report['network_requests_added'] == 0, report
-          assert report['third_party_cost_usd_added'] == 0.0, report
-          assert report['observation_errors'] == [], report
-          assert report['contract_errors'] == [], report
-          assert report['post_h2a_observed_logical_requests'] == report['base_observed_logical_requests'], report
-          assert report['post_h2a_observed_conservative_requests'] == report['base_observed_conservative_requests'], report
-          assert base_report['passed'] is True, base_report
-          assert base_report['request_budget']['observed_conservative_challenge_request_charge'] <= 5406, base_report
+          assert report['external_signals']['profile_handle_observations'] == len(audit), report
+          assert report['external_signals']['companies_with_profile_handles'] == len({row['organisation_number'] for row in audit}), report
 
           Path('out/h2a-audit.jsonl').write_text(
               ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in audit),
@@ -295,10 +298,11 @@ jobs:
               'fresh_companies': 300,
               'profile_handle_observations': len(audit),
               'companies_with_handles': len({row['organisation_number'] for row in audit}),
-              'platform_counts': report['platform_counts'],
-              'network_requests_added': 0,
-              'third_party_cost_usd_added': 0.0,
-              'base_conservative_requests': report['base_observed_conservative_requests'],
+              'platform_counts': report['external_signals']['platform_counts'],
+              'social_platform_requests': 0,
+              'third_party_cost_usd': 0.0,
+              'observed_conservative_requests': report['request_budget']['observed_conservative_challenge_request_charge'],
+              'theoretical_conservative_request_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
               'fresh_manifest_sha256': Path('fresh-h2a-manifest.sha256').read_text().strip(),
           }
           Path('out/h2a-qualification-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
@@ -318,11 +322,8 @@ jobs:
             fresh-h2a-300.jsonl
             fresh-h2a-selection.json
             fresh-h2a-manifest.sha256
-            out/base-report.json
-            out/base-final.jsonl
-            out/base-work/profiles.jsonl
             out/h2a-report.json
-            out/h2a-profiles.jsonl
             out/h2a-final.jsonl
+            out/h2a-work/profiles.jsonl
             out/h2a-audit.jsonl
             out/h2a-qualification-summary.json
