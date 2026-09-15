@@ -111,6 +111,38 @@ def test_abstains_when_source_hash_or_timestamp_is_missing_or_mismatched() -> No
     assert company_site_social_observations(page_hash_mismatch) == []
 
 
+def test_rejects_nested_social_hostname_artifact() -> None:
+    profile = _profile()
+    profile["evidence"]["website"]["value"]["social_link_assessments"] = [
+        {
+            "platform": "instagram",
+            "url": "https://instagram.com/nummerti/www.instagram.com/webnode_ag",
+            "identity_score": 0.98,
+            "publishable": True,
+            "matched_tokens": ["nummerti"],
+            "method": "deterministic_social_handle_identity_v1",
+        }
+    ]
+    assert company_site_social_observations(profile) == []
+
+
+def test_accepts_canonical_facebook_p_page_shape() -> None:
+    profile = _profile()
+    profile["evidence"]["website"]["value"]["social_link_assessments"] = [
+        {
+            "platform": "facebook",
+            "url": "https://facebook.com/p/Example-AS-61555049420983",
+            "identity_score": 0.98,
+            "publishable": True,
+            "matched_tokens": ["example"],
+            "method": "deterministic_social_handle_identity_v1",
+        }
+    ]
+    observations = company_site_social_observations(profile)
+    assert len(observations) == 1
+    assert observations[0]["profile_url"] == "https://facebook.com/p/Example-AS-61555049420983"
+
+
 def test_attach_preserves_other_external_observations_and_is_idempotent() -> None:
     profile = _profile()
     profile["external_observations"] = [
