@@ -8,6 +8,8 @@ on:
     paths:
       - "src/norway_company_agent/http.py"
       - "src/norway_company_agent/final_site_discovery.py"
+      - "src/norway_company_agent/wikidata_discovery.py"
+      - "src/norway_company_agent/wikidata_fallback.py"
       - "src/norway_company_agent/run_budget.py"
       - "scripts/run_signalpost_final.py"
       - "tests/test_final_orchestrator.py"
@@ -71,7 +73,8 @@ jobs:
             --expected-count 100 \
             --workers 8 \
             --site-timeout 6 \
-            --max-challenge-requests 1800 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 1802 \
             --max-third-party-cost-usd 0 \
             --max-wall-runtime-seconds 2400
       - name: Verify final evaluator hard gates
@@ -86,11 +89,14 @@ jobs:
           assert len(rows) == 100
           assert len({row['organisation_number'] for row in rows}) == 100
           assert all(row['run']['terminal_status'] == 'completed' for row in rows)
-          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 1800
-          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 1800
+          assert report['request_budget']['shared_wikidata_logical_request_ceiling'] == 1
+          assert report['request_budget']['shared_wikidata_logical_requests'] == 1
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 1802
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 1802
           assert report['source_policy']['third_party_cost_usd'] == 0.0
           assert report['source_policy']['search_api_requests'] == 0
           assert report['source_policy']['experimental_connectors_enabled'] is False
+          assert report['source_policy']['wikidata_candidate_discovery_enabled'] is True
           assert report['runtime']['wall_runtime_seconds'] <= 2400
           assert report['contract_errors'] == []
           assert report['change_errors'] == []
