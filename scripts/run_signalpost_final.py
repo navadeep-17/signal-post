@@ -77,6 +77,21 @@ def _percentile(values: list[int], fraction: float) -> int | None:
     return ordered[min(len(ordered) - 1, int((len(ordered) - 1) * fraction))]
 
 
+def _canonical_verified_site_source(profile: dict[str, Any]) -> str:
+    """Classify the final canonical website evidence, not transient discovery metrics."""
+    website = ((profile.get("evidence") or {}).get("website") or {})
+    assessment = ((website.get("value") or {}).get("identity_assessment") or {})
+    if website.get("status") != "available" or not assessment.get("publishable"):
+        return "none"
+    source_type = str(website.get("source_type") or "")
+    mapping = {
+        "registry_linked_company_website": "registry_website",
+        "registry_email_domain_candidate_website": "registry_email_domain",
+        "deterministic_legal_name_domain_guess": "h1c_deterministic_domain",
+    }
+    return mapping.get(source_type, f"verified:{source_type}" if source_type else "verified:unknown")
+
+
 def _enrich_profile(
     profile: dict[str, Any],
     *,
@@ -199,17 +214,15 @@ def main() -> None:
                 profile[key] = annotations[profile["organisation_number"]][key]
 
     state: dict[str, dict[str, Any]] = {}
-    per_profile_reports: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(_enrich_profile, profile, budget=budget, site_timeout=args.site_timeout): profile["organisation_number"]
             for profile in profiles
         }
         for future in as_completed(futures):
-            profile, profile_report = future.result()
+            profile, _profile_report = future.result()
             org = profile["organisation_number"]
             state[org] = profile
-            per_profile_reports[org] = profile_report
 
     completed_at = utc_now()
     ordered_profiles = [state[org] for org in orgs]
@@ -275,9 +288,12 @@ def main() -> None:
         if value is not None
     ]
     selected_sources: dict[str, int] = {}
-    for org in orgs:
-        source = str((per_profile_reports[org].get("site") or {}).get("selected_source") or "none")
+    for profile in ordered_profiles:
+        source = _canonical_verified_site_source(profile)
         selected_sources[source] = selected_sources.get(source, 0) + 1
+    verified_site_count = sum(
+        count for source, count in selected_sources.items() if source != "none"
+    )
 
     checks = {
         "internal_envelopes_valid": bool(internal_validation.get("passed")),
@@ -289,6 +305,7 @@ def main() -> None:
         "budget_valid": not budget_errors,
         "zero_third_party_cost": THIRD_PARTY_COST_USD == 0.0,
         "theoretical_request_ceiling_within_budget": theoretical_charge_ceiling <= args.max_challenge_requests,
+        "site_source_accounting_consistent": sum(selected_sources.values()) == len(ordered_profiles),
     }
 
     write_jsonl(work_dir / "profiles.jsonl", ordered_profiles)
@@ -332,12 +349,7 @@ def main() -> None:
         },
         "site_discovery": {
             "selected_sources": dict(sorted(selected_sources.items())),
-            "profiles_with_verified_site": sum(
-                1
-                for profile in ordered_profiles
-                if ((profile.get("evidence") or {}).get("website") or {}).get("status") == "available"
-                and bool((((profile.get("evidence") or {}).get("website") or {}).get("value") or {}).get("identity_assessment", {}).get("publishable"))
-            ),
+            "profiles_with_verified_site": verified_site_count,
         },
         "refresh_events": len(refresh_events),
         "claims": sum(len(item.get("claims") or []) for item in projected),
