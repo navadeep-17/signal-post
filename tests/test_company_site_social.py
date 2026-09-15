@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
+import sys
 
-from norway_company_agent.company_site_social import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.company_site_social import (  # noqa: E402
     attach_company_site_social_observations,
     company_site_social_observations,
 )
-from norway_company_agent.external_footprint import publishable_observation, validate_observation
+from norway_company_agent.external_footprint import publishable_observation, validate_observation  # noqa: E402
 
 
 def _profile() -> dict:
