@@ -29,6 +29,13 @@ def _org(value: Any) -> str:
     return digits
 
 
+def _strict_registry_org(row: dict[str, Any]) -> str | None:
+    value = str(row.get("organisation_number") or "").strip()
+    if len(value) != 9 or not value.isascii() or not value.isdigit():
+        return None
+    return value
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with _open_text(path) as handle:
@@ -83,9 +90,13 @@ def main() -> None:
 
     registry_orgs: set[str] = set()
     registry_rows = 0
+    malformed_registry_org_rows = 0
     for row in iter_bulk(registry_path):
         registry_rows += 1
-        org = _org(row)
+        org = _strict_registry_org(row)
+        if org is None:
+            malformed_registry_org_rows += 1
+            continue
         if org in registry_orgs:
             raise ValueError(f"Current BRREG bulk contains duplicate organisation number: {org}")
         registry_orgs.add(org)
@@ -126,6 +137,7 @@ def main() -> None:
         "excluded_rows": len(excluded),
         "registry_rows": registry_rows,
         "registry_unique_orgs": len(registry_orgs),
+        "malformed_registry_org_rows": malformed_registry_org_rows,
         "universe_rows_present_in_registry": len(universe_orgs & registry_orgs),
         "eligible_rows": len(eligible),
         "overlap_count": len(overlap),
