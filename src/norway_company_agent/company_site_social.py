@@ -1,7 +1,71 @@
 from __future__ import annotations
 
 import hashlib
+import urllib.parse
 from typing import Any
+
+
+SOCIAL_PROFILE_HOSTS = {
+    "linkedin": "linkedin.com",
+    "facebook": "facebook.com",
+    "instagram": "instagram.com",
+    "x": "x.com",
+    "youtube": "youtube.com",
+    "tiktok": "tiktok.com",
+}
+
+
+def _safe_profile_url(platform: str, profile_url: str) -> bool:
+    """Reject malformed or non-profile social URLs before they become claims.
+
+    Website extraction normalizes social links broadly enough to preserve candidates for
+    later review. H2a is a publication gate, so it is intentionally stricter: the host
+    must match the declared platform and the path must have a profile-shaped structure.
+    This also rejects nested-host artifacts such as
+    ``instagram.com/company/www.instagram.com/vendor`` that can be created by malformed
+    relative links in site-builder templates.
+    """
+
+    expected_host = SOCIAL_PROFILE_HOSTS.get(platform)
+    if not expected_host:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(profile_url)
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").casefold().removeprefix("www.")
+    if parsed.scheme not in {"http", "https"} or host != expected_host:
+        return False
+
+    raw_parts = [urllib.parse.unquote(part).strip() for part in parsed.path.split("/") if part.strip()]
+    lowered = [part.casefold() for part in raw_parts]
+    if not raw_parts:
+        return False
+
+    # A path component that embeds another social hostname/URL is not a canonical profile
+    # identifier. This specifically blocks stale site-builder attribution/link concatenation.
+    social_domains = tuple(SOCIAL_PROFILE_HOSTS.values())
+    for part in lowered:
+        if part.startswith(("http:", "https:", "www.")):
+            return False
+        if any(domain in part for domain in social_domains):
+            return False
+
+    if platform == "linkedin":
+        return len(raw_parts) == 2 and lowered[0] == "company"
+    if platform in {"instagram", "x"}:
+        return len(raw_parts) == 1
+    if platform == "tiktok":
+        return len(raw_parts) == 1 and raw_parts[0].startswith("@")
+    if platform == "youtube":
+        if len(raw_parts) == 1:
+            return raw_parts[0].startswith("@")
+        return len(raw_parts) == 2 and lowered[0] in {"channel", "user", "c"}
+    if platform == "facebook":
+        # Current Facebook page URLs are normally one slug. The modern /p/<name-id>
+        # form is also a canonical page shape and is retained.
+        return len(raw_parts) == 1 or (len(raw_parts) == 2 and lowered[0] == "p")
+    return False
 
 
 def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -48,7 +112,7 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
             continue
         platform = str(item.get("platform") or "").strip()
         profile_url = str(item.get("url") or "").strip()
-        if not platform or not profile_url.startswith(("http://", "https://")):
+        if not platform or not _safe_profile_url(platform, profile_url):
             continue
 
         observation_id = "company-site-handle-" + hashlib.sha256(
