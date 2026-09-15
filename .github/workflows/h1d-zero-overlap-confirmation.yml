@@ -1,0 +1,315 @@
+name: H1d Zero-Overlap Confirmation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "validation/h1d-zero-overlap-confirmation"
+    paths:
+      - ".github/workflows/h1d-zero-overlap-confirmation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  confirm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and test frozen H1d code
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate and freeze all previously used 1900 companies
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 \
+            --seed 20260915 \
+            --output known-validation-300.jsonl \
+            --report known-validation-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1300.jsonl \
+            --count 300 \
+            --seed 20260916 \
+            --evaluation-split h1c_secondary_confirmation \
+            --sample-slice fresh_external_precision_validation \
+            --output prior-h1c-fresh-300.jsonl \
+            --report prior-h1c-fresh-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1600.jsonl \
+            --count 300 \
+            --seed 20260917 \
+            --evaluation-split h1d_recall_recovery \
+            --sample-slice fresh_zero_cost_site_recall_validation \
+            --output prior-h1d-fresh-300.jsonl \
+            --report prior-h1d-fresh-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          expected = {
+              'known-validation-300.jsonl': '4248438faa42508f7721bdb83002fe15c81735dbf3f97878eba271078864fda5',
+              'prior-h1c-fresh-300.jsonl': '7c0d1ae4355edf1e2b282ebc386b7874eb6c3cbc36e5b01f0685069cbcd38d83',
+              'prior-h1d-fresh-300.jsonl': 'a05a38c86526babcf90c013230e406888d9e00a942e8fef40653e03b0c53aa7a',
+          }
+          for path, wanted in expected.items():
+              actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+              assert actual == wanted, (path, actual, wanted)
+
+          for report_path in (
+              'known-validation-selection.json',
+              'prior-h1c-fresh-selection.json',
+              'prior-h1d-fresh-selection.json',
+          ):
+              report = json.loads(Path(report_path).read_text())
+              assert report['overlap_count'] == 0, (report_path, report)
+
+          print(json.dumps(expected, indent=2))
+          PY
+
+          cat entry-companies.jsonl known-validation-300.jsonl prior-h1c-fresh-300.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+          test "$(wc -l < exclude-1900.jsonl)" -eq 1900
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-1900.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == 1900
+          assert len(set(orgs)) == 1900
+          print(json.dumps({'excluded_rows': len(rows), 'unique_orgs': len(set(orgs))}, indent=2))
+          PY
+
+      - name: Select brand-new confirmation 300 excluding all prior 1900
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1900.jsonl \
+            --count 300 \
+            --seed 20260918 \
+            --evaluation-split h1d_zero_overlap_confirmation \
+            --sample-slice fresh_transfer_validation \
+            --output confirmation-300.jsonl \
+            --report confirmation-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report = json.loads(Path('confirmation-selection.json').read_text())
+          assert report['count'] == 300, report
+          assert report['excluded_rows'] == 1900, report
+          assert report['overlap_count'] == 0, report
+          digest = hashlib.sha256(Path('confirmation-300.jsonl').read_bytes()).hexdigest()
+          Path('confirmation-manifest.sha256').write_text(digest + '\n')
+          print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
+          PY
+
+      - name: Prepare current-main baseline worktree
+        run: |
+          git fetch origin main
+          BASE_SHA="$(git merge-base HEAD origin/main)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          git worktree add /tmp/signalpost-h1d-confirm-base "$BASE_SHA"
+          uv sync --project /tmp/signalpost-h1d-confirm-base --locked
+          echo "$BASE_SHA" > baseline-code.sha
+          echo "307b1252976a0ff41cfda5c8816d7080c2dd16b6" > h1d-code.sha
+
+      - name: Run current main on confirmation 300
+        run: |
+          uv run --project /tmp/signalpost-h1d-confirm-base python /tmp/signalpost-h1d-confirm-base/scripts/run_signalpost_final.py \
+            --organisations "$GITHUB_WORKSPACE/confirmation-300.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/base-confirm-final.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/base-confirm-report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/base-confirm-work" \
+            --run-id h1d-confirm-main \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5400 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Run frozen hardened H1d on confirmation 300
+        run: |
+          uv run python scripts/run_signalpost_final.py \
+            --organisations confirmation-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/h1d-confirm-final.jsonl \
+            --report out/h1d-confirm-report.json \
+            --work-dir out/h1d-confirm-work \
+            --run-id h1d-confirm-hardened \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5400 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Compare transfer gain and export complete manual-audit set
+        run: |
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          def load(path):
+              return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+
+          def verified(profiles):
+              result = []
+              for profile in profiles:
+                  website = (profile.get('evidence') or {}).get('website') or {}
+                  value = website.get('value') or {}
+                  identity = value.get('identity_assessment') or {}
+                  if website.get('status') != 'available' or not identity.get('publishable'):
+                      continue
+                  result.append({
+                      'organisation_number': profile.get('organisation_number'),
+                      'name': profile.get('name'),
+                      'municipality': profile.get('municipality'),
+                      'website': value.get('final_url') or website.get('source_url'),
+                      'source_type': website.get('source_type'),
+                      'content_sha256': website.get('content_sha256'),
+                      'identity_assessment': identity,
+                      'identity_text_excerpt': value.get('identity_text_excerpt'),
+                      'secondary_identity_page': value.get('secondary_identity_page'),
+                  })
+              return result
+
+          selection = json.loads(Path('confirmation-selection.json').read_text())
+          base_report = json.loads(Path('out/base-confirm-report.json').read_text())
+          h1d_report = json.loads(Path('out/h1d-confirm-report.json').read_text())
+          base_final = load('out/base-confirm-final.jsonl')
+          h1d_final = load('out/h1d-confirm-final.jsonl')
+          base_sites = verified(load('out/base-confirm-work/profiles.jsonl'))
+          h1d_sites = verified(load('out/h1d-confirm-work/profiles.jsonl'))
+
+          for report in (base_report, h1d_report):
+              assert report['passed'] is True, report
+              assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 5400
+              assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 5400
+              assert report['source_policy']['third_party_cost_usd'] == 0.0
+              assert report['source_policy']['search_api_requests'] == 0
+              assert report['source_policy']['experimental_connectors_enabled'] is False
+              assert report['contract_errors'] == []
+              assert report['change_errors'] == []
+              assert report['budget_errors'] == []
+
+          assert selection['overlap_count'] == 0
+          assert len(base_final) == len(h1d_final) == 300
+          assert len({row['organisation_number'] for row in h1d_final}) == 300
+          assert all(row['run']['terminal_status'] == 'completed' for row in h1d_final)
+
+          base_by_org = {row['organisation_number']: row for row in base_sites}
+          h1d_by_org = {row['organisation_number']: row for row in h1d_sites}
+          gained = sorted(set(h1d_by_org) - set(base_by_org))
+          lost = sorted(set(base_by_org) - set(h1d_by_org))
+
+          Path('out/h1d-confirm-verified-sites.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in h1d_sites),
+              encoding='utf-8',
+          )
+          Path('out/h1d-confirm-gained-sites.jsonl').write_text(
+              ''.join(json.dumps(h1d_by_org[org], ensure_ascii=False, separators=(',', ':')) + '\n' for org in gained),
+              encoding='utf-8',
+          )
+          Path('out/h1d-confirm-lost-sites.jsonl').write_text(
+              ''.join(json.dumps(base_by_org[org], ensure_ascii=False, separators=(',', ':')) + '\n' for org in lost),
+              encoding='utf-8',
+          )
+
+          summary = {
+              'manifest_sha256': hashlib.sha256(Path('confirmation-300.jsonl').read_bytes()).hexdigest(),
+              'validation_companies': 300,
+              'excluded_previous_companies': selection['excluded_rows'],
+              'overlap_count': selection['overlap_count'],
+              'baseline_verified_sites': len(base_sites),
+              'h1d_verified_sites': len(h1d_sites),
+              'net_verified_site_gain': len(h1d_sites) - len(base_sites),
+              'gained_orgs': gained,
+              'lost_orgs': lost,
+              'baseline_logical_requests': base_report['request_budget']['observed_logical_requests'],
+              'h1d_logical_requests': h1d_report['request_budget']['observed_logical_requests'],
+              'baseline_conservative_requests': base_report['request_budget']['observed_conservative_challenge_request_charge'],
+              'h1d_conservative_requests': h1d_report['request_budget']['observed_conservative_challenge_request_charge'],
+              'baseline_runtime_seconds': base_report['runtime']['wall_runtime_seconds'],
+              'h1d_runtime_seconds': h1d_report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd': h1d_report['source_policy']['third_party_cost_usd'],
+              'search_api_requests': h1d_report['source_policy']['search_api_requests'],
+          }
+          Path('out/h1d-confirm-summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload H1d confirmation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1d-zero-overlap-confirmation
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            baseline-code.sha
+            h1d-code.sha
+            confirmation-manifest.sha256
+            entry-companies.jsonl
+            known-validation-300.jsonl
+            prior-h1c-fresh-300.jsonl
+            prior-h1d-fresh-300.jsonl
+            exclude-1900.jsonl
+            confirmation-300.jsonl
+            confirmation-selection.json
+            out/base-confirm-final.jsonl
+            out/base-confirm-report.json
+            out/base-confirm-work/profiles.jsonl
+            out/h1d-confirm-final.jsonl
+            out/h1d-confirm-report.json
+            out/h1d-confirm-work/profiles.jsonl
+            out/h1d-confirm-verified-sites.jsonl
+            out/h1d-confirm-gained-sites.jsonl
+            out/h1d-confirm-lost-sites.jsonl
+            out/h1d-confirm-summary.json
