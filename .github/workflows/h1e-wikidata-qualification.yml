@@ -9,7 +9,9 @@ on:
       - "src/norway_company_agent/wikidata_discovery.py"
       - "src/norway_company_agent/wikidata_fallback.py"
       - "scripts/evaluate_wikidata_site_fallback.py"
+      - "scripts/select_registry_present_validation_batch.py"
       - "tests/test_h1e_wikidata_candidate.py"
+      - "tests/test_registry_present_validation_batch.py"
       - ".github/workflows/h1e-wikidata-qualification.yml"
 
 permissions:
@@ -56,8 +58,7 @@ jobs:
         run: |
           uv run python select_entry_batch.py \
             --universe signalpost-universe.jsonl.gz \
-            --count 1000 \
-            --seed 20260823 \
+            --count 1000 --seed 20260823 \
             --output entry-companies.jsonl
 
           uv run python scripts/select_disjoint_validation_batch.py \
@@ -110,7 +111,6 @@ jobs:
           uv run python - <<'PY'
           import hashlib, json
           from pathlib import Path
-
           expected = {
               'entry-companies.jsonl': '01d262523f3b1fe71dc7e18b8f7675a866d3a79042e072b4961b0322fe1033b8',
               'known-validation-300.jsonl': '4248438faa42508f7721bdb83002fe15c81735dbf3f97878eba271078864fda5',
@@ -122,7 +122,6 @@ jobs:
           for path, wanted in expected.items():
               actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
               assert actual == wanted, (path, actual, wanted)
-
           for report_path in (
               'known-validation-selection.json',
               'prior-h1c-fresh-selection.json',
@@ -142,8 +141,7 @@ jobs:
           from pathlib import Path
           rows = [json.loads(line) for line in Path('exclude-2500.jsonl').read_text().splitlines() if line.strip()]
           orgs = [str(row['organisation_number']) for row in rows]
-          assert len(rows) == 2500
-          assert len(set(orgs)) == 2500
+          assert len(rows) == len(set(orgs)) == 2500
           print(json.dumps({'excluded_rows': 2500, 'unique_orgs': 2500}, indent=2))
           PY
 
@@ -207,15 +205,50 @@ jobs:
           print(json.dumps({'known_wrong_domains_quarantined': True}, indent=2))
           PY
 
-      - name: Select fresh H1e 300 excluding all prior 2500
+      - name: Recreate failed H1e sample and extend exclusion to 2800
         run: |
           uv run python scripts/select_disjoint_validation_batch.py \
             --universe signalpost-universe.jsonl.gz \
             --exclude exclude-2500.jsonl \
-            --count 300 \
-            --seed 20260920 \
+            --count 300 --seed 20260920 \
             --evaluation-split h1e_wikidata_candidate \
             --sample-slice fresh_zero_cost_external_candidate_validation \
+            --output prior-h1e-failed-300.jsonl \
+            --report prior-h1e-failed-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          wanted = 'e07629ef1bc7cf593cdeb5a187c15db772c36ea17d758df71b34f2b49894186f'
+          actual = hashlib.sha256(Path('prior-h1e-failed-300.jsonl').read_bytes()).hexdigest()
+          report = json.loads(Path('prior-h1e-failed-selection.json').read_text())
+          assert actual == wanted, (actual, wanted)
+          assert report['excluded_rows'] == 2500, report
+          assert report['overlap_count'] == 0, report
+          print(json.dumps({'failed_sample_sha256': actual, 'overlap_count': 0}, indent=2))
+          PY
+
+          cat exclude-2500.jsonl prior-h1e-failed-300.jsonl > exclude-2800.jsonl
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-2800.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == len(set(orgs)) == 2800
+          assert '980384853' in set(orgs)
+          print(json.dumps({'excluded_rows': 2800, 'unique_orgs': 2800, 'failed_missing_registry_org_excluded': True}, indent=2))
+          PY
+
+      - name: Select fresh registry-present H1e 300 excluding all prior 2800
+        run: |
+          uv run python scripts/select_registry_present_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2800.jsonl \
+            --registry-bulk brreg-enheter.csv \
+            --count 300 \
+            --seed 20260921 \
+            --evaluation-split h1e_wikidata_candidate_registry_present \
+            --sample-slice fresh_registry_present_external_candidate_validation \
             --output fresh-h1e-300.jsonl \
             --report fresh-h1e-selection.json
 
@@ -224,8 +257,9 @@ jobs:
           from pathlib import Path
           report = json.loads(Path('fresh-h1e-selection.json').read_text())
           assert report['count'] == 300, report
-          assert report['excluded_rows'] == 2500, report
+          assert report['excluded_rows'] == 2800, report
           assert report['overlap_count'] == 0, report
+          assert report['missing_registry_count'] == 0, report
           digest = hashlib.sha256(Path('fresh-h1e-300.jsonl').read_bytes()).hexdigest()
           Path('fresh-h1e-manifest.sha256').write_text(digest + '\n')
           print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
@@ -300,6 +334,9 @@ jobs:
             fresh-h1e-manifest.sha256
             fresh-h1e-300.jsonl
             fresh-h1e-selection.json
+            prior-h1e-failed-300.jsonl
+            prior-h1e-failed-selection.json
+            exclude-2800.jsonl
             precision-regressions-3.jsonl
             out/precision-base-report.json
             out/precision-h1e-profiles.jsonl
