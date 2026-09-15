@@ -20,9 +20,13 @@ from norway_company_agent.batch import (  # noqa: E402
     terminal_envelope,
     validate_envelopes,
 )
+from norway_company_agent.company_site_contact import attach_company_site_contact_email_observations  # noqa: E402
 from norway_company_agent.company_site_social import attach_company_site_social_observations  # noqa: E402
 from norway_company_agent.evidence import utc_now  # noqa: E402
-from norway_company_agent.external_contract import project_profile_handle_observations  # noqa: E402
+from norway_company_agent.external_contract import (  # noqa: E402
+    project_contact_email_observations,
+    project_profile_handle_observations,
+)
 from norway_company_agent.external_footprint import validate_observation  # noqa: E402
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
@@ -139,9 +143,10 @@ def _enrich_profile(
             f"{site_logical_requests}>{MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE}"
         )
 
-    # H2a is a zero-network projection over the already-qualified company-page snapshot.
-    # It never fetches a social platform and therefore does not alter the request budget.
+    # H2a and H2c are zero-network projections over the already-qualified company-page
+    # snapshot. Neither fetches an external platform nor changes request accounting.
     attach_company_site_social_observations(profile)
+    attach_company_site_contact_email_observations(profile)
 
     logical_requests = official_logical_requests + site_logical_requests
     conservative_charge = budget.charge_requests(logical_requests)
@@ -168,13 +173,16 @@ def _enrich_profile(
     }
 
 
-def _external_observation_audit(profiles: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+def _external_observation_audit(
+    profiles: list[dict[str, Any]],
+) -> tuple[list[dict[str, str]], list[dict[str, Any]], list[dict[str, Any]]]:
     errors: list[dict[str, str]] = []
     handles: list[dict[str, Any]] = []
+    contact_emails: list[dict[str, Any]] = []
     for profile in profiles:
         org = str(profile.get("organisation_number") or "")
         for observation in profile.get("external_observations") or []:
-            if not isinstance(observation, dict) or observation.get("signal_type") != "profile_handle":
+            if not isinstance(observation, dict):
                 continue
             observation_id = str(observation.get("id") or "")
             if str(observation.get("organisation_number") or "") != org:
@@ -193,8 +201,11 @@ def _external_observation_audit(profiles: list[dict[str, Any]]) -> tuple[list[di
                         "error": error,
                     }
                 )
-            handles.append(observation)
-    return errors, handles
+            if observation.get("signal_type") == "profile_handle":
+                handles.append(observation)
+            elif observation.get("signal_type") == "company_profile" and observation.get("contact_email"):
+                contact_emails.append(observation)
+    return errors, handles, contact_emails
 
 
 def main() -> None:
@@ -302,7 +313,9 @@ def main() -> None:
 
     completed_at = utc_now()
     ordered_profiles = [state[org] for org in orgs]
-    external_observation_errors, profile_handle_observations = _external_observation_audit(ordered_profiles)
+    external_observation_errors, profile_handle_observations, contact_email_observations = _external_observation_audit(
+        ordered_profiles
+    )
 
     envelopes = [
         terminal_envelope(
@@ -325,7 +338,8 @@ def main() -> None:
             third_party_cost_usd=THIRD_PARTY_COST_USD,
             changes=changes_by_org[envelope["organisation_number"]],
         )
-        projected.append(project_profile_handle_observations(contract, envelope["profile"]))
+        contract = project_profile_handle_observations(contract, envelope["profile"])
+        projected.append(project_contact_email_observations(contract, envelope["profile"]))
 
     contract_errors: list[dict[str, str]] = []
     change_errors: list[dict[str, str]] = []
@@ -385,6 +399,9 @@ def main() -> None:
     companies_with_handles = len(
         {str(item.get("organisation_number") or "") for item in profile_handle_observations}
     )
+    companies_with_contact_emails = len(
+        {str(item.get("organisation_number") or "") for item in contact_email_observations}
+    )
 
     checks = {
         "internal_envelopes_valid": bool(internal_validation.get("passed")),
@@ -422,7 +439,9 @@ def main() -> None:
             "wikidata_candidate_discovery_enabled": True,
             "wikidata_batch_size": WIKIDATA_BATCH_SIZE,
             "company_page_social_handle_extraction_enabled": True,
+            "company_page_contact_email_extraction_enabled": True,
             "social_platform_requests": 0,
+            "contact_email_network_requests": 0,
             "max_redirects_per_logical_request": 1,
         },
         "request_budget": {
@@ -468,6 +487,9 @@ def main() -> None:
             "companies_with_profile_handles": companies_with_handles,
             "platform_counts": handle_platform_counts,
             "social_platform_requests": 0,
+            "contact_email_observations": len(contact_email_observations),
+            "companies_with_contact_emails": companies_with_contact_emails,
+            "contact_email_network_requests": 0,
             "validation_errors": external_observation_errors,
         },
         "refresh_events": len(refresh_events),

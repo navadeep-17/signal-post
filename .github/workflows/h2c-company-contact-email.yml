@@ -1,0 +1,275 @@
+name: H2c Company Contact Email Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2c-company-contact-email"
+    paths:
+      - "src/norway_company_agent/company_site_contact.py"
+      - "src/norway_company_agent/external_contract.py"
+      - "scripts/evaluate_company_site_contact_email.py"
+      - "scripts/run_signalpost_final.py"
+      - "tests/test_company_site_contact.py"
+      - "tests/test_h2c_external_contract.py"
+      - ".github/workflows/h2c-company-contact-email.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_company_site_contact.py tests/test_h2c_external_contract.py
+          uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate prior 3100-company exclusion set
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 --seed 20260823 \
+            --output entry-companies.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 --seed 20260915 \
+            --output known-validation-300.jsonl \
+            --report known-validation-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1300.jsonl \
+            --count 300 --seed 20260916 \
+            --evaluation-split h1c_secondary_confirmation \
+            --sample-slice fresh_external_precision_validation \
+            --output prior-h1c-fresh-300.jsonl \
+            --report prior-h1c-fresh-selection.json
+
+          cat exclude-1300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1600.jsonl \
+            --count 300 --seed 20260917 \
+            --evaluation-split h1d_recall_recovery \
+            --sample-slice fresh_zero_cost_site_recall_validation \
+            --output prior-h1d-fresh-300.jsonl \
+            --report prior-h1d-fresh-selection.json
+
+          cat exclude-1600.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1900.jsonl \
+            --count 300 --seed 20260918 \
+            --evaluation-split h1d_zero_overlap_confirmation \
+            --sample-slice fresh_transfer_validation \
+            --output prior-h1d-confirm-300.jsonl \
+            --report prior-h1d-confirm-selection.json
+
+          cat exclude-1900.jsonl prior-h1d-confirm-300.jsonl > exclude-2200.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2200.jsonl \
+            --count 300 --seed 20260919 \
+            --evaluation-split h1d_final_zero_overlap \
+            --sample-slice fresh_final_recall_validation \
+            --output prior-h1d-final-300.jsonl \
+            --report prior-h1d-final-selection.json
+
+          cat exclude-2200.jsonl prior-h1d-final-300.jsonl > exclude-2500.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2500.jsonl \
+            --count 300 --seed 20260920 \
+            --evaluation-split h1e_wikidata_candidate \
+            --sample-slice fresh_zero_cost_external_candidate_validation \
+            --output prior-h1e-failed-300.jsonl \
+            --report prior-h1e-failed-selection.json
+
+          cat exclude-2500.jsonl prior-h1e-failed-300.jsonl > exclude-2800.jsonl
+          test "$(wc -l < validation/h1e-fresh-300-exclusion.jsonl)" -eq 300
+          echo '5b4c4ae41a01c8b29aefa703bfd754da3e7448b33cbbbcb831d705032ef030b7  validation/h1e-fresh-300-exclusion.jsonl' | sha256sum -c -
+          cat exclude-2800.jsonl validation/h1e-fresh-300-exclusion.jsonl > exclude-3100.jsonl
+
+      - name: Recreate prior H2a and H2b fresh cohorts
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-3100.jsonl \
+            --count 300 --seed 20260922 \
+            --evaluation-split h2a_company_social \
+            --sample-slice fresh_profile_handle_validation \
+            --output prior-h2a-fresh-300.jsonl \
+            --report prior-h2a-selection.json
+          echo '1d1da002538c0a493303934de53925984c36f641bef2e7623df48897b2e4a88f  prior-h2a-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3100.jsonl prior-h2a-fresh-300.jsonl > exclude-3400.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-3400.jsonl \
+            --count 300 --seed 20260923 \
+            --evaluation-split h2b_company_activity \
+            --sample-slice fresh_dated_company_activity_validation \
+            --output prior-h2b-fresh-300.jsonl \
+            --report prior-h2b-selection.json
+          echo '0bff58af0b8535e71c677dbe44c873a7dfe63805839eb72044896577e1c968dc  prior-h2b-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3400.jsonl prior-h2b-fresh-300.jsonl > exclude-3700.jsonl
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-3700.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == len(set(orgs)) == 3700
+          print(json.dumps({'excluded_rows': 3700, 'unique_orgs': 3700}, indent=2))
+          PY
+
+      - name: Select fresh disjoint H2c 300
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-3700.jsonl \
+            --count 300 --seed 20260924 \
+            --evaluation-split h2c_company_contact_email \
+            --sample-slice fresh_same_domain_contact_email_validation \
+            --output fresh-h2c-300.jsonl \
+            --report fresh-h2c-selection.json
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report = json.loads(Path('fresh-h2c-selection.json').read_text())
+          assert report['count'] == 300, report
+          assert report['excluded_rows'] == 3700, report
+          assert report['overlap_count'] == 0, report
+          digest = hashlib.sha256(Path('fresh-h2c-300.jsonl').read_bytes()).hexdigest()
+          assert digest == 'eee5765bcdfed57aa81489c2f3ef613bf612fcde92f73e5dc641df97905812bf', digest
+          Path('fresh-h2c-manifest.sha256').write_text(digest + '\n')
+          print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
+          PY
+
+      - name: Run integrated production pipeline on fresh H2c 300
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_final.py \
+            --organisations fresh-h2c-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/base-final.jsonl \
+            --report out/base-report.json \
+            --work-dir out/base-work \
+            --run-id h2c-fresh-production-integrated \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5406 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Evaluate zero-network H2c contact emails
+        run: |
+          uv run python scripts/evaluate_company_site_contact_email.py \
+            --profiles out/base-work/profiles.jsonl \
+            --observations out/h2c-observations.jsonl \
+            --audit out/h2c-audit.jsonl \
+            --report out/h2c-report.json
+
+      - name: Verify integrated H2c and zero-cost invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          base = json.loads(Path('out/base-report.json').read_text())
+          h2c = json.loads(Path('out/h2c-report.json').read_text())
+          final_rows = [json.loads(line) for line in Path('out/base-final.jsonl').read_text().splitlines() if line.strip()]
+          contact_claims = [
+              claim
+              for row in final_rows
+              for claim in row.get('claims', [])
+              if claim.get('field') == 'external.contact_email'
+          ]
+          companies_with_claims = {
+              row['organisation_number']
+              for row in final_rows
+              if any(claim.get('field') == 'external.contact_email' for claim in row.get('claims', []))
+          }
+          assert base['passed'] is True, base
+          assert h2c['passed'] is True, h2c
+          assert h2c['network_requests_added'] == 0, h2c
+          assert h2c['third_party_cost_usd_added'] == 0.0, h2c
+          assert h2c['validation_errors'] == [], h2c
+          assert base['source_policy']['company_page_contact_email_extraction_enabled'] is True, base
+          assert base['source_policy']['contact_email_network_requests'] == 0, base
+          assert base['external_signals']['contact_email_network_requests'] == 0, base
+          assert base['external_signals']['contact_email_observations'] == h2c['contact_email_observations'], (base, h2c)
+          assert base['external_signals']['companies_with_contact_emails'] == h2c['companies_with_contact_email'], (base, h2c)
+          assert len(contact_claims) == h2c['contact_email_observations'], (len(contact_claims), h2c)
+          assert len(companies_with_claims) == h2c['companies_with_contact_email'], (companies_with_claims, h2c)
+          assert len(final_rows) == 300
+          summary = {
+              'fresh_companies': 300,
+              'fresh_manifest_sha256': Path('fresh-h2c-manifest.sha256').read_text().strip(),
+              'verified_websites': h2c['verified_websites'],
+              'companies_with_contact_email': h2c['companies_with_contact_email'],
+              'contact_email_observations': h2c['contact_email_observations'],
+              'integrated_contact_email_claims': len(contact_claims),
+              'reach_over_all_profiles': h2c['reach_over_all_profiles'],
+              'reach_over_verified_websites': h2c['reach_over_verified_websites'],
+              'network_requests_added': 0,
+              'third_party_cost_usd_added': 0.0,
+              'production_observed_conservative_requests': base['request_budget']['observed_conservative_challenge_request_charge'],
+              'production_theoretical_ceiling': base['request_budget']['theoretical_challenge_request_charge_ceiling'],
+          }
+          Path('out/h2c-qualification-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload H2c qualification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2c-company-contact-email
+          if-no-files-found: error
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            fresh-h2c-300.jsonl
+            fresh-h2c-selection.json
+            fresh-h2c-manifest.sha256
+            out/base-report.json
+            out/base-final.jsonl
+            out/base-work/profiles.jsonl
+            out/h2c-report.json
+            out/h2c-observations.jsonl
+            out/h2c-audit.jsonl
+            out/h2c-qualification-summary.json
