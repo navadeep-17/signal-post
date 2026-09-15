@@ -22,7 +22,6 @@ from norway_company_agent.batch import (  # noqa: E402
 from norway_company_agent.evidence import utc_now  # noqa: E402
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
-    discover_final_website,
 )
 from norway_company_agent.http import fetch_json  # noqa: E402
 from norway_company_agent.official import fetch_official_modules  # noqa: E402
@@ -35,6 +34,12 @@ from norway_company_agent.refresh_contract import (  # noqa: E402
     validate_refresh_change,
 )
 from norway_company_agent.run_budget import RunBudget  # noqa: E402
+from norway_company_agent.wikidata_discovery import (  # noqa: E402
+    WIKIDATA_BATCH_SIZE,
+    discover_final_website_with_wikidata,
+    fetch_wikidata_website_candidates,
+    theoretical_wikidata_lookup_requests,
+)
 
 OFFICIAL_FETCH_MODULES = {"registry_live", "financials", "roles", "group", "locations"}
 FINAL_MODULES = [
@@ -49,6 +54,7 @@ FINAL_MODULES = [
 ]
 OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE = len(OFFICIAL_FETCH_MODULES)
 THIRD_PARTY_COST_USD = 0.0
+DEFAULT_MAX_CHALLENGE_REQUESTS = 1802
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -88,6 +94,7 @@ def _canonical_verified_site_source(profile: dict[str, Any]) -> str:
         "registry_linked_company_website": "registry_website",
         "registry_email_domain_candidate_website": "registry_email_domain",
         "deterministic_legal_name_domain_guess": "h1c_deterministic_domain",
+        "wikidata_official_website_candidate": "wikidata_candidate",
     }
     return mapping.get(source_type, f"verified:{source_type}" if source_type else "verified:unknown")
 
@@ -97,6 +104,7 @@ def _enrich_profile(
     *,
     budget: RunBudget,
     site_timeout: float,
+    wikidata_candidate: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     # One official attempt per endpoint. Redirects are bounded separately and covered by
     # the conservative challenge charge multiplier.
@@ -115,7 +123,11 @@ def _enrich_profile(
             f"{official_logical_requests}>{OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE}"
         )
 
-    profile, site_metrics = discover_final_website(profile, timeout=site_timeout)
+    profile, site_metrics = discover_final_website_with_wikidata(
+        profile,
+        wikidata_candidate=wikidata_candidate,
+        timeout=site_timeout,
+    )
     site_logical_requests = int(site_metrics.get("requests") or 0)
     if site_logical_requests > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         raise RuntimeError(
@@ -131,7 +143,8 @@ def _enrich_profile(
     profile["run_metrics"] = {
         "logical_requests": logical_requests,
         # OUTPUT_CONTRACT operations.requests deliberately reports the conservative upper
-        # bound so it cannot under-state evaluator-counted redirects.
+        # bound for requests attributable to this company. Shared batch discovery is
+        # counted separately in the global run report.
         "requests": conservative_charge,
         "bytes": bytes_received,
         "latencies_ms": latencies,
@@ -160,7 +173,8 @@ def main() -> None:
     parser.add_argument("--expected-count", type=int, default=100)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--site-timeout", type=float, default=6.0)
-    parser.add_argument("--max-challenge-requests", type=int, default=1800)
+    parser.add_argument("--wikidata-timeout", type=float, default=8.0)
+    parser.add_argument("--max-challenge-requests", type=int, default=DEFAULT_MAX_CHALLENGE_REQUESTS)
     parser.add_argument("--max-third-party-cost-usd", type=float, default=0.0)
     parser.add_argument("--max-wall-runtime-seconds", type=int, default=2400)
     parser.add_argument("--refresh-report", help="Optional refresh report with events[]")
@@ -172,6 +186,8 @@ def main() -> None:
         parser.error("--workers must be positive")
     if args.site_timeout <= 0:
         parser.error("--site-timeout must be positive")
+    if args.wikidata_timeout <= 0:
+        parser.error("--wikidata-timeout must be positive")
     if args.max_challenge_requests < 1:
         parser.error("--max-challenge-requests must be positive")
     if args.max_third_party_cost_usd < 0:
@@ -186,13 +202,17 @@ def main() -> None:
         max_redirects_per_logical_request=1,
     )
     per_profile_logical_ceiling = OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE + MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
-    theoretical_logical_ceiling = args.expected_count * per_profile_logical_ceiling
+    theoretical_shared_wikidata_requests = theoretical_wikidata_lookup_requests(args.expected_count)
+    theoretical_logical_ceiling = (
+        args.expected_count * per_profile_logical_ceiling
+        + theoretical_shared_wikidata_requests
+    )
     theoretical_charge_ceiling = budget.charge_requests(theoretical_logical_ceiling)
     if theoretical_charge_ceiling > args.max_challenge_requests:
         raise SystemExit(
             f"Configured pipeline cannot prove request safety: theoretical charge "
             f"{theoretical_charge_ceiling}>{args.max_challenge_requests}. "
-            "Reduce expected count or raise the explicit budget only outside the 100-company evaluator run."
+            "Reduce expected count or raise the explicit budget only within the challenge's request cap."
         )
 
     wall_start = time.monotonic()
@@ -213,10 +233,30 @@ def main() -> None:
             if key in annotations[profile["organisation_number"]]:
                 profile[key] = annotations[profile["organisation_number"]][key]
 
+    # H1e is a shared, exact-ID candidate lookup. It is deliberately non-fatal: if the
+    # public WDQS endpoint is unavailable or throttled, the candidate map is empty/partial
+    # and every company still completes through the already-qualified H1d path.
+    wikidata_candidates, wikidata_metrics = fetch_wikidata_website_candidates(
+        orgs,
+        timeout=args.wikidata_timeout,
+    )
+    shared_wikidata_logical_requests = int(wikidata_metrics.get("requests") or 0)
+    if shared_wikidata_logical_requests > theoretical_shared_wikidata_requests:
+        raise RuntimeError(
+            "Wikidata lookup exceeded theoretical batch-request ceiling: "
+            f"{shared_wikidata_logical_requests}>{theoretical_shared_wikidata_requests}"
+        )
+
     state: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(_enrich_profile, profile, budget=budget, site_timeout=args.site_timeout): profile["organisation_number"]
+            pool.submit(
+                _enrich_profile,
+                profile,
+                budget=budget,
+                site_timeout=args.site_timeout,
+                wikidata_candidate=wikidata_candidates.get(profile["organisation_number"]),
+            ): profile["organisation_number"]
             for profile in profiles
         }
         for future in as_completed(futures):
@@ -264,21 +304,24 @@ def main() -> None:
             )
 
     wall_runtime_seconds = time.monotonic() - wall_start
-    total_logical_requests = sum(
+    profile_logical_requests = sum(
         int((profile.get("run_metrics") or {}).get("logical_requests") or 0)
         for profile in ordered_profiles
     )
-    total_charged_requests = sum(
+    profile_charged_requests = sum(
         int((profile.get("run_metrics") or {}).get("requests") or 0)
         for profile in ordered_profiles
     )
+    total_logical_requests = profile_logical_requests + shared_wikidata_logical_requests
+    shared_wikidata_charged_requests = budget.charge_requests(shared_wikidata_logical_requests)
+    total_charged_requests = profile_charged_requests + shared_wikidata_charged_requests
     budget_errors = budget.validate(
         logical_requests=total_logical_requests,
         third_party_cost_usd=THIRD_PARTY_COST_USD,
         wall_runtime_seconds=wall_runtime_seconds,
     )
     if total_charged_requests != budget.charge_requests(total_logical_requests):
-        budget_errors.append("per-profile request charges do not sum to global conservative charge")
+        budget_errors.append("profile plus shared request charges do not sum to global conservative charge")
 
     output_orgs = [item["organisation_number"] for item in projected]
     latencies = [
@@ -287,6 +330,9 @@ def main() -> None:
         for value in ((profile.get("run_metrics") or {}).get("latencies_ms") or [])
         if value is not None
     ]
+    latencies.extend(
+        int(value) for value in (wikidata_metrics.get("latencies_ms") or []) if value is not None
+    )
     selected_sources: dict[str, int] = {}
     for profile in ordered_profiles:
         source = _canonical_verified_site_source(profile)
@@ -305,6 +351,7 @@ def main() -> None:
         "budget_valid": not budget_errors,
         "zero_third_party_cost": THIRD_PARTY_COST_USD == 0.0,
         "theoretical_request_ceiling_within_budget": theoretical_charge_ceiling <= args.max_challenge_requests,
+        "wikidata_lookup_bounded": shared_wikidata_logical_requests <= theoretical_shared_wikidata_requests,
         "site_source_accounting_consistent": sum(selected_sources.values()) == len(ordered_profiles),
     }
 
@@ -326,16 +373,23 @@ def main() -> None:
             "experimental_connectors_enabled": False,
             "official_attempts_per_endpoint": 1,
             "max_site_homepage_probes_per_company": 2,
+            "wikidata_candidate_discovery_enabled": True,
+            "wikidata_batch_size": WIKIDATA_BATCH_SIZE,
             "max_redirects_per_logical_request": 1,
         },
         "request_budget": {
             "official_logical_requests_per_profile_ceiling": OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE,
             "site_logical_requests_per_profile_ceiling": MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
             "total_logical_requests_per_profile_ceiling": per_profile_logical_ceiling,
+            "shared_wikidata_logical_request_ceiling": theoretical_shared_wikidata_requests,
             "theoretical_logical_request_ceiling": theoretical_logical_ceiling,
             "request_charge_multiplier": budget.request_charge_multiplier,
             "theoretical_challenge_request_charge_ceiling": theoretical_charge_ceiling,
+            "profile_logical_requests": profile_logical_requests,
+            "shared_wikidata_logical_requests": shared_wikidata_logical_requests,
             "observed_logical_requests": total_logical_requests,
+            "profile_conservative_challenge_request_charge": profile_charged_requests,
+            "shared_wikidata_conservative_challenge_request_charge": shared_wikidata_charged_requests,
             "observed_conservative_challenge_request_charge": total_charged_requests,
             "max_challenge_requests": args.max_challenge_requests,
         },
@@ -350,6 +404,16 @@ def main() -> None:
         "site_discovery": {
             "selected_sources": dict(sorted(selected_sources.items())),
             "profiles_with_verified_site": verified_site_count,
+            "wikidata": {
+                "requests": shared_wikidata_logical_requests,
+                "batches": int(wikidata_metrics.get("batches") or 0),
+                "requested_organisations": int(wikidata_metrics.get("requested_organisations") or 0),
+                "candidate_count": int(wikidata_metrics.get("candidate_count") or 0),
+                "ambiguous_count": int(wikidata_metrics.get("ambiguous_count") or 0),
+                "missing_count": int(wikidata_metrics.get("missing_count") or 0),
+                "bytes": int(wikidata_metrics.get("bytes") or 0),
+                "errors": list(wikidata_metrics.get("errors") or []),
+            },
         },
         "refresh_events": len(refresh_events),
         "claims": sum(len(item.get("claims") or []) for item in projected),
