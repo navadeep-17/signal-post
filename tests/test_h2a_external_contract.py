@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from norway_company_agent.company_site_social import attach_company_site_social_observations
-from norway_company_agent.external_contract import project_profile_handle_observations
-from norway_company_agent.output_contract import project_terminal_envelope, validate_contract_object
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.company_site_social import attach_company_site_social_observations  # noqa: E402
+from norway_company_agent.external_contract import project_profile_handle_observations  # noqa: E402
+from norway_company_agent.output_contract import project_terminal_envelope, validate_contract_object  # noqa: E402
 
 
 def _profile(*, publish_handle: bool = True) -> dict:
