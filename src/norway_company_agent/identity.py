@@ -41,15 +41,11 @@ def _structured_names(value: Any) -> list[str]:
     return names
 
 
-def _explicit_org_number_parts(value: dict[str, Any]) -> list[str]:
-    """Prefer legal/contact identity excerpts; fall back to fetched page text when absent."""
-    identity_parts: list[Any] = [value.get("identity_text_excerpt")]
-    for page in value.get("pages") or []:
-        if isinstance(page, dict):
-            identity_parts.append(page.get("identity_text_excerpt"))
-    retained_identity = [str(part) for part in identity_parts if str(part or "").strip()]
-    if retained_identity:
-        return retained_identity
+def _homepage_explicit_org_number_parts(value: dict[str, Any]) -> list[str]:
+    """Return homepage legal-ID text without using deeper pages as positive identity proof."""
+    identity_text = str(value.get("identity_text_excerpt") or "").strip()
+    if identity_text:
+        return [identity_text]
 
     rendered = value.get("js_fallback") or {}
     fallback_parts: list[Any] = [
@@ -60,16 +56,13 @@ def _explicit_org_number_parts(value: dict[str, Any]) -> list[str]:
         rendered.get("title"),
         rendered.get("main_text_excerpt"),
     ]
-    for page in value.get("pages") or []:
-        if isinstance(page, dict):
-            fallback_parts.extend([page.get("title"), page.get("main_text_excerpt")])
     return [str(part) for part in fallback_parts if str(part or "").strip()]
 
 
 def _explicit_org_numbers(value: dict[str, Any]) -> set[str]:
-    """Extract nine-digit identifiers explicitly presented as organisation numbers."""
+    """Extract nine-digit identifiers explicitly presented on the homepage as organisation numbers."""
     found: set[str] = set()
-    for part in _explicit_org_number_parts(value):
+    for part in _homepage_explicit_org_number_parts(value):
         for pattern in (EXPLICIT_ORG_NUMBER_RE, NO_MVA_ORG_NUMBER_RE):
             for match in pattern.finditer(part):
                 digits = re.sub(r"\D", "", match.group(1))
