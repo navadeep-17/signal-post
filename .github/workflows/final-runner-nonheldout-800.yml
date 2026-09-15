@@ -1,0 +1,195 @@
+name: Final Runner Non-Heldout 800 Validation
+
+on:
+  push:
+    branches:
+      - "validation/final-runner-nonheldout-800"
+    paths:
+      - ".github/workflows/final-runner-nonheldout-800.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-800:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run full regression suite
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate frozen 1,000 and seal held-out 200
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          test "$(wc -l < entry-companies.jsonl)" -eq 1000
+
+          head -n 800 entry-companies.jsonl > nonheldout-800.jsonl
+          sed -n '801,1000p' entry-companies.jsonl > heldout-200-sealed.jsonl
+          test "$(wc -l < nonheldout-800.jsonl)" -eq 800
+          test "$(wc -l < heldout-200-sealed.jsonl)" -eq 200
+
+          HELD_SHA="$(sha256sum heldout-200-sealed.jsonl | cut -d' ' -f1)"
+          test "$HELD_SHA" = 'fb81f7695ee91606d1af7eee00e8323a326ebc33b79b3cb1a4f046573ae3368f'
+          NONHELD_SHA="$(sha256sum nonheldout-800.jsonl | cut -d' ' -f1)"
+          printf '%s  %s\n' "$NONHELD_SHA" nonheldout-800.jsonl > nonheldout-800.sha256
+          printf '%s  %s\n' "$HELD_SHA" heldout-200-sealed.jsonl > heldout-200-sealed.sha256
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def orgs(path):
+              return {
+                  str(json.loads(line)['organisation_number'])
+                  for line in Path(path).read_text().splitlines()
+                  if line.strip()
+              }
+
+          nonheld = orgs('nonheldout-800.jsonl')
+          held = orgs('heldout-200-sealed.jsonl')
+          assert len(nonheld) == 800
+          assert len(held) == 200
+          assert not (nonheld & held), sorted(nonheld & held)[:10]
+          assert '928987728' in nonheld, 'known registry-snapshot drift org must be exercised before held-out release audit'
+          print(json.dumps({
+              'nonheldout_count': len(nonheld),
+              'heldout_count': len(held),
+              'overlap_count': len(nonheld & held),
+              'known_snapshot_drift_in_nonheldout': True,
+          }, indent=2))
+          PY
+
+      - name: Run merged production runner on first 800 only
+        run: |
+          uv run python scripts/run_signalpost_final.py \
+            --organisations nonheldout-800.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/nonheldout-800-final.jsonl \
+            --report out/nonheldout-800-report.json \
+            --work-dir out/nonheldout-800-work \
+            --run-id final-runner-nonheldout-800 \
+            --expected-count 800 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 14416 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Verify release-scale invariants without opening held-out 200
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/nonheldout-800-report.json').read_text())
+          outputs = [json.loads(line) for line in Path('out/nonheldout-800-final.jsonl').read_text().splitlines() if line.strip()]
+          held = {
+              str(json.loads(line)['organisation_number'])
+              for line in Path('heldout-200-sealed.jsonl').read_text().splitlines()
+              if line.strip()
+          }
+          output_orgs = [str(row['organisation_number']) for row in outputs]
+          output_set = set(output_orgs)
+
+          assert report['passed'] is True, report
+          assert report['expected_count'] == 800
+          assert report['final_objects'] == 800
+          assert len(outputs) == 800
+          assert len(output_set) == 800
+          assert all(row['run']['terminal_status'] == 'completed' for row in outputs)
+          assert not (output_set & held), sorted(output_set & held)[:10]
+
+          registry = report['registry']
+          assert registry['requested'] == 800, registry
+          assert registry['selected'] + registry['missing_count'] == 800, registry
+          assert '928987728' in registry['missing_organisation_numbers'], registry
+
+          budget = report['request_budget']
+          assert budget['shared_wikidata_logical_request_ceiling'] == 8, budget
+          assert budget['shared_wikidata_logical_requests'] <= 8, budget
+          assert budget['theoretical_logical_request_ceiling'] == 7208, budget
+          assert budget['theoretical_challenge_request_charge_ceiling'] == 14416, budget
+          assert budget['observed_conservative_challenge_request_charge'] <= 14416, budget
+
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          assert report['source_policy']['experimental_connectors_enabled'] is False
+          assert report['runtime']['wall_runtime_seconds'] <= 2400
+          assert report['contract_errors'] == []
+          assert report['change_errors'] == []
+          assert report['budget_errors'] == []
+
+          summary = {
+              'passed': report['passed'],
+              'final_objects': report['final_objects'],
+              'registry_selected': registry['selected'],
+              'registry_missing_count': registry['missing_count'],
+              'registry_missing_orgs': registry['missing_organisation_numbers'],
+              'verified_sites': report['site_discovery']['profiles_with_verified_site'],
+              'site_sources': report['site_discovery']['selected_sources'],
+              'wikidata': report['site_discovery']['wikidata'],
+              'claims': report['claims'],
+              'evidence_items': report['evidence_items'],
+              'observed_logical_requests': budget['observed_logical_requests'],
+              'observed_conservative_requests': budget['observed_conservative_challenge_request_charge'],
+              'theoretical_conservative_ceiling': budget['theoretical_challenge_request_charge_ceiling'],
+              'runtime_seconds': report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd': report['source_policy']['third_party_cost_usd'],
+              'search_api_requests': report['source_policy']['search_api_requests'],
+              'heldout_overlap_count': len(output_set & held),
+          }
+          Path('out/nonheldout-800-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload non-heldout 800 validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-runner-nonheldout-800
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            nonheldout-800.jsonl
+            nonheldout-800.sha256
+            heldout-200-sealed.sha256
+            out/nonheldout-800-final.jsonl
+            out/nonheldout-800-report.json
+            out/nonheldout-800-summary.json
+            out/nonheldout-800-work/profiles.jsonl
+            out/nonheldout-800-work/internal-envelopes.jsonl
