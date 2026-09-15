@@ -39,8 +39,10 @@ MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE = 4
 SECONDARY_IDENTITY_TERMS = (
     "kontakt",
     "contact",
+    "kontaktinformasjon",
     "personvern",
     "privacy",
+    "privacy-policy",
     "om-oss",
     "om_oss",
     "about",
@@ -49,7 +51,29 @@ SECONDARY_IDENTITY_TERMS = (
     "vilkar",
     "terms",
     "company",
+    "company-info",
     "firma",
+    "selskapsinfo",
+    "organisasjonsnummer",
+    "orgnr",
+    "org-nr",
+)
+IDENTITY_CONTAINER_TERMS = (
+    "footer",
+    "kontakt",
+    "contact",
+    "personvern",
+    "privacy",
+    "legal",
+    "impressum",
+    "company-info",
+    "companyinfo",
+    "selskapsinfo",
+    "organisasjonsnummer",
+    "orgnr",
+    "org-nr",
+    "address",
+    "adresse",
 )
 
 
@@ -88,6 +112,46 @@ def _robots_allowed(url: str, timeout: float) -> tuple[bool, int]:
         return parser.can_fetch(USER_AGENT, url), 1
     except Exception:
         return True, 1
+
+
+def _identity_text_excerpt(soup: BeautifulSoup, limit: int = 5000) -> str:
+    """Retain bounded legal/contact/footer text that precision extraction may omit.
+
+    This is extraction only, not a weaker identity rule. The existing exact organisation-
+    number / BRREG-location checks remain authoritative for H1c publication.
+    """
+    nodes: list[Any] = list(
+        soup.select(
+            'footer, address, [itemprop="address"], [itemprop="legalName"], '
+            '[itemprop="taxID"], [itemprop="vatID"]'
+        )
+    )
+    for node in soup.select("[id], [class]"):
+        marker_parts = [str(node.get("id") or "")]
+        classes = node.get("class") or []
+        if isinstance(classes, str):
+            marker_parts.append(classes)
+        else:
+            marker_parts.extend(str(value) for value in classes)
+        marker = " ".join(marker_parts).casefold()
+        if any(term in marker for term in IDENTITY_CONTAINER_TERMS):
+            nodes.append(node)
+
+    chunks: list[str] = []
+    seen: set[str] = set()
+    used = 0
+    for node in nodes:
+        text = " ".join(str(node.get_text(" ", strip=True) or "").split())
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        remaining = limit - used
+        if remaining <= 0:
+            break
+        chunk = text[:remaining]
+        chunks.append(chunk)
+        used += len(chunk) + 1
+    return "\n".join(chunks)[:limit]
 
 
 def _secondary_identity_links(base_url: str, soup: BeautifulSoup) -> list[str]:
@@ -168,6 +232,7 @@ def fetch_bounded_homepage(
         soup = BeautifulSoup(html, "lxml")
         structured = extruct.extract(html, base_url=final_url, syntaxes=["json-ld", "microdata", "opengraph"])
         text = trafilatura.extract(html, url=final_url, include_links=False, include_tables=False, favor_precision=True) or ""
+        identity_text = _identity_text_excerpt(soup)
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         description_tag = soup.select_one('meta[name="description"], meta[property="og:description"]')
         description = str(description_tag.get("content") or "").strip() if description_tag else ""
@@ -178,6 +243,7 @@ def fetch_bounded_homepage(
             "registered_domain": _registered_domain(final_url),
             "title": title[:500],
             "description": description[:2000],
+            "identity_text_excerpt": identity_text,
             "main_text_excerpt": text[:5000],
             "social_links": _social_links(final_url, soup),
             "structured_organisations": _jsonld_organisations(structured),
@@ -187,6 +253,7 @@ def fetch_bounded_homepage(
             "pages": [{
                 "url": final_url,
                 "title": title[:500],
+                "identity_text_excerpt": identity_text,
                 "main_text_excerpt": text[:5000],
                 "content_sha256": digest,
             }],
