@@ -72,7 +72,7 @@ def test_contract_projects_contact_email_with_exact_company_page_evidence() -> N
     assert len(claims) == 1
     assert claims[0]["value"] == "post@example.no"
     assert claims[0]["signal_type"] == "company_profile"
-    assert "deliver" not in claims[0]["claim_scope"].lower()
+    assert "No deliverability" in claims[0]["claim_scope"]
 
     evidence_by_id = {item["id"]: item for item in projected["evidence"]}
     evidence = evidence_by_id[claims[0]["evidence_ids"][0]]
