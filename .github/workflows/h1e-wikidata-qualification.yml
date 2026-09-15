@@ -1,0 +1,314 @@
+name: H1e Wikidata Candidate Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h1e-wikidata-site-candidate"
+    paths:
+      - "src/norway_company_agent/wikidata_discovery.py"
+      - "src/norway_company_agent/wikidata_fallback.py"
+      - "scripts/evaluate_wikidata_site_fallback.py"
+      - "tests/test_h1e_wikidata_candidate.py"
+      - ".github/workflows/h1e-wikidata-qualification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and test H1e branch
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate and freeze all previously used 2500 companies
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 --seed 20260915 \
+            --output known-validation-300.jsonl \
+            --report known-validation-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1300.jsonl \
+            --count 300 --seed 20260916 \
+            --evaluation-split h1c_secondary_confirmation \
+            --sample-slice fresh_external_precision_validation \
+            --output prior-h1c-fresh-300.jsonl \
+            --report prior-h1c-fresh-selection.json
+
+          cat exclude-1300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1600.jsonl \
+            --count 300 --seed 20260917 \
+            --evaluation-split h1d_recall_recovery \
+            --sample-slice fresh_zero_cost_site_recall_validation \
+            --output prior-h1d-fresh-300.jsonl \
+            --report prior-h1d-fresh-selection.json
+
+          cat exclude-1600.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1900.jsonl \
+            --count 300 --seed 20260918 \
+            --evaluation-split h1d_zero_overlap_confirmation \
+            --sample-slice fresh_transfer_validation \
+            --output prior-h1d-confirm-300.jsonl \
+            --report prior-h1d-confirm-selection.json
+
+          cat exclude-1900.jsonl prior-h1d-confirm-300.jsonl > exclude-2200.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2200.jsonl \
+            --count 300 --seed 20260919 \
+            --evaluation-split h1d_final_zero_overlap \
+            --sample-slice fresh_final_recall_validation \
+            --output prior-h1d-final-300.jsonl \
+            --report prior-h1d-final-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          expected = {
+              'entry-companies.jsonl': '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3',
+              'known-validation-300.jsonl': '4248438faa42508f7721bdb83002fe15c81735dbf3f97878eba271078864fda5',
+              'prior-h1c-fresh-300.jsonl': '7c0d1ae4355edf1e2b282ebc386b7874eb6c3cbc36e5b01f0685069cbcd38d83',
+              'prior-h1d-fresh-300.jsonl': 'a05a38c86526babcf90c013230e406888d9e00a942e8fef40653e03b0c53aa7a',
+              'prior-h1d-confirm-300.jsonl': '15741f32379a6db226ecff10de8cacf0c40bc34f40d511ae060bf13daeafaf3e',
+              'prior-h1d-final-300.jsonl': 'b20dec131e3ad6ac7938757ddd79bef6f7a97f6961d64cdbd0bf1395238dd661',
+          }
+          for path, wanted in expected.items():
+              actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+              assert actual == wanted, (path, actual, wanted)
+
+          for report_path in (
+              'known-validation-selection.json',
+              'prior-h1c-fresh-selection.json',
+              'prior-h1d-fresh-selection.json',
+              'prior-h1d-confirm-selection.json',
+              'prior-h1d-final-selection.json',
+          ):
+              report = json.loads(Path(report_path).read_text())
+              assert report['overlap_count'] == 0, (report_path, report)
+          print(json.dumps(expected, indent=2))
+          PY
+
+          cat exclude-2200.jsonl prior-h1d-final-300.jsonl > exclude-2500.jsonl
+          test "$(wc -l < exclude-2500.jsonl)" -eq 2500
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-2500.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == 2500
+          assert len(set(orgs)) == 2500
+          print(json.dumps({'excluded_rows': 2500, 'unique_orgs': 2500}, indent=2))
+          PY
+
+      - name: Replay three known precision failures through H1e
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          wanted = {'933200353', '925531618', '983928323'}
+          rows = [json.loads(line) for line in Path('exclude-2500.jsonl').read_text().splitlines() if line.strip()]
+          chosen = [row for row in rows if str(row['organisation_number']) in wanted]
+          assert {str(row['organisation_number']) for row in chosen} == wanted
+          Path('precision-regressions-3.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in chosen),
+              encoding='utf-8',
+          )
+          PY
+
+          uv run python scripts/run_signalpost_final.py \
+            --organisations precision-regressions-3.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/precision-base-final.jsonl \
+            --report out/precision-base-report.json \
+            --work-dir out/precision-base-work \
+            --run-id h1e-precision-regression-base \
+            --expected-count 3 \
+            --workers 3 \
+            --site-timeout 6 \
+            --max-challenge-requests 60 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 600
+
+          uv run python scripts/evaluate_wikidata_site_fallback.py \
+            --profiles out/precision-base-work/profiles.jsonl \
+            --baseline-report out/precision-base-report.json \
+            --output-profiles out/precision-h1e-profiles.jsonl \
+            --output-audit out/precision-h1e-audit.jsonl \
+            --output-gained out/precision-h1e-gained.jsonl \
+            --output-summary out/precision-h1e-summary.json \
+            --site-timeout 6 \
+            --wikidata-timeout 10 \
+            --max-challenge-requests 60
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          wrong = {
+              '933200353': 'oslomikrosement.no',
+              '925531618': 'okonomibistand.no',
+              '983928323': 'venstre.no',
+          }
+          profiles = [json.loads(line) for line in Path('out/precision-h1e-profiles.jsonl').read_text().splitlines() if line.strip()]
+          by_org = {str(row['organisation_number']): row for row in profiles}
+          for org, bad_domain in wrong.items():
+              website = ((by_org[org].get('evidence') or {}).get('website') or {})
+              value = website.get('value') or {}
+              identity = value.get('identity_assessment') or {}
+              published = website.get('status') == 'available' and bool(identity.get('publishable'))
+              url = str(value.get('final_url') or website.get('source_url') or '')
+              assert not (published and bad_domain in url), (org, url, identity)
+          print(json.dumps({'known_wrong_domains_quarantined': True}, indent=2))
+          PY
+
+      - name: Select fresh H1e 300 excluding all prior 2500
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2500.jsonl \
+            --count 300 \
+            --seed 20260920 \
+            --evaluation-split h1e_wikidata_candidate \
+            --sample-slice fresh_zero_cost_external_candidate_validation \
+            --output fresh-h1e-300.jsonl \
+            --report fresh-h1e-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report = json.loads(Path('fresh-h1e-selection.json').read_text())
+          assert report['count'] == 300, report
+          assert report['excluded_rows'] == 2500, report
+          assert report['overlap_count'] == 0, report
+          digest = hashlib.sha256(Path('fresh-h1e-300.jsonl').read_bytes()).hexdigest()
+          Path('fresh-h1e-manifest.sha256').write_text(digest + '\n')
+          print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
+          PY
+
+      - name: Prepare current main baseline worktree
+        run: |
+          git fetch origin main
+          BASE_SHA="$(git rev-parse origin/main)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          git worktree add /tmp/signalpost-h1e-base "$BASE_SHA"
+          uv sync --project /tmp/signalpost-h1e-base --locked
+          echo "$BASE_SHA" > baseline-code.sha
+          git rev-parse HEAD > h1e-code.sha
+
+      - name: Run current main on fresh H1e 300
+        run: |
+          uv run --project /tmp/signalpost-h1e-base python /tmp/signalpost-h1e-base/scripts/run_signalpost_final.py \
+            --organisations "$GITHUB_WORKSPACE/fresh-h1e-300.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/base-fresh-final.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/base-fresh-report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/base-fresh-work" \
+            --run-id h1e-main-fresh-validation \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5400 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Apply incremental H1e Wikidata fallback
+        run: |
+          uv run python scripts/evaluate_wikidata_site_fallback.py \
+            --profiles out/base-fresh-work/profiles.jsonl \
+            --baseline-report out/base-fresh-report.json \
+            --output-profiles out/h1e-fresh-profiles.jsonl \
+            --output-audit out/h1e-fresh-audit.jsonl \
+            --output-gained out/h1e-fresh-gained.jsonl \
+            --output-summary out/h1e-fresh-summary.json \
+            --site-timeout 6 \
+            --wikidata-timeout 10 \
+            --max-challenge-requests 6000
+
+      - name: Export qualification facts
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('out/h1e-fresh-summary.json').read_text())
+          assert summary['passed'] is True, summary
+          assert summary['lost_orgs'] == [], summary
+          assert summary['third_party_cost_usd'] == 0.0
+          assert summary['search_api_requests'] == 0
+          assert summary['request_budget']['theoretical_conservative_request_ceiling'] == 5406
+          assert summary['request_budget']['observed_conservative_requests'] <= 6000
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload H1e qualification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1e-wikidata-qualification
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            baseline-code.sha
+            h1e-code.sha
+            fresh-h1e-manifest.sha256
+            fresh-h1e-300.jsonl
+            fresh-h1e-selection.json
+            precision-regressions-3.jsonl
+            out/precision-base-report.json
+            out/precision-h1e-profiles.jsonl
+            out/precision-h1e-audit.jsonl
+            out/precision-h1e-summary.json
+            out/base-fresh-final.jsonl
+            out/base-fresh-report.json
+            out/base-fresh-work/profiles.jsonl
+            out/h1e-fresh-profiles.jsonl
+            out/h1e-fresh-audit.jsonl
+            out/h1e-fresh-gained.jsonl
+            out/h1e-fresh-summary.json
