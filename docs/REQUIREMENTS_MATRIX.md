@@ -10,11 +10,11 @@ Status meanings: **PASS** = reproduced or directly verified; **PARTIAL** = found
 | Public eligible universe is 411,160 frozen 2025-filer companies | Live challenge + `data/universe-metadata.json` | Universe metadata and selector included | PASS | Verify downloaded universe hash in release process |
 | Submit at least 1,000 completed profiles + exact manifest | Live challenge + README | `select_entry_batch.py` deterministically produced a 1,000-company manifest in benchmark | PARTIAL | Generate/freeze final 1,000+ completed profiles and submission manifest |
 | Generalize to random unseen companies | Live challenge | Generic batch pipeline completed frozen 100-company development slice | PARTIAL | Zero-overlap validation and held-out release audit still required |
-| Exactly one terminal result per evaluation company | Live challenge | Frozen output-contract qualification emitted exactly 100 unique contract objects from 100 internal terminal envelopes; zero silent drops | PASS | Revalidate in locked final orchestrator |
-| Final documented claims/evidence output envelope | `OUTPUT_CONTRACT.md` | `output_contract.py` + `project_output_contract.py`; frozen 100 qualification emitted the documented top-level shape for all 100 companies | PASS | Preserve shape in final orchestration/release fixture |
+| Exactly one terminal result per evaluation company | Live challenge | Frozen final-evaluator qualification emitted exactly 100 unique completed contract objects from 100 inputs; zero silent drops | PASS | Preserve in locked release runner |
+| Final documented claims/evidence output envelope | `OUTPUT_CONTRACT.md` | `output_contract.py` + one-command `run_signalpost_final.py`; frozen 100 qualification emitted the documented top-level shape for all 100 companies | PASS | Preserve shape in release fixture |
 | Final `run.terminal_status` | `OUTPUT_CONTRACT.md` | Deterministic internal-state projection implemented; frozen 100 produced 100 `completed` terminal statuses | PASS | Add explicit failed-envelope release fixture as well as unit regression |
-| Claims contain field/value/availability/confidence/evidence IDs | `OUTPUT_CONTRACT.md` | Frozen 100 emitted 1,568 validated claims, each with deterministic evidence linkage | PASS | Preserve claim-level regression coverage as fields expand |
-| Evidence contains URL/source class/retrieval/hash/claim span | Live challenge + `OUTPUT_CONTRACT.md` | Hardened frozen 100 emitted 1,568 claim-specific evidence items for 1,568 claims; all available claims had URL, retrieval time, 64-char content hash and claim span | PASS | Continue enforcing for future external claims |
+| Claims contain field/value/availability/confidence/evidence IDs | `OUTPUT_CONTRACT.md` | Frozen final-evaluator run emitted 1,568 validated claims, each with deterministic evidence linkage | PASS | Preserve claim-level regression coverage as fields expand |
+| Evidence contains URL/source class/retrieval/hash/claim span | Live challenge + `OUTPUT_CONTRACT.md` | Hardened frozen 100 emitted 1,568 claim-specific evidence items for 1,568 claims; contract validation passed | PASS | Continue enforcing for future external claims |
 | Reporting period retained where relevant | Live challenge | Financial projection carries normalized reporting period and currency; zero/None regression tests pass | PASS | Preserve when financial history is extended |
 | Missing/blocked/not-applicable remain distinct; never silently zero | Live challenge + contract | Tested mapping: not-found→not-available, blocked→blocked, source-error→failed, not-applicable preserved; not-fetched stays explicit in errors because final vocabulary has no not-fetched state; zero values remain available zeros | PASS | Do not collapse states in UI/research layers |
 | No fabricated financial values | Live challenge | Official BRREG accounting path is deterministic, not LLM-generated; zero and reporting-period regressions pass through final adapter | PASS baseline | Preserve regression/audit on validation and held-out runs |
@@ -24,23 +24,23 @@ Status meanings: **PASS** = reproduced or directly verified; **PARTIAL** = found
 | Overall score >=65/100 | Live challenge | Hidden judge authoritative; local proxy not equivalent | OPEN | Use local proxy for diagnostics only; submit for independent evaluation when gates are supported |
 | Idempotent refresh | Live challenge | Final refresh-contract qualification reproduced exactly 2 expected changes and a current→current rerun produced zero changes | PASS | Extend the same normalization when qualified external observations enter refresh |
 | Previous snapshot/history preserved | Live challenge | Final `changes[]` preserves previous/current values plus previous/current content hashes and source provenance; deterministic fixture qualification passed | PASS for current tracked fields | Audit external connector refresh semantics later |
-| 45-minute wall-clock for 100-company batch | Live challenge | Frozen output-contract qualification's internal 100-company pipeline completed in ~95 seconds after frozen inputs were available | PASS current stack | Revalidate final connector stack with evaluator-style end-to-end runner |
-| <=2,000 outbound requests per 100-company batch | Live challenge | Hardened output-contract qualification used 622 research requests | PASS current stack | Add final global budget guard and remeasure with future qualified layers |
-| <=$10 third-party API cost per 100-company batch | Live challenge + project decision | Frozen output-contract qualification declared and verified $0 third-party spend; project policy targets $0 | PASS current stack | Preserve $0 production constraint in final orchestrator |
-| Machine-readable run report | README | Internal runner + contract projection emit machine-readable validation reports | PASS current stack | Combine into final orchestrator report |
-| One evaluator command | Live challenge + README | Core runner plus final projection are still two commands; experiments remain separate | PARTIAL | Build final orchestrator only after remaining qualified layers are frozen |
-| Source rights documented | Live challenge + starter external model | Acquisition modes/rights gates exist; connector register added in `CONNECTOR_STATUS.md` | PARTIAL | No experimental source promoted by relabeling; verify each production provider |
+| 45-minute wall-clock for 100-company batch | Live challenge | One-command frozen final-evaluator run completed the 100-company agent in 93.331 seconds after frozen inputs were available, versus a 2,400-second internal release ceiling and 2,700-second challenge limit | PASS current final runner | Revalidate whenever qualified acquisition layers are added |
+| <=2,000 outbound requests per 100-company batch | Live challenge | Final runner has a structural ceiling of 900 logical requests / 1,800 conservative redirect-charged requests; frozen 100 observed 580 logical / 1,160 conservative requests | PASS current final runner | Preserve structural headroom when adding sources |
+| <=$10 third-party API cost per 100-company batch | Live challenge + project decision | One-command frozen final-evaluator run used $0 third-party spend, zero search API requests and no experimental connectors | PASS current final runner | Preserve $0 production constraint unless a qualified provider has measured value |
+| Machine-readable run report | README | `run_signalpost_final.py` emits one consolidated machine-readable report covering count, contract, refresh, budget, runtime and canonical site-source accounting | PASS current final runner | Keep report/artifact in release workflow |
+| One evaluator command | Live challenge + README | `scripts/run_signalpost_final.py` performs official enrichment, bounded verified site resolution, terminal-envelope construction, output-contract projection, optional refresh attachment, validation and budget enforcement in one command | PASS | Keep experimental connectors outside this release path until separately qualified |
+| Source rights documented | Live challenge + starter external model | Acquisition modes/rights gates exist; connector register added in `CONNECTOR_STATUS.md`; final runner uses official/company-owned zero-cost paths only | PARTIAL | No experimental source promoted by relabeling; verify each future production provider |
 | Server-side secrets/private keys not committed | Live challenge + how-to-enter | Final strategy currently requires no paid API secrets | PASS current stack | Keep release secret scan even with $0 architecture |
-| Safe URL handling | Live challenge | Website/HTTP stack includes private-network/redirect protections | PASS design/tests | Preserve and extend regression coverage for new URL-taking connectors |
+| Safe URL handling | Live challenge | Final site path uses public-URL checks plus a one-redirect ceiling; robots parsing regression is covered after live-run bug discovery | PASS design/tests | Preserve SSRF/redirect regressions for new URL-taking connectors |
 | Pinned/reproducible dependencies | README | `uv.lock` exists; `uv sync --locked` passes CI | PASS | Consider pinning CI uv tool version separately |
-| Core regression suite | Starter | Full GitHub Actions suite passes with added H1c/output-contract/refresh-contract regressions | PASS | Required on every PR |
+| Core regression suite | Starter | Full GitHub Actions suite passes with final-orchestrator regressions: 178 tests + 5 subtests | PASS | Required on every PR |
 | Live baseline smoke | Starter README | 10-company live run reproduced successfully | PASS | Keep manual/reproducible workflow |
-| Frozen 100-company development benchmark | Project plan | Exact manifest/input hashes and failure-bucket report recorded in `BASELINE_100.md`; reused for H1c and output-contract qualification | PASS | Continue same manifest for before/after development comparisons |
+| Frozen 100-company development benchmark | Project plan | Exact manifest/input hashes and failure-bucket report recorded in `BASELINE_100.md`; reused for H1c, output-contract and final-evaluator qualification | PASS | Continue same manifest for before/after development comparisons |
 | Search candidates independently verified before publication | Live challenge/starter docs | H1a/H1c candidate discovery is separated from independent fetch + exact identity publication gate | PASS for promoted zero-cost domain paths | Preserve zero-overlap precision audit before any new discovery source |
 | UI makes evidence/gaps/changes inspectable | Live challenge UX category | Existing `build_prototype.py` provides substantial static prototype | PARTIAL | Improve after engine/qualified evidence stabilizes |
 | Research answers only from supported evidence | Live challenge + starter | Deterministic/evidence-bounded research layer exists | PARTIAL | Extend only with qualified observations; test abstention |
 | Models/APIs/licences/caches/hosting assumptions declared | Submission contract | Starter docs + connector-status/project decisions cover current stack | PARTIAL | Produce final release manifest from actual promoted stack |
-| Expected cost per 100-company run declared | Submission contract | Current qualified path measured at $0 third-party spend | PARTIAL | Re-measure locked final orchestrator and declare final expected cost |
+| Expected cost per 100-company run declared | Submission contract | Locked current final runner is qualified at $0 third-party cost per frozen 100-company run | PASS current final runner | Re-measure only if production source set changes |
 
 ## Phase 0 reproducibility record
 
@@ -90,5 +90,19 @@ Status meanings: **PASS** = reproduced or directly verified; **PARTIAL** = found
 - Wrong-company events, duplicate field events, unchanged old/new values and invalid hashes are regression-tested and rejected.
 - Current→current diff produces zero events and therefore an empty final `changes[]` set.
 - Qualification artifact digest: `sha256:e317bdf7612e2327324e34a9895a27d82db89702712c82c7b981ac274d3291cf`.
+
+## Final one-command evaluator qualification record
+
+- Workflow: `Final Evaluator 100 Qualification`, corrected run `34925250107` at branch head `138083dc942917975d6007d1913ee9448ec4458c`.
+- Same frozen development manifest SHA-256: `51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3`.
+- Exactly 100 unique final objects; 100/100 `run.terminal_status=completed`; internal zero-silent-drop validation PASS.
+- 1,568 claims and 1,568 evidence items; contract errors 0; refresh-change errors 0; budget errors 0.
+- Request model: 5 official logical requests + at most 4 site logical requests per company; one redirect maximum per logical request; structural challenge-charge ceiling 1,800.
+- Observed: 580 logical requests and 1,160 conservative challenge-charged requests, leaving 640 requests of headroom to the internal 1,800 cap and 840 to the challenge's 2,000 cap.
+- Wall runtime: 93.331 seconds; internal release ceiling 2,400 seconds; challenge limit 2,700 seconds.
+- Third-party cost: $0; search API requests: 0; experimental connectors enabled: false.
+- Canonical verified-site accounting: 4 verified sites = 3 H1c deterministic-domain sites + 1 registry-linked site; 96 unresolved. The report derives these counts from final canonical evidence so transient discovery metrics cannot disagree with published profiles.
+- Final report consistency gate PASS; all hard-gate workflow checks PASS.
+- Qualification artifact digest: `sha256:12843ba6b616fa1999521a1060e764aaeb0ed67f43f1b46ff79a7269e8f97031`.
 
 Update this matrix when a requirement changes state; link the PR/benchmark evidence rather than changing status from memory.
