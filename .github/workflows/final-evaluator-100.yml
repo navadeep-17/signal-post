@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - "feature/final-orchestrator-budget"
+      - "validation/h1e-final-evaluator-100"
     paths:
       - "src/norway_company_agent/http.py"
       - "src/norway_company_agent/final_site_discovery.py"
