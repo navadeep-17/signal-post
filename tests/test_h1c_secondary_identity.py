@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+from bs4 import BeautifulSoup
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -103,6 +105,54 @@ def _h1c_plan(row, max_candidates=1):
             }
         ],
     }
+
+
+def test_footer_identity_text_recovers_exact_org_number_without_main_text():
+    soup = BeautifulSoup(
+        """
+        <html>
+          <body>
+            <main><p>Premium mikrosement og moderne overflater.</p></main>
+            <footer class="site-footer">
+              <p>OSLO MIKROSEMENT AS</p>
+              <p>Org.nr 933 200 353</p>
+              <p>Carl Bergersens vei 47A, 1481 Hagan</p>
+            </footer>
+          </body>
+        </html>
+        """,
+        "lxml",
+    )
+    excerpt = final_site._identity_text_excerpt(soup)
+    assert "933 200 353" in excerpt
+    assert "Carl Bergersens vei 47A" in excerpt
+
+    website = _website(
+        "https://oslomikrosement.no/",
+        title="Oslo Mikrosement",
+        text="Premium mikrosement og moderne overflater.",
+    )
+    website["value"]["identity_text_excerpt"] = excerpt
+    website["value"]["pages"][0]["identity_text_excerpt"] = excerpt
+
+    assert final_site._page_contains_org_number(_profile(), website) is True
+
+
+def test_footer_identity_text_does_not_copy_arbitrary_main_content():
+    soup = BeautifulSoup(
+        """
+        <html>
+          <body>
+            <main><p>Org.nr 933 200 353 appears only in arbitrary main content.</p></main>
+            <footer><p>Copyright 2026</p></footer>
+          </body>
+        </html>
+        """,
+        "lxml",
+    )
+    excerpt = final_site._identity_text_excerpt(soup)
+    assert "933 200 353" not in excerpt
+    assert "Copyright 2026" in excerpt
 
 
 def test_title_domain_only_h1c_is_rejected_when_secondary_page_contradicts_registry(monkeypatch):
