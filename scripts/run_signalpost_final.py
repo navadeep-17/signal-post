@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from pathlib import Path
@@ -19,7 +20,10 @@ from norway_company_agent.batch import (  # noqa: E402
     terminal_envelope,
     validate_envelopes,
 )
+from norway_company_agent.company_site_social import attach_company_site_social_observations  # noqa: E402
 from norway_company_agent.evidence import utc_now  # noqa: E402
+from norway_company_agent.external_contract import project_profile_handle_observations  # noqa: E402
+from norway_company_agent.external_footprint import validate_observation  # noqa: E402
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
 )
@@ -135,6 +139,10 @@ def _enrich_profile(
             f"{site_logical_requests}>{MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE}"
         )
 
+    # H2a is a zero-network projection over the already-qualified company-page snapshot.
+    # It never fetches a social platform and therefore does not alter the request budget.
+    attach_company_site_social_observations(profile)
+
     logical_requests = official_logical_requests + site_logical_requests
     conservative_charge = budget.charge_requests(logical_requests)
     latencies = [int(result.elapsed_ms) for result in official_results if result.elapsed_ms is not None]
@@ -158,6 +166,35 @@ def _enrich_profile(
         "conservative_challenge_request_charge": conservative_charge,
         "site": site_metrics,
     }
+
+
+def _external_observation_audit(profiles: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    errors: list[dict[str, str]] = []
+    handles: list[dict[str, Any]] = []
+    for profile in profiles:
+        org = str(profile.get("organisation_number") or "")
+        for observation in profile.get("external_observations") or []:
+            if not isinstance(observation, dict) or observation.get("signal_type") != "profile_handle":
+                continue
+            observation_id = str(observation.get("id") or "")
+            if str(observation.get("organisation_number") or "") != org:
+                errors.append(
+                    {
+                        "organisation_number": org,
+                        "observation_id": observation_id,
+                        "error": "external observation organisation number mismatch",
+                    }
+                )
+            for error in validate_observation(observation):
+                errors.append(
+                    {
+                        "organisation_number": org,
+                        "observation_id": observation_id,
+                        "error": error,
+                    }
+                )
+            handles.append(observation)
+    return errors, handles
 
 
 def main() -> None:
@@ -261,11 +298,12 @@ def main() -> None:
         }
         for future in as_completed(futures):
             profile, _profile_report = future.result()
-            org = profile["organisation_number"]
-            state[org] = profile
+            state[profile["organisation_number"]] = profile
 
     completed_at = utc_now()
     ordered_profiles = [state[org] for org in orgs]
+    external_observation_errors, profile_handle_observations = _external_observation_audit(ordered_profiles)
+
     envelopes = [
         terminal_envelope(
             profile,
@@ -280,14 +318,14 @@ def main() -> None:
 
     refresh_events = _read_refresh_events(Path(args.refresh_report) if args.refresh_report else None)
     changes_by_org = group_refresh_events(refresh_events, expected_organisation_numbers=set(orgs))
-    projected = [
-        project_terminal_envelope(
+    projected: list[dict[str, Any]] = []
+    for envelope in envelopes:
+        contract = project_terminal_envelope(
             envelope,
             third_party_cost_usd=THIRD_PARTY_COST_USD,
             changes=changes_by_org[envelope["organisation_number"]],
         )
-        for envelope in envelopes
-    ]
+        projected.append(project_profile_handle_observations(contract, envelope["profile"]))
 
     contract_errors: list[dict[str, str]] = []
     change_errors: list[dict[str, str]] = []
@@ -341,6 +379,13 @@ def main() -> None:
         count for source, count in selected_sources.items() if source != "none"
     )
 
+    handle_platform_counts = dict(
+        sorted(Counter(str(item.get("platform") or "unknown") for item in profile_handle_observations).items())
+    )
+    companies_with_handles = len(
+        {str(item.get("organisation_number") or "") for item in profile_handle_observations}
+    )
+
     checks = {
         "internal_envelopes_valid": bool(internal_validation.get("passed")),
         "exact_final_count": len(projected) == args.expected_count,
@@ -348,6 +393,7 @@ def main() -> None:
         "all_contract_objects_valid": not contract_errors,
         "all_refresh_changes_valid": not change_errors,
         "all_refresh_events_attached_once": sum(len(item.get("changes") or []) for item in projected) == len(refresh_events),
+        "all_external_observations_valid": not external_observation_errors,
         "budget_valid": not budget_errors,
         "zero_third_party_cost": THIRD_PARTY_COST_USD == 0.0,
         "theoretical_request_ceiling_within_budget": theoretical_charge_ceiling <= args.max_challenge_requests,
@@ -375,6 +421,8 @@ def main() -> None:
             "max_site_homepage_probes_per_company": 2,
             "wikidata_candidate_discovery_enabled": True,
             "wikidata_batch_size": WIKIDATA_BATCH_SIZE,
+            "company_page_social_handle_extraction_enabled": True,
+            "social_platform_requests": 0,
             "max_redirects_per_logical_request": 1,
         },
         "request_budget": {
@@ -414,6 +462,13 @@ def main() -> None:
                 "bytes": int(wikidata_metrics.get("bytes") or 0),
                 "errors": list(wikidata_metrics.get("errors") or []),
             },
+        },
+        "external_signals": {
+            "profile_handle_observations": len(profile_handle_observations),
+            "companies_with_profile_handles": companies_with_handles,
+            "platform_counts": handle_platform_counts,
+            "social_platform_requests": 0,
+            "validation_errors": external_observation_errors,
         },
         "refresh_events": len(refresh_events),
         "claims": sum(len(item.get("claims") or []) for item in projected),
