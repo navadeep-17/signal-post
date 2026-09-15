@@ -13,7 +13,12 @@ from bs4 import BeautifulSoup
 import extruct
 import trafilatura
 
-from .domain_discovery import qualify_registry_email_domain_identity, registry_email_domain_candidates
+from .domain_discovery import (
+    _page_contains_org_number,
+    _page_matches_registry_location,
+    qualify_registry_email_domain_identity,
+    registry_email_domain_candidates,
+)
 from .evidence import evidence
 from .identity import apply_website_identity_gate
 from .website import (
@@ -31,6 +36,21 @@ from .zero_cost_registry_guard import apply_registry_risk_guard
 BRREG_BULK_URL = "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv"
 MAX_REDIRECTS_PER_REQUEST = 1
 MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE = 4
+SECONDARY_IDENTITY_TERMS = (
+    "kontakt",
+    "contact",
+    "personvern",
+    "privacy",
+    "om-oss",
+    "om_oss",
+    "about",
+    "legal",
+    "impressum",
+    "vilkar",
+    "terms",
+    "company",
+    "firma",
+)
 
 
 class BoundedSafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -70,6 +90,38 @@ def _robots_allowed(url: str, timeout: float) -> tuple[bool, int]:
         return True, 1
 
 
+def _secondary_identity_links(base_url: str, soup: BeautifulSoup) -> list[str]:
+    """Return deterministic same-domain identity/contact links, strongest first."""
+    base_domain = _registered_domain(base_url)
+    if not base_domain:
+        return []
+    ranked: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for node in soup.select("a[href]"):
+        href = str(node.get("href") or "").strip()
+        if not href:
+            continue
+        absolute = urllib.parse.urljoin(base_url, href)
+        parsed = urllib.parse.urlparse(absolute)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            continue
+        if _registered_domain(absolute) != base_domain:
+            continue
+        normalized = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", "", "", ""))
+        if normalized.rstrip("/") == base_url.rstrip("/") or normalized in seen:
+            continue
+        path_text = urllib.parse.unquote(parsed.path).casefold()
+        anchor_text = node.get_text(" ", strip=True).casefold()
+        haystack = f"{path_text} {anchor_text}"
+        matched_index = next((index for index, term in enumerate(SECONDARY_IDENTITY_TERMS) if term in haystack), None)
+        if matched_index is None:
+            continue
+        seen.add(normalized)
+        ranked.append((matched_index, normalized))
+    ranked.sort(key=lambda item: (item[0], len(urllib.parse.urlparse(item[1]).path), item[1]))
+    return [url for _, url in ranked[:8]]
+
+
 def fetch_bounded_homepage(
     url: str | None,
     *,
@@ -77,7 +129,7 @@ def fetch_bounded_homepage(
     timeout: float = 6.0,
     max_bytes: int = 750_000,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Fetch robots + homepage only, with at most one redirect per logical request."""
+    """Fetch robots + one HTML page, with at most one redirect per logical request."""
     normalized = normalize_homepage(url)
     metrics: dict[str, Any] = {"requests": 0, "bytes": 0, "latencies_ms": []}
     if not normalized:
@@ -131,6 +183,7 @@ def fetch_bounded_homepage(
             "structured_organisations": _jsonld_organisations(structured),
             "content_sha256": digest,
             "extraction_state": _extraction_state(text, soup),
+            "identity_links": _secondary_identity_links(final_url, soup),
             "pages": [{
                 "url": final_url,
                 "title": title[:500],
@@ -145,7 +198,7 @@ def fetch_bounded_homepage(
             source_type,
             final_url,
             value=value,
-            note="Bounded homepage-only final evaluator evidence",
+            note="Bounded single-page final evaluator evidence",
             content_sha256=digest,
         ), metrics
     except urllib.error.HTTPError as exc:
@@ -170,12 +223,62 @@ def _publishable(record: dict[str, Any]) -> bool:
     return record.get("status") == "available" and bool(identity.get("publishable"))
 
 
+def _secondary_required(assessment: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        **assessment,
+        "status": "review",
+        "score": min(float(assessment.get("score") or 0.88), 0.88),
+        "publishable": False,
+        "secondary_identity_required": True,
+        "reasons": [*list(assessment.get("reasons") or []), reason],
+        "method": "final_h1c_secondary_identity_guard_v1",
+    }
+
+
+def _secondary_verified(assessment: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        **assessment,
+        "status": "exact",
+        "score": max(float(assessment.get("score") or 0.95), 0.98),
+        "publishable": True,
+        "secondary_identity_required": False,
+        "reasons": [*list(assessment.get("reasons") or []), reason],
+        "method": "final_h1c_secondary_identity_guard_v1",
+    }
+
+
+def _merge_secondary_page(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    """Merge same-domain secondary identity evidence into the primary record."""
+    if primary.get("status") != "available" or secondary.get("status") != "available":
+        return False
+    primary_value = primary.get("value") or {}
+    secondary_value = secondary.get("value") or {}
+    primary_domain = str(primary_value.get("registered_domain") or "")
+    secondary_domain = str(secondary_value.get("registered_domain") or "")
+    if not primary_domain or primary_domain != secondary_domain:
+        return False
+    pages = list(primary_value.get("pages") or [])
+    secondary_pages = list(secondary_value.get("pages") or [])
+    if secondary_pages:
+        pages.append(secondary_pages[0])
+    primary_value["pages"] = pages
+    primary_value["secondary_identity_page"] = {
+        "url": secondary_value.get("final_url") or secondary.get("source_url"),
+        "content_sha256": secondary.get("content_sha256") or secondary_value.get("content_sha256"),
+    }
+    primary["value"] = primary_value
+    return True
+
+
 def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Resolve a canonical company website with at most two homepage probes.
+    """Resolve a canonical company website with a four-logical-request site ceiling.
 
     Order:
     1. registry website, when present; otherwise one registry-email-domain candidate;
-    2. one deterministic legal-name .no candidate if still unresolved.
+    2. one deterministic legal-name .no candidate if still unresolved;
+    3. for H1c title+domain-only matches, one same-domain identity page only when two
+       logical requests remain. Without that budget, the weak candidate abstains.
+
     Every publication requires the existing exact-identity gates. H1c additionally passes
     the registry-risk guard. Failed guesses never replace a registry-linked terminal record.
     """
@@ -187,6 +290,8 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
         "registry_attempted": False,
         "email_attempted": False,
         "h1c_attempted": False,
+        "h1c_secondary_attempted": False,
+        "h1c_secondary_verified": False,
         "selected_source": None,
         "promoted": False,
     }
@@ -280,6 +385,69 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
             value = candidate_record.get("value") or {}
             value["identity_assessment"] = assessment
             candidate_record["value"] = value
+
+        initially_selected = bool(assessment and assessment.get("publishable") and candidate_record.get("status") == "available")
+        homepage_strong = bool(
+            initially_selected
+            and (
+                _page_contains_org_number(row, candidate_record)
+                or _page_matches_registry_location(row, candidate_record)
+            )
+        )
+        if initially_selected and not homepage_strong and assessment is not None:
+            assessment = _secondary_required(
+                assessment,
+                "H1c title/domain match requires a same-domain identity page with organisation-number or registry-location corroboration",
+            )
+            value = candidate_record.get("value") or {}
+            value["identity_assessment"] = assessment
+            candidate_record["value"] = value
+            links = list(value.get("identity_links") or [])
+            if links and total["requests"] + 2 <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
+                secondary_url = links[0]
+                total["h1c_secondary_attempted"] = True
+                secondary_record, secondary_ops = fetch_bounded_homepage(
+                    secondary_url,
+                    source_type="deterministic_legal_name_secondary_identity_page",
+                    timeout=timeout,
+                )
+                _add_metrics(total, secondary_ops)
+                evidence_map["website_h1c_secondary_identity"] = secondary_record
+                merged = _merge_secondary_page(candidate_record, secondary_record)
+                if merged and (
+                    _page_contains_org_number(row, candidate_record)
+                    or _page_matches_registry_location(row, candidate_record)
+                ):
+                    assessment = _secondary_verified(
+                        assessment,
+                        "same-domain secondary identity page corroborates the exact organisation number or BRREG location",
+                    )
+                    total["h1c_secondary_verified"] = True
+                else:
+                    assessment = _secondary_required(
+                        assessment,
+                        "same-domain secondary identity page did not corroborate the exact organisation number or BRREG location",
+                    )
+                value = candidate_record.get("value") or {}
+                value["identity_assessment"] = assessment
+                candidate_record["value"] = value
+            elif not links:
+                assessment = _secondary_required(
+                    assessment,
+                    "H1c homepage exposed no bounded same-domain identity page for corroboration",
+                )
+                value = candidate_record.get("value") or {}
+                value["identity_assessment"] = assessment
+                candidate_record["value"] = value
+            else:
+                assessment = _secondary_required(
+                    assessment,
+                    "H1c secondary corroboration skipped because the per-company site request budget was already consumed",
+                )
+                value = candidate_record.get("value") or {}
+                value["identity_assessment"] = assessment
+                candidate_record["value"] = value
+
         selected = bool(assessment and assessment.get("publishable") and candidate_record.get("status") == "available")
         evidence_map["website_discovery_zero_cost"] = evidence(
             "website_discovery_zero_cost",
@@ -290,9 +458,11 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
                 "candidate_strategy": candidate["strategy"],
                 "candidate_domain": candidate["domain"],
                 "independent_page_url": (candidate_record.get("value") or {}).get("final_url") if selected else None,
+                "secondary_identity_attempted": total["h1c_secondary_attempted"],
+                "secondary_identity_verified": total["h1c_secondary_verified"],
                 "third_party_cost_usd": 0.0,
             },
-            note="One deterministic .no candidate independently fetched; no search API used.",
+            note="One deterministic .no candidate independently fetched; weak title/domain matches require bounded secondary identity corroboration.",
             content_sha256=candidate_record.get("content_sha256"),
         )
         evidence_map["website_discovered_zero_cost"] = candidate_record
