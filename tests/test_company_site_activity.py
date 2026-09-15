@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 from bs4 import BeautifulSoup
 
-from norway_company_agent.company_site_activity import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.company_site_activity import (  # noqa: E402
     activity_navigation_links,
     dated_activity_items,
     probe_company_activity,
 )
-from norway_company_agent.external_footprint import validate_observation
+from norway_company_agent.external_footprint import validate_observation  # noqa: E402
 
 
 def _profile() -> dict:
