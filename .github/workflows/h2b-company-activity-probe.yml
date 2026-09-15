@@ -1,0 +1,267 @@
+name: H2b Company Activity Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2b-company-activity"
+    paths:
+      - "src/norway_company_agent/company_site_activity.py"
+      - "scripts/evaluate_company_site_activity_probe.py"
+      - "tests/test_company_site_activity.py"
+      - ".github/workflows/h2b-company-activity-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_company_site_activity.py
+          uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate prior 3100-company exclusion set
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 --seed 20260823 \
+            --output entry-companies.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 --seed 20260915 \
+            --output known-validation-300.jsonl \
+            --report known-validation-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1300.jsonl \
+            --count 300 --seed 20260916 \
+            --evaluation-split h1c_secondary_confirmation \
+            --sample-slice fresh_external_precision_validation \
+            --output prior-h1c-fresh-300.jsonl \
+            --report prior-h1c-fresh-selection.json
+
+          cat exclude-1300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1600.jsonl \
+            --count 300 --seed 20260917 \
+            --evaluation-split h1d_recall_recovery \
+            --sample-slice fresh_zero_cost_site_recall_validation \
+            --output prior-h1d-fresh-300.jsonl \
+            --report prior-h1d-fresh-selection.json
+
+          cat exclude-1600.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1900.jsonl \
+            --count 300 --seed 20260918 \
+            --evaluation-split h1d_zero_overlap_confirmation \
+            --sample-slice fresh_transfer_validation \
+            --output prior-h1d-confirm-300.jsonl \
+            --report prior-h1d-confirm-selection.json
+
+          cat exclude-1900.jsonl prior-h1d-confirm-300.jsonl > exclude-2200.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2200.jsonl \
+            --count 300 --seed 20260919 \
+            --evaluation-split h1d_final_zero_overlap \
+            --sample-slice fresh_final_recall_validation \
+            --output prior-h1d-final-300.jsonl \
+            --report prior-h1d-final-selection.json
+
+          cat exclude-2200.jsonl prior-h1d-final-300.jsonl > exclude-2500.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2500.jsonl \
+            --count 300 --seed 20260920 \
+            --evaluation-split h1e_wikidata_candidate \
+            --sample-slice fresh_zero_cost_external_candidate_validation \
+            --output prior-h1e-failed-300.jsonl \
+            --report prior-h1e-failed-selection.json
+
+          cat exclude-2500.jsonl prior-h1e-failed-300.jsonl > exclude-2800.jsonl
+          test "$(wc -l < validation/h1e-fresh-300-exclusion.jsonl)" -eq 300
+          echo '5b4c4ae41a01c8b29aefa703bfd754da3e7448b33cbbbcb831d705032ef030b7  validation/h1e-fresh-300-exclusion.jsonl' | sha256sum -c -
+          cat exclude-2800.jsonl validation/h1e-fresh-300-exclusion.jsonl > exclude-3100.jsonl
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-3100.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == len(set(orgs)) == 3100
+          print(json.dumps({'excluded_rows': 3100, 'unique_orgs': 3100}, indent=2))
+          PY
+
+      - name: Recreate and freeze prior H2a fresh 300
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-3100.jsonl \
+            --count 300 --seed 20260922 \
+            --evaluation-split h2a_company_social \
+            --sample-slice fresh_profile_handle_validation \
+            --output prior-h2a-fresh-300.jsonl \
+            --report prior-h2a-selection.json
+          echo '1d1da002538c0a493303934de53925984c36f641bef2e7623df48897b2e4a88f  prior-h2a-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3100.jsonl prior-h2a-fresh-300.jsonl > exclude-3400.jsonl
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-3400.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == len(set(orgs)) == 3400
+          print(json.dumps({'excluded_rows': 3400, 'unique_orgs': 3400}, indent=2))
+          PY
+
+      - name: Select fresh disjoint H2b 300
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-3400.jsonl \
+            --count 300 --seed 20260923 \
+            --evaluation-split h2b_company_activity_probe \
+            --sample-slice fresh_dated_company_activity_validation \
+            --output fresh-h2b-300.jsonl \
+            --report fresh-h2b-selection.json
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report = json.loads(Path('fresh-h2b-selection.json').read_text())
+          assert report['count'] == 300, report
+          assert report['excluded_rows'] == 3400, report
+          assert report['overlap_count'] == 0, report
+          digest = hashlib.sha256(Path('fresh-h2b-300.jsonl').read_bytes()).hexdigest()
+          Path('fresh-h2b-manifest.sha256').write_text(digest + '\n')
+          print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
+          PY
+
+      - name: Run current production pipeline on fresh H2b 300
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_final.py \
+            --organisations fresh-h2b-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/base-final.jsonl \
+            --report out/base-report.json \
+            --work-dir out/base-work \
+            --run-id h2b-fresh-production-base \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5406 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Run bounded H2b activity probe
+        run: |
+          uv run python scripts/evaluate_company_site_activity_probe.py \
+            --profiles out/base-work/profiles.jsonl \
+            --observations out/h2b-observations.jsonl \
+            --audit out/h2b-audit.jsonl \
+            --report out/h2b-report.json \
+            --workers 8 \
+            --timeout 6
+
+      - name: Summarize promotion-compatible yield
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+
+          profiles = read_jsonl('out/base-work/profiles.jsonl')
+          observations = read_jsonl('out/h2b-observations.jsonl')
+          report = json.loads(Path('out/h2b-report.json').read_text())
+          base_report = json.loads(Path('out/base-report.json').read_text())
+          assert base_report['passed'] is True, base_report
+          assert report['passed'] is True, report
+          assert report['validation_errors'] == [], report
+
+          by_org = {str(p['organisation_number']): p for p in profiles}
+          activity_orgs = {str(item['organisation_number']) for item in observations}
+          site_requests = {
+              org: max(0, int((by_org[org].get('run_metrics') or {}).get('logical_requests') or 0) - 5)
+              for org in activity_orgs
+          }
+          eligible_orgs = {org for org, requests in site_requests.items() if requests <= 2}
+          eligible_observations = [item for item in observations if str(item['organisation_number']) in eligible_orgs]
+          summary = {
+              'fresh_companies': 300,
+              'fresh_manifest_sha256': Path('fresh-h2b-manifest.sha256').read_text().strip(),
+              'verified_sites': report['publishable_verified_sites'],
+              'activity_companies': report['companies_with_activity'],
+              'activity_observations': report['observations'],
+              'promotion_eligible_companies_without_ceiling_increase': len(eligible_orgs),
+              'promotion_eligible_observations_without_ceiling_increase': len(eligible_observations),
+              'activity_company_site_request_counts': dict(sorted(site_requests.items())),
+              'experimental_probe_logical_requests': report['experimental_logical_requests'],
+              'production_observed_conservative_requests': base_report['request_budget']['observed_conservative_challenge_request_charge'],
+              'production_theoretical_ceiling': base_report['request_budget']['theoretical_conservative_challenge_request_ceiling'],
+              'third_party_cost_usd': 0.0,
+          }
+          Path('out/h2b-qualification-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
+          Path('out/h2b-promotion-eligible-observations.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in eligible_observations),
+              encoding='utf-8',
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload H2b probe artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2b-company-activity-probe
+          if-no-files-found: error
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            fresh-h2b-300.jsonl
+            fresh-h2b-selection.json
+            fresh-h2b-manifest.sha256
+            out/base-report.json
+            out/base-work/profiles.jsonl
+            out/h2b-report.json
+            out/h2b-observations.jsonl
+            out/h2b-audit.jsonl
+            out/h2b-promotion-eligible-observations.jsonl
+            out/h2b-qualification-summary.json
