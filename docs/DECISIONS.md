@@ -107,3 +107,13 @@ This prevents slow/flaky external access from weakening the core regression gate
 Free/public official sources and ordinary permitted public-page fetches remain allowed. A connector with a free introductory quota but a paid continuation path is not a production dependency.
 
 Existing paid-provider experiments may remain in the repository as dormant research code, but they must not be enabled by the final runner unless the user explicitly reverses this decision.
+
+## D019 — Wikidata may nominate exact-ID website candidates, never prove identity
+
+**Decision:** The final runner may use the public Wikidata Query Service as a zero-cost, bounded **candidate-discovery** source using only exact Norwegian organisation number (`P2333`) to official website (`P856`) mappings. Wikidata is not accepted as entity-proof evidence.
+
+Publication still requires an independently fetched company page to contain either the exact target organisation number or the full legal name plus BRREG location corroboration, followed by the existing registry-risk guard. Ambiguous Wikidata mappings abstain, H1d runs first, and a Wikidata outage/throttle must degrade to H1d rather than fail the company batch.
+
+**Rights/access basis:** Wikidata structured data is published under CC0. Programmatic access must follow Wikidata access best practices: identify the client with a proper User-Agent, request compressed responses, keep queries bounded, avoid fuzzy/text search through WDQS, and stop/abstain on service errors or throttling. Signalpost batches at most 100 exact IDs per query, performs no retries inside the connector, and keeps third-party API spend at $0.
+
+**Qualified evidence:** H1e fresh zero-overlap validation (seed `20260921`, excluding 2,800 prior/touched companies) improved verified websites from 16 to 17 on 300 companies with zero lost sites. The sole promotion, NORSKE SELSKAB (`971424079`) → `norskeselskab.no`, was manually verified against the current BRREG legal name/location and the independently fetched site. The structural conservative ceiling is 1,802 requests per 100 companies, below the official 2,000-request cap.
