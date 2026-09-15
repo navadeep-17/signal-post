@@ -1,0 +1,392 @@
+name: H1d Final Zero-Overlap Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "validation/h1d-final-zero-overlap"
+    paths:
+      - ".github/workflows/h1d-final-zero-overlap.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  final-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and test frozen H1d code
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate and freeze all previously used 2200 companies
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 \
+            --seed 20260915 \
+            --output known-validation-300.jsonl \
+            --report known-validation-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1300.jsonl \
+            --count 300 \
+            --seed 20260916 \
+            --evaluation-split h1c_secondary_confirmation \
+            --sample-slice fresh_external_precision_validation \
+            --output prior-h1c-fresh-300.jsonl \
+            --report prior-h1c-fresh-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1600.jsonl \
+            --count 300 \
+            --seed 20260917 \
+            --evaluation-split h1d_recall_recovery \
+            --sample-slice fresh_zero_cost_site_recall_validation \
+            --output prior-h1d-fresh-300.jsonl \
+            --report prior-h1d-fresh-selection.json
+
+          cat entry-companies.jsonl known-validation-300.jsonl prior-h1c-fresh-300.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-1900.jsonl \
+            --count 300 \
+            --seed 20260918 \
+            --evaluation-split h1d_zero_overlap_confirmation \
+            --sample-slice fresh_transfer_validation \
+            --output prior-confirmation-300.jsonl \
+            --report prior-confirmation-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          expected = {
+              'known-validation-300.jsonl': '4248438faa42508f7721bdb83002fe15c81735dbf3f97878eba271078864fda5',
+              'prior-h1c-fresh-300.jsonl': '7c0d1ae4355edf1e2b282ebc386b7874eb6c3cbc36e5b01f0685069cbcd38d83',
+              'prior-h1d-fresh-300.jsonl': 'a05a38c86526babcf90c013230e406888d9e00a942e8fef40653e03b0c53aa7a',
+              'prior-confirmation-300.jsonl': '15741f32379a6db226ecff10de8cacf0c40bc34f40d511ae060bf13daeafaf3e',
+          }
+          for path, wanted in expected.items():
+              actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+              assert actual == wanted, (path, actual, wanted)
+
+          for report_path in (
+              'known-validation-selection.json',
+              'prior-h1c-fresh-selection.json',
+              'prior-h1d-fresh-selection.json',
+              'prior-confirmation-selection.json',
+          ):
+              report = json.loads(Path(report_path).read_text())
+              assert report['overlap_count'] == 0, (report_path, report)
+          print(json.dumps(expected, indent=2))
+          PY
+
+          cat entry-companies.jsonl known-validation-300.jsonl prior-h1c-fresh-300.jsonl prior-h1d-fresh-300.jsonl prior-confirmation-300.jsonl > exclude-2200.jsonl
+          test "$(wc -l < exclude-2200.jsonl)" -eq 2200
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('exclude-2200.jsonl').read_text().splitlines() if line.strip()]
+          orgs = [str(row['organisation_number']) for row in rows]
+          assert len(rows) == 2200
+          assert len(set(orgs)) == 2200
+          required = {'933200353', '925531618', '983928323'}
+          assert required.issubset(set(orgs)), required - set(orgs)
+          print(json.dumps({'excluded_rows': len(rows), 'unique_orgs': len(set(orgs)), 'regression_orgs_present': sorted(required)}, indent=2))
+          PY
+
+      - name: Replay three precision regressions
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          targets = {'933200353', '925531618', '983928323'}
+          rows = [json.loads(line) for line in Path('exclude-2200.jsonl').read_text().splitlines() if line.strip()]
+          selected = [row for row in rows if str(row['organisation_number']) in targets]
+          assert len(selected) == 3, [(row.get('organisation_number'), row.get('name')) for row in selected]
+          Path('precision-regression-3.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          PY
+
+          uv run python scripts/run_signalpost_final.py \
+            --organisations precision-regression-3.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/regression-final.jsonl \
+            --report out/regression-report.json \
+            --work-dir out/regression-work \
+            --run-id h1d-final-precision-regressions \
+            --expected-count 3 \
+            --workers 3 \
+            --site-timeout 6 \
+            --max-challenge-requests 54 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 180
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          wrong = {
+              '933200353': 'oslomikrosement.no',
+              '925531618': 'okonomibistand.no',
+              '983928323': 'venstre.no/lokal/oslo/st-hanshaugen',
+          }
+          profiles = [json.loads(line) for line in Path('out/regression-work/profiles.jsonl').read_text().splitlines() if line.strip()]
+          assert {str(row['organisation_number']) for row in profiles} == set(wrong)
+          for row in profiles:
+              org = str(row['organisation_number'])
+              website = (row.get('evidence') or {}).get('website') or {}
+              value = website.get('value') or {}
+              assessment = value.get('identity_assessment') or {}
+              published = website.get('status') == 'available' and bool(assessment.get('publishable'))
+              url = str(value.get('final_url') or website.get('source_url') or '').casefold()
+              assert not (published and wrong[org] in url), (org, url, assessment)
+              observed = {str(x) for x in assessment.get('observed_organisation_numbers') or []}
+              if published and observed:
+                  assert org in observed, (org, observed, url)
+          report = json.loads(Path('out/regression-report.json').read_text())
+          assert report['passed'] is True, report
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          print(json.dumps({'precision_regressions_quarantined': sorted(wrong)}, indent=2))
+          PY
+
+      - name: Select final fresh 300 excluding all prior 2200
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-2200.jsonl \
+            --count 300 \
+            --seed 20260919 \
+            --evaluation-split h1d_final_zero_overlap \
+            --sample-slice fresh_final_recall_validation \
+            --output final-confirmation-300.jsonl \
+            --report final-confirmation-selection.json
+
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report = json.loads(Path('final-confirmation-selection.json').read_text())
+          assert report['count'] == 300, report
+          assert report['excluded_rows'] == 2200, report
+          assert report['overlap_count'] == 0, report
+          digest = hashlib.sha256(Path('final-confirmation-300.jsonl').read_bytes()).hexdigest()
+          Path('final-confirmation-manifest.sha256').write_text(digest + '\n')
+          print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
+          PY
+
+      - name: Prepare current-main baseline worktree
+        run: |
+          git fetch origin main
+          BASE_SHA="$(git merge-base HEAD origin/main)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          git worktree add /tmp/signalpost-h1d-final-base "$BASE_SHA"
+          uv sync --project /tmp/signalpost-h1d-final-base --locked
+          echo "$BASE_SHA" > baseline-code.sha
+          echo "4aceba25e026504635e756b2ee3209d11584ba03" > h1d-code.sha
+
+      - name: Run current main on final fresh 300
+        run: |
+          uv run --project /tmp/signalpost-h1d-final-base python /tmp/signalpost-h1d-final-base/scripts/run_signalpost_final.py \
+            --organisations "$GITHUB_WORKSPACE/final-confirmation-300.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/base-final-final.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/base-final-report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/base-final-work" \
+            --run-id h1d-final-main \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5400 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Run frozen final H1d on final fresh 300
+        run: |
+          uv run python scripts/run_signalpost_final.py \
+            --organisations final-confirmation-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/h1d-final-final.jsonl \
+            --report out/h1d-final-report.json \
+            --work-dir out/h1d-final-work \
+            --run-id h1d-final-hardened \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5400 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Compare final transfer and export complete audit set
+        run: |
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          def load(path):
+              return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+
+          def verified(profiles):
+              result = []
+              for profile in profiles:
+                  website = (profile.get('evidence') or {}).get('website') or {}
+                  value = website.get('value') or {}
+                  identity = value.get('identity_assessment') or {}
+                  if website.get('status') != 'available' or not identity.get('publishable'):
+                      continue
+                  result.append({
+                      'organisation_number': profile.get('organisation_number'),
+                      'name': profile.get('name'),
+                      'municipality': profile.get('municipality'),
+                      'website': value.get('final_url') or website.get('source_url'),
+                      'source_type': website.get('source_type'),
+                      'content_sha256': website.get('content_sha256'),
+                      'identity_assessment': identity,
+                      'identity_text_excerpt': value.get('identity_text_excerpt'),
+                      'secondary_identity_page': value.get('secondary_identity_page'),
+                  })
+              return result
+
+          selection = json.loads(Path('final-confirmation-selection.json').read_text())
+          base_report = json.loads(Path('out/base-final-report.json').read_text())
+          h1d_report = json.loads(Path('out/h1d-final-report.json').read_text())
+          base_final = load('out/base-final-final.jsonl')
+          h1d_final = load('out/h1d-final-final.jsonl')
+          base_sites = verified(load('out/base-final-work/profiles.jsonl'))
+          h1d_sites = verified(load('out/h1d-final-work/profiles.jsonl'))
+
+          for report in (base_report, h1d_report):
+              assert report['passed'] is True, report
+              assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 5400
+              assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 5400
+              assert report['source_policy']['third_party_cost_usd'] == 0.0
+              assert report['source_policy']['search_api_requests'] == 0
+              assert report['source_policy']['experimental_connectors_enabled'] is False
+              assert report['contract_errors'] == []
+              assert report['change_errors'] == []
+              assert report['budget_errors'] == []
+
+          assert selection['overlap_count'] == 0
+          assert len(base_final) == len(h1d_final) == 300
+          assert len({row['organisation_number'] for row in h1d_final}) == 300
+          assert all(row['run']['terminal_status'] == 'completed' for row in h1d_final)
+
+          base_by_org = {row['organisation_number']: row for row in base_sites}
+          h1d_by_org = {row['organisation_number']: row for row in h1d_sites}
+          gained = sorted(set(h1d_by_org) - set(base_by_org))
+          lost = sorted(set(base_by_org) - set(h1d_by_org))
+
+          Path('out/h1d-final-verified-sites.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in h1d_sites),
+              encoding='utf-8',
+          )
+          Path('out/h1d-final-gained-sites.jsonl').write_text(
+              ''.join(json.dumps(h1d_by_org[org], ensure_ascii=False, separators=(',', ':')) + '\n' for org in gained),
+              encoding='utf-8',
+          )
+          Path('out/h1d-final-lost-sites.jsonl').write_text(
+              ''.join(json.dumps(base_by_org[org], ensure_ascii=False, separators=(',', ':')) + '\n' for org in lost),
+              encoding='utf-8',
+          )
+
+          summary = {
+              'manifest_sha256': hashlib.sha256(Path('final-confirmation-300.jsonl').read_bytes()).hexdigest(),
+              'validation_companies': 300,
+              'excluded_previous_companies': selection['excluded_rows'],
+              'overlap_count': selection['overlap_count'],
+              'baseline_verified_sites': len(base_sites),
+              'h1d_verified_sites': len(h1d_sites),
+              'net_verified_site_gain': len(h1d_sites) - len(base_sites),
+              'gained_orgs': gained,
+              'lost_orgs': lost,
+              'baseline_logical_requests': base_report['request_budget']['observed_logical_requests'],
+              'h1d_logical_requests': h1d_report['request_budget']['observed_logical_requests'],
+              'baseline_conservative_requests': base_report['request_budget']['observed_conservative_challenge_request_charge'],
+              'h1d_conservative_requests': h1d_report['request_budget']['observed_conservative_challenge_request_charge'],
+              'baseline_runtime_seconds': base_report['runtime']['wall_runtime_seconds'],
+              'h1d_runtime_seconds': h1d_report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd': h1d_report['source_policy']['third_party_cost_usd'],
+              'search_api_requests': h1d_report['source_policy']['search_api_requests'],
+          }
+          Path('out/h1d-final-summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload final H1d validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h1d-final-zero-overlap
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            baseline-code.sha
+            h1d-code.sha
+            final-confirmation-manifest.sha256
+            entry-companies.jsonl
+            known-validation-300.jsonl
+            prior-h1c-fresh-300.jsonl
+            prior-h1d-fresh-300.jsonl
+            prior-confirmation-300.jsonl
+            exclude-2200.jsonl
+            precision-regression-3.jsonl
+            final-confirmation-300.jsonl
+            final-confirmation-selection.json
+            out/regression-final.jsonl
+            out/regression-report.json
+            out/regression-work/profiles.jsonl
+            out/base-final-final.jsonl
+            out/base-final-report.json
+            out/base-final-work/profiles.jsonl
+            out/h1d-final-final.jsonl
+            out/h1d-final-report.json
+            out/h1d-final-work/profiles.jsonl
+            out/h1d-final-verified-sites.jsonl
+            out/h1d-final-gained-sites.jsonl
+            out/h1d-final-lost-sites.jsonl
+            out/h1d-final-summary.json
