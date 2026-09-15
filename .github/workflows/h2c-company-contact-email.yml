@@ -7,8 +7,11 @@ on:
       - "experiment/h2c-company-contact-email"
     paths:
       - "src/norway_company_agent/company_site_contact.py"
+      - "src/norway_company_agent/external_contract.py"
       - "scripts/evaluate_company_site_contact_email.py"
+      - "scripts/run_signalpost_final.py"
       - "tests/test_company_site_contact.py"
+      - "tests/test_h2c_external_contract.py"
       - ".github/workflows/h2c-company-contact-email.yml"
 
 permissions:
@@ -32,7 +35,7 @@ jobs:
       - name: Sync and run regressions
         run: |
           uv sync --locked
-          uv run --with pytest pytest -q tests/test_company_site_contact.py
+          uv run --with pytest pytest -q tests/test_company_site_contact.py tests/test_h2c_external_contract.py
           uv run --with pytest pytest -q
 
       - name: Download official BRREG bulk registry
@@ -172,11 +175,12 @@ jobs:
           assert report['excluded_rows'] == 3700, report
           assert report['overlap_count'] == 0, report
           digest = hashlib.sha256(Path('fresh-h2c-300.jsonl').read_bytes()).hexdigest()
+          assert digest == 'eee5765bcdfed57aa81489c2f3ef613bf612fcde92f73e5dc641df97905812bf', digest
           Path('fresh-h2c-manifest.sha256').write_text(digest + '\n')
           print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
           PY
 
-      - name: Run current production pipeline on fresh H2c 300
+      - name: Run integrated production pipeline on fresh H2c 300
         run: |
           mkdir -p out
           uv run python scripts/run_signalpost_final.py \
@@ -185,7 +189,7 @@ jobs:
             --output out/base-final.jsonl \
             --report out/base-report.json \
             --work-dir out/base-work \
-            --run-id h2c-fresh-production-base \
+            --run-id h2c-fresh-production-integrated \
             --expected-count 300 \
             --workers 8 \
             --site-timeout 6 \
@@ -201,24 +205,45 @@ jobs:
             --audit out/h2c-audit.jsonl \
             --report out/h2c-report.json
 
-      - name: Verify zero-cost invariants and summarize
+      - name: Verify integrated H2c and zero-cost invariants
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
           base = json.loads(Path('out/base-report.json').read_text())
           h2c = json.loads(Path('out/h2c-report.json').read_text())
+          final_rows = [json.loads(line) for line in Path('out/base-final.jsonl').read_text().splitlines() if line.strip()]
+          contact_claims = [
+              claim
+              for row in final_rows
+              for claim in row.get('claims', [])
+              if claim.get('field') == 'external.contact_email'
+          ]
+          companies_with_claims = {
+              row['organisation_number']
+              for row in final_rows
+              if any(claim.get('field') == 'external.contact_email' for claim in row.get('claims', []))
+          }
           assert base['passed'] is True, base
           assert h2c['passed'] is True, h2c
           assert h2c['network_requests_added'] == 0, h2c
           assert h2c['third_party_cost_usd_added'] == 0.0, h2c
           assert h2c['validation_errors'] == [], h2c
+          assert base['source_policy']['company_page_contact_email_extraction_enabled'] is True, base
+          assert base['source_policy']['contact_email_network_requests'] == 0, base
+          assert base['external_signals']['contact_email_network_requests'] == 0, base
+          assert base['external_signals']['contact_email_observations'] == h2c['contact_email_observations'], (base, h2c)
+          assert base['external_signals']['companies_with_contact_emails'] == h2c['companies_with_contact_email'], (base, h2c)
+          assert len(contact_claims) == h2c['contact_email_observations'], (len(contact_claims), h2c)
+          assert len(companies_with_claims) == h2c['companies_with_contact_email'], (companies_with_claims, h2c)
+          assert len(final_rows) == 300
           summary = {
               'fresh_companies': 300,
               'fresh_manifest_sha256': Path('fresh-h2c-manifest.sha256').read_text().strip(),
               'verified_websites': h2c['verified_websites'],
               'companies_with_contact_email': h2c['companies_with_contact_email'],
               'contact_email_observations': h2c['contact_email_observations'],
+              'integrated_contact_email_claims': len(contact_claims),
               'reach_over_all_profiles': h2c['reach_over_all_profiles'],
               'reach_over_verified_websites': h2c['reach_over_verified_websites'],
               'network_requests_added': 0,
@@ -242,6 +267,7 @@ jobs:
             fresh-h2c-selection.json
             fresh-h2c-manifest.sha256
             out/base-report.json
+            out/base-final.jsonl
             out/base-work/profiles.jsonl
             out/h2c-report.json
             out/h2c-observations.jsonl
