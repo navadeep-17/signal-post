@@ -45,8 +45,65 @@ The only candidate was:
 
 Manual external verification confirmed that this is the DNB Eiendom organisation profile and that its company identity/location align with DNB EIENDOM AS.
 
-## Decision
+## Broader exact-P2333 account screen
 
-**Do not merge the P4264-only implementation.**
+Because P4264 was correct but sparse, the same locked fresh 300 was screened for five additional Wikidata account properties:
 
-The single audited candidate is correct, but the fresh transfer yield is too small to justify a production integration on its own. The broader Wikidata same-request hypothesis remains open: next test the remaining organization-account properties on exact P2333-matched items, then only promote a combined path if aggregate net-new company coverage is materially better while preserving the same ambiguity guards and zero projected request delta.
+- `P2002` — X username
+- `P2003` — Instagram username
+- `P2013` — Facebook username
+- `P2397` — YouTube channel ID
+- `P7085` — TikTok username
+
+Screen run: `35013714592`
+
+Screen head: `88dd7cafe1961cf84ecba306fa5104367f73fa6b`
+
+Artifact: `h2d-wikidata-org-account-screen`
+
+Artifact ID: `10414881239`
+
+Artifact digest: `sha256:890d75326301a9503966a4b20bc5dd4508d8b1ff317f06868071b0b6aa5fbd62`
+
+The screen reused and hash-verified the exact H2d fresh cohort rather than selecting a new sample. It made three bounded WDQS requests and cost $0.
+
+Results:
+
+- candidate companies: 2/300 (0.67%)
+- candidate identifiers: 3
+- Facebook: 2
+- Instagram: 1
+- X: 0
+- YouTube: 0
+- TikTok: 0
+- ambiguous organisation mappings: 0
+- ambiguous per-platform identifiers: 0
+- projected added production requests if folded into the existing H1e batch: 0
+
+Candidates:
+
+1. `910968955` — DNB EIENDOM AS — Facebook `dnbeiendom`
+2. `910968955` — DNB EIENDOM AS — Instagram `dnbeiendom`
+3. `987345683` — OLAV ØVERLIS MINNE STI — Facebook `etnedalkommune`
+
+Manual audit:
+
+- DNB Eiendom's Facebook and Instagram identifiers are consistent with the DNB Eiendom organisation and add handles for the same company already discovered by P4264.
+- The `OLAV ØVERLIS MINNE STI -> etnedalkommune` mapping is **not acceptable as an exact legal-entity profile-handle claim**. BRREG identifies OLAV ØVERLIS MINNE STI as a distinct foundation (`987345683`), while the candidate username is the Etnedal municipality account. Wikidata itself currently stores that municipality username on the foundation item, demonstrating that exact P2333 item matching does not make generic social-account properties exact-entity-safe.
+
+Therefore the broader properties produced **zero additional correct company coverage beyond the single DNB company already found by P4264**, while introducing a false exact-entity candidate.
+
+## Final decision
+
+**REJECT H2d. Do not merge any Wikidata social-handle code into production.**
+
+Reasons:
+
+- P4264-only fresh net-new company coverage is only 1/300 (0.33%).
+- The broader five-property screen reaches only 2/300 companies (0.67%).
+- After manual audit, the only additional company is a false exact-entity match.
+- Aggregate audited correct company gain remains 1/300 (0.33%).
+- The challenge rewards company recall much more than multiple handles for the same already-covered company, so extra DNB handles do not justify the production complexity.
+- Generic Wikidata social identifiers weaken the precision boundary because related/parent organisations can be stored on an exact P2333-matched item.
+
+Production `main` remains unchanged at the H1g merge. The next coverage experiment should target a different external field/source rather than further Wikidata social-property expansion.
