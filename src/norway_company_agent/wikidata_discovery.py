@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import math
 import re
@@ -7,6 +8,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Any, Iterable
 
 from .domain_discovery import (
@@ -64,6 +66,18 @@ def _sparql_query(orgs: list[str]) -> str:
     )
 
 
+def _decode_response(raw: bytes, encoding: str) -> bytes:
+    value = str(encoding or "").casefold()
+    if "gzip" in value:
+        return gzip.decompress(raw)
+    if "deflate" in value:
+        try:
+            return zlib.decompress(raw)
+        except zlib.error:
+            return zlib.decompress(raw, -zlib.MAX_WBITS)
+    return raw
+
+
 def fetch_wikidata_website_candidates(
     organisation_numbers: Iterable[Any],
     *,
@@ -114,12 +128,15 @@ def fetch_wikidata_website_candidates(
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw = response.read(WIKIDATA_MAX_RESPONSE_BYTES + 1)
+                headers = getattr(response, "headers", {})
+                encoding = headers.get("content-encoding", "") if hasattr(headers, "get") else ""
             elapsed = int((time.monotonic() - started) * 1000)
             metrics["latencies_ms"].append(elapsed)
             metrics["bytes"] += len(raw)
             if len(raw) > WIKIDATA_MAX_RESPONSE_BYTES:
                 metrics["errors"].append("Wikidata response exceeded byte limit")
                 continue
+            raw = _decode_response(raw, str(encoding))
             payload = json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
             elapsed = int((time.monotonic() - started) * 1000)
