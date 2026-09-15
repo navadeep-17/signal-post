@@ -81,6 +81,36 @@ def test_run_budget_proves_1800_request_ceiling_for_100_companies():
     assert budget.validate(logical_requests=901, third_party_cost_usd=0.0, wall_runtime_seconds=100)
 
 
+def test_robots_allowed_parses_url_without_local_import_scope_error(monkeypatch):
+    class RobotsResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"User-agent: *\nAllow: /\n"
+
+    class RobotsOpener:
+        def __init__(self):
+            self.urls = []
+
+        def open(self, request, timeout=6.0):
+            self.urls.append(request.full_url)
+            return RobotsResponse()
+
+    opener = RobotsOpener()
+    monkeypatch.setattr(final_site, "assert_public_url", lambda _: None)
+    monkeypatch.setattr(final_site, "BOUNDED_SAFE_OPENER", opener)
+
+    allowed, requests = final_site._robots_allowed("https://example.no/about", 1.0)
+
+    assert allowed is True
+    assert requests == 1
+    assert opener.urls == ["https://example.no/robots.txt"]
+
+
 def test_verified_registry_homepage_stops_after_one_probe(monkeypatch):
     calls = []
 
