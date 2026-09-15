@@ -224,7 +224,7 @@ jobs:
               'network_requests_added': 0,
               'third_party_cost_usd_added': 0.0,
               'production_observed_conservative_requests': base['request_budget']['observed_conservative_challenge_request_charge'],
-              'production_theoretical_ceiling': base['request_budget']['theoretical_conservative_challenge_request_ceiling'],
+              'production_theoretical_ceiling': base['request_budget']['theoretical_challenge_request_charge_ceiling'],
           }
           Path('out/h2c-qualification-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
           print(json.dumps(summary, ensure_ascii=False, indent=2))
