@@ -11,6 +11,15 @@ LEGAL_AND_GENERIC = {
     "nuf", "ab", "b", "v", "limited", "ltd", "inc", "plc", "the", "og", "and",
 }
 
+EXPLICIT_ORG_NUMBER_RE = re.compile(
+    r"(?i)\b(?:organisasjons(?:nummer|nr)|org(?:anisasjons)?\.?\s*(?:nr|nummer)\.?|"
+    r"organisation\s*(?:number|no\.?)|organization\s*(?:number|no\.?))"
+    r"\s*[:#-]?\s*((?:\d[\s.\-]?){8}\d)\b"
+)
+NO_MVA_ORG_NUMBER_RE = re.compile(
+    r"(?i)\bNO\s*[:#-]?\s*((?:\d[\s.\-]?){8}\d)\s*MVA\b"
+)
+
 
 def _tokens(value: Any) -> list[str]:
     text = str(value or "").translate(str.maketrans({"ø": "o", "Ø": "O", "å": "a", "Å": "A", "æ": "ae", "Æ": "AE"}))
@@ -30,6 +39,36 @@ def _structured_names(value: Any) -> list[str]:
         for child in value:
             names.extend(_structured_names(child))
     return names
+
+
+def _homepage_explicit_org_number_parts(value: dict[str, Any]) -> list[str]:
+    """Return homepage legal-ID text without using deeper pages as positive identity proof."""
+    identity_text = str(value.get("identity_text_excerpt") or "").strip()
+    if identity_text:
+        return [identity_text]
+
+    rendered = value.get("js_fallback") or {}
+    fallback_parts: list[Any] = [
+        value.get("title"),
+        value.get("description"),
+        value.get("main_text_excerpt"),
+        value.get("structured_organisations"),
+        rendered.get("title"),
+        rendered.get("main_text_excerpt"),
+    ]
+    return [str(part) for part in fallback_parts if str(part or "").strip()]
+
+
+def _explicit_org_numbers(value: dict[str, Any]) -> set[str]:
+    """Extract nine-digit identifiers explicitly presented on the homepage as organisation numbers."""
+    found: set[str] = set()
+    for part in _homepage_explicit_org_number_parts(value):
+        for pattern in (EXPLICIT_ORG_NUMBER_RE, NO_MVA_ORG_NUMBER_RE):
+            for match in pattern.finditer(part):
+                digits = re.sub(r"\D", "", match.group(1))
+                if len(digits) == 9:
+                    found.add(digits)
+    return found
 
 
 def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
@@ -55,6 +94,7 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     normalized_candidate_text = " ".join(_tokens(candidate_text))
     candidate_tokens = set(_tokens(candidate_text))
     org_digits = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    explicit_org_numbers = _explicit_org_numbers(value)
     compact_candidate = re.sub(r"\D", "", candidate_text)
     compact_homepage_candidate = re.sub(r"\D", "", homepage_candidate_text)
     overlap = sorted(set(core) & candidate_tokens)
@@ -77,9 +117,15 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     if any(marker in normalized_raw for marker in parked_markers):
         score = 0.1
         reasons.append("captured page is a parked, for-sale, or generic hosting placeholder")
+    elif explicit_org_numbers and org_digits not in explicit_org_numbers:
+        score = 0.1
+        reasons.append("page explicitly identifies a different legal-entity organisation number without the target organisation number")
     elif is_business_sports_club and "bedriftsidrett" not in normalized_candidate_text and "b i l" not in normalized_candidate_text:
         score = 0.3
         reasons.append("business sports-club entity points to the operating company's site without club evidence")
+    elif org_digits and org_digits in explicit_org_numbers:
+        score = 1.0
+        reasons.append("exact organisation number is explicitly labelled in homepage identity evidence")
     elif org_digits and org_digits in compact_homepage_candidate:
         score = 1.0
         reasons.append("exact organisation number appears in homepage identity evidence")
@@ -105,8 +151,9 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
         "publishable": status == "exact",
         "legal_name_tokens": core,
         "matched_tokens": overlap,
+        "observed_organisation_numbers": sorted(explicit_org_numbers),
         "reasons": reasons,
-        "method": "deterministic_name_org_evidence_v2",
+        "method": "deterministic_name_org_evidence_v3",
     }
 
 
