@@ -1,0 +1,74 @@
+name: H2d Wikidata Organization Account Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2d-wikidata-social"
+    paths:
+      - "scripts/explore_h2d_wikidata_org_accounts.py"
+      - ".github/workflows/h2d-wikidata-org-account-screen.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Reuse locked fresh H2d cohort artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 35012657214 \
+            --repo navadeep-17/signal-post \
+            --name h2d-wikidata-linkedin-qualification \
+            --dir prior
+          test -s prior/fresh-h2d-300.jsonl
+          echo '73ffeb9a5010c6bc86a5b7ab2ed07e6d18e206b6db2f016a4ba4fe4e7d56e55c  prior/fresh-h2d-300.jsonl' | sha256sum -c -
+
+      - name: Screen broader exact-org account properties
+        run: |
+          mkdir -p out
+          python scripts/explore_h2d_wikidata_org_accounts.py \
+            --organisations prior/fresh-h2d-300.jsonl \
+            --report out/h2d-account-screen-report.json \
+            --audit out/h2d-account-screen-audit.jsonl \
+            --timeout 8 \
+            --expected-count 300
+
+      - name: Verify bounded screen
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/h2d-account-screen-report.json').read_text())
+          assert report['passed'] is True, report
+          assert report['expected_count'] == 300, report
+          assert report['requests'] <= 3, report
+          assert report['third_party_cost_usd'] == 0.0, report
+          assert report['prospective_added_production_requests_if_folded_into_existing_h1e_batch'] == 0, report
+          print(json.dumps({
+              'candidate_companies': report['candidate_companies'],
+              'candidate_identifiers': report['candidate_identifiers'],
+              'platform_counts': report['platform_counts'],
+              'requests': report['requests'],
+          }, indent=2))
+          PY
+
+      - name: Upload screen artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2d-wikidata-org-account-screen
+          if-no-files-found: error
+          path: |
+            out/h2d-account-screen-report.json
+            out/h2d-account-screen-audit.jsonl
