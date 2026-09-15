@@ -112,7 +112,7 @@ jobs:
           from pathlib import Path
 
           expected = {
-              'entry-companies.jsonl': '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3',
+              'entry-companies.jsonl': '01d262523f3b1fe71dc7e18b8f7675a866d3a79042e072b4961b0322fe1033b8',
               'known-validation-300.jsonl': '4248438faa42508f7721bdb83002fe15c81735dbf3f97878eba271078864fda5',
               'prior-h1c-fresh-300.jsonl': '7c0d1ae4355edf1e2b282ebc386b7874eb6c3cbc36e5b01f0685069cbcd38d83',
               'prior-h1d-fresh-300.jsonl': 'a05a38c86526babcf90c013230e406888d9e00a942e8fef40653e03b0c53aa7a',
