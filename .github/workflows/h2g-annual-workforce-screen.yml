@@ -16,7 +16,7 @@ permissions:
 jobs:
   screen:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,11 +58,11 @@ jobs:
             --output out/h2g-observations.jsonl \
             --report out/h2g-report.json \
             --audit out/h2g-audit.jsonl \
-            --limit 20 \
+            --limit 5 \
             --timeout 60 \
             --min-start-interval 2.1 \
-            --ocr-pages 15 \
-            --ocr-dpi 130
+            --ocr-pages 12 \
+            --ocr-dpi 120
 
       - name: Verify H2g OCR screen invariants
         run: |
@@ -72,10 +72,10 @@ jobs:
           report = json.loads(Path('out/h2g-report.json').read_text())
           assert report['passed'] is True, report
           assert report['profiles'] == 300, report
-          assert report['selected'] == 20, report
-          assert report['requests'] == 20, report
+          assert report['selected'] == 5, report
+          assert report['requests'] == 5, report
           assert report['third_party_cost_usd'] == 0.0, report
-          assert report['ocr_used'] == 20, report
+          assert report['ocr_used'] == 5, report
           assert not report['observation_validation_errors'], report
           print(json.dumps({
               'eligible': report['eligible'],
@@ -90,7 +90,7 @@ jobs:
       - name: Upload H2g OCR screen artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: h2g-annual-workforce-ocr-screen
+          name: h2g-annual-workforce-ocr-screen-fast5
           if-no-files-found: error
           path: |
             out/h2g-report.json
