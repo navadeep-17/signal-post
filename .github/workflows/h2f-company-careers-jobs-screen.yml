@@ -1,0 +1,94 @@
+name: H2f Company Careers Jobs Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2f-company-careers-jobs"
+    paths:
+      - "src/norway_company_agent/company_careers_jobs.py"
+      - "scripts/screen_h2f_company_careers_jobs.py"
+      - "tests/test_h2f_company_careers_jobs.py"
+      - ".github/workflows/h2f-company-careers-jobs-screen.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run H2f and full regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_h2f_company_careers_jobs.py
+          uv run --with pytest pytest -q
+
+      - name: Reuse locked fresh H2e production cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 35052080988 \
+            --repo navadeep-17/signal-post \
+            --name h2e-integrated-production-qualification \
+            --dir prior
+          test -s prior/out/integrated-work/profiles.jsonl
+          test "$(wc -l < prior/out/integrated-work/profiles.jsonl)" -eq 300
+
+      - name: Screen verified company careers pages
+        run: |
+          mkdir -p out
+          uv run python scripts/screen_h2f_company_careers_jobs.py \
+            --profiles prior/out/integrated-work/profiles.jsonl \
+            --report out/h2f-report.json \
+            --audit out/h2f-audit.jsonl \
+            --observations out/h2f-observations.jsonl \
+            --expected-count 300 \
+            --timeout 6
+
+      - name: Verify H2f safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/h2f-report.json').read_text())
+          assert report['passed'] is True, report
+          assert report['profiles'] == 300, report
+          assert report['career_pages_attempted'] <= 147, report
+          assert report['prospective_production_followup_cap'] == 147, report
+          assert report['prospective_structural_challenge_charge_ceiling'] == 5994, report
+          assert report['challenge_charge_cap'] == 6000, report
+          assert report['third_party_cost_usd'] == 0.0, report
+          assert not report['observation_validation_errors'], report
+          print(json.dumps({
+              'verified_sites': report['verified_sites'],
+              'sites_with_career_link': report['sites_with_career_link'],
+              'career_pages_available': report['career_pages_available'],
+              'companies_with_structured_jobs': report['companies_with_structured_jobs'],
+              'structured_job_observations': report['structured_job_observations'],
+              'net_new_workforce_jobs_companies': report['net_new_workforce_jobs_companies'],
+              'fallback_role_candidate_companies': report['fallback_role_candidate_companies'],
+              'prospective_added_charge': report['prospective_production_added_conservative_charge_on_this_cohort'],
+          }, indent=2))
+          PY
+
+      - name: Upload H2f screen artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2f-company-careers-jobs-screen
+          if-no-files-found: error
+          path: |
+            out/h2f-report.json
+            out/h2f-audit.jsonl
+            out/h2f-observations.jsonl
