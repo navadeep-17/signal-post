@@ -1,0 +1,80 @@
+name: H2e Official Workforce Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2e-official-workforce"
+    paths:
+      - "scripts/screen_h2e_official_workforce.py"
+      - ".github/workflows/h2e-official-workforce-screen.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Reuse locked fresh H2d production profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 35012657214 \
+            --repo navadeep-17/signal-post \
+            --name h2d-wikidata-linkedin-qualification \
+            --dir prior
+          test -s prior/out/base-work/profiles.jsonl
+          test -s prior/fresh-h2d-300.jsonl
+          echo '73ffeb9a5010c6bc86a5b7ab2ed07e6d18e206b6db2f016a4ba4fe4e7d56e55c  prior/fresh-h2d-300.jsonl' | sha256sum -c -
+
+      - name: Screen 90 official annual-report PDFs
+        run: |
+          mkdir -p out
+          uv run python scripts/screen_h2e_official_workforce.py \
+            --profiles prior/out/base-work/profiles.jsonl \
+            --output out/h2e-workforce-observations.jsonl \
+            --report out/h2e-workforce-report.json \
+            --audit out/h2e-workforce-audit.jsonl \
+            --limit 90 \
+            --timeout 90
+
+      - name: Verify bounded screen
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/h2e-workforce-report.json').read_text())
+          assert report['passed'] is True, report
+          assert report['profiles'] == 300, report
+          assert report['selected'] <= 90, report
+          assert report['requests'] <= 90, report
+          assert report['third_party_cost_usd'] == 0.0, report
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Upload H2e screen artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2e-official-workforce-screen
+          if-no-files-found: error
+          path: |
+            out/h2e-workforce-observations.jsonl
+            out/h2e-workforce-report.json
+            out/h2e-workforce-audit.jsonl
