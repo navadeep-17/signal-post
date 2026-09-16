@@ -23,6 +23,7 @@ from norway_company_agent.batch import (  # noqa: E402
 from norway_company_agent.company_site_contact import attach_company_site_contact_email_observations  # noqa: E402
 from norway_company_agent.company_site_social import attach_company_site_social_observations  # noqa: E402
 from norway_company_agent.registry_workforce import attach_registry_workforce_observations  # noqa: E402
+from norway_company_agent.annual_report_workforce import attach_annual_report_workforce_batch  # noqa: E402
 from norway_company_agent.evidence import utc_now  # noqa: E402
 from norway_company_agent.external_contract import (  # noqa: E402
     project_contact_email_observations,
@@ -65,7 +66,7 @@ FINAL_MODULES = [
 ]
 OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE = len(OFFICIAL_FETCH_MODULES)
 THIRD_PARTY_COST_USD = 0.0
-DEFAULT_MAX_CHALLENGE_REQUESTS = 1802
+DEFAULT_MAX_CHALLENGE_REQUESTS = 2000
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -256,6 +257,11 @@ def main() -> None:
     parser.add_argument("--max-third-party-cost-usd", type=float, default=0.0)
     parser.add_argument("--max-wall-runtime-seconds", type=int, default=2400)
     parser.add_argument("--refresh-report", help="Optional refresh report with events[]")
+    parser.add_argument("--annual-workforce-workers", type=int, default=4)
+    parser.add_argument("--annual-workforce-timeout", type=float, default=60.0)
+    parser.add_argument("--annual-workforce-min-start-interval", type=float, default=2.1)
+    parser.add_argument("--annual-workforce-ocr-pages", type=int, default=8)
+    parser.add_argument("--annual-workforce-ocr-dpi", type=int, default=110)
     args = parser.parse_args()
 
     if args.expected_count < 1:
@@ -272,6 +278,16 @@ def main() -> None:
         parser.error("--max-third-party-cost-usd cannot be negative")
     if args.max_wall_runtime_seconds < 1:
         parser.error("--max-wall-runtime-seconds must be positive")
+    if args.annual_workforce_workers < 1:
+        parser.error("--annual-workforce-workers must be positive")
+    if args.annual_workforce_timeout <= 0:
+        parser.error("--annual-workforce-timeout must be positive")
+    if args.annual_workforce_min_start_interval < 0:
+        parser.error("--annual-workforce-min-start-interval cannot be negative")
+    if args.annual_workforce_ocr_pages < 0:
+        parser.error("--annual-workforce-ocr-pages cannot be negative")
+    if args.annual_workforce_ocr_dpi < 50:
+        parser.error("--annual-workforce-ocr-dpi must be at least 50")
 
     budget = RunBudget(
         max_challenge_requests=args.max_challenge_requests,
@@ -281,17 +297,24 @@ def main() -> None:
     )
     per_profile_logical_ceiling = OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE + MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
     theoretical_shared_wikidata_requests = theoretical_wikidata_lookup_requests(args.expected_count)
-    theoretical_logical_ceiling = (
+    base_theoretical_logical_ceiling = (
         args.expected_count * per_profile_logical_ceiling
         + theoretical_shared_wikidata_requests
     )
-    theoretical_charge_ceiling = budget.charge_requests(theoretical_logical_ceiling)
-    if theoretical_charge_ceiling > args.max_challenge_requests:
+    base_theoretical_charge_ceiling = budget.charge_requests(base_theoretical_logical_ceiling)
+    if base_theoretical_charge_ceiling > args.max_challenge_requests:
         raise SystemExit(
-            f"Configured pipeline cannot prove request safety: theoretical charge "
-            f"{theoretical_charge_ceiling}>{args.max_challenge_requests}. "
+            f"Configured base pipeline cannot prove request safety: theoretical charge "
+            f"{base_theoretical_charge_ceiling}>{args.max_challenge_requests}. "
             "Reduce expected count or raise the explicit budget only within the challenge's request cap."
         )
+    remaining_structural_charge = args.max_challenge_requests - base_theoretical_charge_ceiling
+    annual_workforce_logical_request_ceiling = min(
+        args.expected_count,
+        max(0, remaining_structural_charge // budget.request_charge_multiplier),
+    )
+    theoretical_logical_ceiling = base_theoretical_logical_ceiling + annual_workforce_logical_request_ceiling
+    theoretical_charge_ceiling = budget.charge_requests(theoretical_logical_ceiling)
 
     wall_start = time.monotonic()
     started_at = utc_now()
@@ -341,11 +364,27 @@ def main() -> None:
             profile, _profile_report = future.result()
             state[profile["organisation_number"]] = profile
 
-    completed_at = utc_now()
     ordered_profiles = [state[org] for org in orgs]
+    annual_workforce_report = attach_annual_report_workforce_batch(
+        ordered_profiles,
+        max_requests=annual_workforce_logical_request_ceiling,
+        workers=args.annual_workforce_workers,
+        min_start_interval=args.annual_workforce_min_start_interval,
+        timeout=args.annual_workforce_timeout,
+        ocr_pages=args.annual_workforce_ocr_pages,
+        ocr_dpi=args.annual_workforce_ocr_dpi,
+        request_charge_multiplier=budget.request_charge_multiplier,
+    )
+    completed_at = utc_now()
     external_observation_errors, profile_handle_observations, contact_email_observations = _external_observation_audit(
         ordered_profiles
     )
+    workforce_observations = [
+        observation
+        for profile in ordered_profiles
+        for observation in (profile.get("external_observations") or [])
+        if isinstance(observation, dict) and observation.get("signal_type") == "workforce_snapshot"
+    ]
 
     envelopes = [
         terminal_envelope(
@@ -439,6 +478,12 @@ def main() -> None:
     companies_with_contact_emails = len(
         {str(item.get("organisation_number") or "") for item in contact_email_observations}
     )
+    companies_with_workforce = len(
+        {str(item.get("organisation_number") or "") for item in workforce_observations}
+    )
+    annual_workforce_observations = [
+        item for item in workforce_observations if item.get("source_class") == "official_annual_account_copy"
+    ]
 
     checks = {
         "internal_envelopes_valid": bool(internal_validation.get("passed")),
@@ -453,6 +498,7 @@ def main() -> None:
         "theoretical_request_ceiling_within_budget": theoretical_charge_ceiling <= args.max_challenge_requests,
         "wikidata_lookup_bounded": shared_wikidata_logical_requests <= theoretical_shared_wikidata_requests,
         "site_source_accounting_consistent": sum(selected_sources.values()) == len(ordered_profiles),
+        "annual_workforce_request_bounded": int(annual_workforce_report.get("requests") or 0) <= annual_workforce_logical_request_ceiling,
     }
 
     write_jsonl(work_dir / "profiles.jsonl", ordered_profiles)
@@ -480,6 +526,9 @@ def main() -> None:
             "company_page_contact_email_extraction_enabled": True,
             "registry_workforce_snapshot_enabled": True,
             "registry_workforce_network_requests": 0,
+            "annual_report_workforce_enabled": annual_workforce_logical_request_ceiling > 0,
+            "annual_report_workforce_ocr_runtime_available": bool(annual_workforce_report.get("runtime_available")),
+            "annual_report_workforce_network_requests": int(annual_workforce_report.get("requests") or 0),
             "social_platform_requests": 0,
             "contact_email_network_requests": 0,
             "max_redirects_per_logical_request": 1,
@@ -489,6 +538,9 @@ def main() -> None:
             "site_logical_requests_per_profile_ceiling": MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
             "total_logical_requests_per_profile_ceiling": per_profile_logical_ceiling,
             "shared_wikidata_logical_request_ceiling": theoretical_shared_wikidata_requests,
+            "base_theoretical_logical_request_ceiling": base_theoretical_logical_ceiling,
+            "base_theoretical_challenge_request_charge_ceiling": base_theoretical_charge_ceiling,
+            "annual_report_workforce_logical_request_ceiling": annual_workforce_logical_request_ceiling,
             "theoretical_logical_request_ceiling": theoretical_logical_ceiling,
             "request_charge_multiplier": budget.request_charge_multiplier,
             "theoretical_challenge_request_charge_ceiling": theoretical_charge_ceiling,
@@ -534,7 +586,22 @@ def main() -> None:
             "contact_email_observations": len(contact_email_observations),
             "companies_with_contact_emails": companies_with_contact_emails,
             "contact_email_network_requests": 0,
+            "workforce_observations": len(workforce_observations),
+            "companies_with_workforce": companies_with_workforce,
+            "annual_report_workforce_observations": len(annual_workforce_observations),
+            "annual_report_workforce_network_requests": int(annual_workforce_report.get("requests") or 0),
             "validation_errors": external_observation_errors,
+        },
+        "annual_report_workforce": {
+            "runtime_available": bool(annual_workforce_report.get("runtime_available")),
+            "eligible": int(annual_workforce_report.get("eligible") or 0),
+            "selected": int(annual_workforce_report.get("selected") or 0),
+            "requests": int(annual_workforce_report.get("requests") or 0),
+            "accepted": int(annual_workforce_report.get("accepted") or 0),
+            "added_conservative_challenge_request_charge": int(annual_workforce_report.get("added_conservative_challenge_request_charge") or 0),
+            "status_counts": dict(annual_workforce_report.get("status_counts") or {}),
+            "runtime_seconds": float(annual_workforce_report.get("runtime_seconds") or 0.0),
+            "execution_errors": list(annual_workforce_report.get("execution_errors") or []),
         },
         "refresh_events": len(refresh_events),
         "claims": sum(len(item.get("claims") or []) for item in projected),

@@ -39,9 +39,21 @@ The printed request counts are reads from saved responses, not network calls.
 
 ## Next: research live companies
 
-Requires Python 3.12+ and `uv`. This step downloads data and makes live requests.
-The manifest selector requires at least 1,000 companies for a full entry. You can
-use its first ten rows for a private smoke test before running the full batch.
+Requires Python 3.12+ and `uv`. The qualified annual-report workforce fallback also
+uses `pdftoppm` (Poppler) and Tesseract OCR. On Ubuntu/Debian install them with:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y poppler-utils tesseract-ocr
+```
+
+If those OCR executables are unavailable, the annual-report workforce fallback
+abstains rather than inventing a value; the rest of the terminal company result can
+still complete.
+
+This step downloads data and makes live requests. The manifest selector requires at
+least 1,000 companies for a full entry. You can use its first ten rows for a private
+smoke test before running the full batch.
 
 ```bash
 uv sync
@@ -77,6 +89,14 @@ uv run python scripts/run_competition_batch.py \
 
 uv run --with pytest pytest -q
 ```
+
+The production evaluator runner is `scripts/run_signalpost_final.py`. Its default
+100-company request budget is the challenge's 2,000 conservative-request envelope;
+it allocates annual-report PDF fallbacks only from request capacity left after the
+base pipeline. H2g uses official Brønnøysund annual-account copies, requires the exact
+organisation number to be recovered from the document text/OCR, and publishes only
+unambiguous company-scope employee/FTE phrases. Conflicts, missing phrases and source
+errors abstain.
 
 The published archive was clean-room verified on August 24, 2026: 104 tests and 5 subtests passed, followed by a one-company live BRREG smoke run with one terminal envelope, five requests and zero silent drops.
 
