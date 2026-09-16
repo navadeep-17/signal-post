@@ -1,4 +1,4 @@
-name: H2g Annual Workforce OCR Screen
+name: H2g Annual Workforce OCR Concurrency Screen
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - "experiment/h2g-annual-report-workforce"
     paths:
       - "scripts/screen_h2g_annual_workforce.py"
+      - "scripts/qualify_h2g_annual_workforce.py"
       - ".github/workflows/h2g-annual-workforce-screen.yml"
 
 permissions:
@@ -50,21 +51,30 @@ jobs:
           test -s prior/out/integrated-work/profiles.jsonl
           test "$(wc -l < prior/out/integrated-work/profiles.jsonl)" -eq 300
 
-      - name: Screen eight-page BRREG annual-report workforce OCR extraction
+      - name: Screen four-worker eight-page OCR with bounded Tesseract threads
+        env:
+          OMP_THREAD_LIMIT: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
         run: |
           mkdir -p out
-          uv run python scripts/screen_h2g_annual_workforce.py \
+          uv run python scripts/qualify_h2g_annual_workforce.py \
             --profiles prior/out/integrated-work/profiles.jsonl \
             --output out/h2g-observations.jsonl \
             --report out/h2g-report.json \
             --audit out/h2g-audit.jsonl \
+            --expected-count 300 \
             --limit 20 \
+            --workers 4 \
             --timeout 60 \
             --min-start-interval 2.1 \
             --ocr-pages 8 \
-            --ocr-dpi 110
+            --ocr-dpi 110 \
+            --base-structural-charge 5406 \
+            --max-structural-charge 6000
 
-      - name: Verify H2g OCR screen invariants
+      - name: Verify H2g concurrent OCR screen invariants
         run: |
           uv run python - <<'PY'
           import json
@@ -72,24 +82,27 @@ jobs:
           report = json.loads(Path('out/h2g-report.json').read_text())
           assert report['passed'] is True, report
           assert report['profiles'] == 300, report
-          assert report['selected'] == 20, report
+          assert report['selected_for_h2g'] == 20, report
           assert report['requests'] == 20, report
+          assert report['workers'] == 4, report
           assert report['third_party_cost_usd'] == 0.0, report
-          assert not report['observation_validation_errors'], report
+          assert not report['validation_errors'], report
+          assert not report['contract_projection_errors'], report
+          assert report['status_counts'].get('error', 0) == 0, report
           print(json.dumps({
-              'eligible': report['eligible'],
-              'selected': report['selected'],
+              'selected': report['selected_for_h2g'],
               'accepted': report['accepted'],
               'accepted_rate': report['accepted_rate_over_selected'],
-              'org_number_recovered': report['organisation_number_in_combined_text'],
+              'org_number_recovered': report['organisation_number_recovered'],
+              'runtime_seconds': report['runtime_seconds'],
               'status_counts': report['status_counts'],
           }, indent=2))
           PY
 
-      - name: Upload H2g OCR screen artifacts
+      - name: Upload H2g concurrent OCR screen artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: h2g-annual-workforce-ocr-screen-8page20
+          name: h2g-annual-workforce-ocr-concurrency-screen
           if-no-files-found: error
           path: |
             out/h2g-report.json
