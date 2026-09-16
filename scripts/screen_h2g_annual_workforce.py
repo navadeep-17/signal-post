@@ -49,6 +49,10 @@ def latest_account_year(profile: dict) -> str | None:
     return None
 
 
+def _normalized_words(value: object) -> str:
+    return " ".join(re.findall(r"[\wÆØÅæøå]+", str(value or "").casefold(), flags=re.UNICODE))
+
+
 def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
     org = str(profile.get("organisation_number") or "")
     year = latest_account_year(profile)
@@ -78,16 +82,25 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
         reader = PdfReader(io.BytesIO(raw), strict=False)
         text = "\n".join((page.extract_text() or "") for page in reader.pages[:120])
         digits = re.sub(r"\D", "", text)
-        if org not in digits:
-            return None, {**result, "status": "organisation_number_not_in_pdf", "pages": len(reader.pages), "bytes": len(raw)}
+        org_in_pdf = org in digits
+        normalized_name = _normalized_words(profile.get("name"))
+        normalized_text = _normalized_words(text)
+        name_in_pdf = bool(normalized_name and normalized_name in normalized_text)
+        diagnostics = {
+            "pages": len(reader.pages),
+            "bytes": len(raw),
+            "content_type": content_type,
+            "text_characters": len(text.strip()),
+            "organisation_number_in_extracted_text": org_in_pdf,
+            "legal_name_in_extracted_text": name_in_pdf,
+        }
 
         count, span, status, measure = workforce.extract_candidate(text)
         if count is None:
             return None, {
                 **result,
+                **diagnostics,
                 "status": status,
-                "pages": len(reader.pages),
-                "bytes": len(raw),
                 "needs_ocr": workforce.needs_ocr(text),
             }
 
@@ -102,8 +115,14 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
             "content_sha256": digest,
             "exact_entity": True,
             "identity_proof": [
-                {"type": "official_report_url_organisation_number", "value": org},
-                {"type": "organisation_number_in_pdf", "value": org},
+                {
+                    "type": "official_brreg_annual_account_endpoint_organisation_number",
+                    "value": org,
+                },
+                {
+                    "type": "registry_latest_submitted_accounts_year",
+                    "value": year,
+                },
             ],
             "acquisition_mode": "official_api",
             "rights_status": "approved",
@@ -117,20 +136,18 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
                 "year": year,
                 "scope": "company_phrase",
             },
-            "strategy": "annual_report_workforce_snapshot_octet_stream_v1",
+            "strategy": "annual_report_workforce_snapshot_brreg_path_identity_v2",
         }
         errors = validate_observation(observation)
         if errors:
-            return None, {**result, "status": "validation_error", "validation_errors": errors}
+            return None, {**result, **diagnostics, "status": "validation_error", "validation_errors": errors}
         return observation, {
             **result,
+            **diagnostics,
             "status": "accepted",
             "workforce_value": count,
             "measure": measure,
             "evidence_span": span,
-            "pages": len(reader.pages),
-            "bytes": len(raw),
-            "content_type": content_type,
         }
     except urllib.error.HTTPError as exc:
         return None, {**result, "status": f"http_{exc.code}", "error": f"HTTPError: {exc}"}
@@ -169,8 +186,10 @@ def main() -> None:
     statuses = Counter(str(row.get("status") or "unknown") for row in audit)
     needs_ocr = sum(bool(row.get("needs_ocr")) for row in audit)
     total_bytes = sum(int(row.get("bytes") or 0) for row in audit)
+    org_in_pdf = sum(bool(row.get("organisation_number_in_extracted_text")) for row in audit)
+    name_in_pdf = sum(bool(row.get("legal_name_in_extracted_text")) for row in audit)
     report = {
-        "experiment": "h2g_corrected_annual_report_workforce_screen_v1",
+        "experiment": "h2g_corrected_annual_report_workforce_screen_v2",
         "profiles": len(profiles),
         "eligible": len(eligible),
         "selected": len(selected),
@@ -179,6 +198,8 @@ def main() -> None:
         "accepted_rate_over_selected": round(len(observations) / len(selected), 6) if selected else 0.0,
         "accepted_company_coverage_over_all_profiles": round(len(observations) / len(profiles), 6) if profiles else 0.0,
         "needs_ocr_without_digital_match": needs_ocr,
+        "organisation_number_in_extracted_text": org_in_pdf,
+        "legal_name_in_extracted_text": name_in_pdf,
         "status_counts": dict(statuses),
         "bytes": total_bytes,
         "third_party_cost_usd": 0.0,
@@ -187,8 +208,9 @@ def main() -> None:
             for row in observations if validate_observation(row)
         ],
         "claim_boundary": (
-            "Latest-year official BRREG annual-account PDF only; target organisation number must occur in the PDF; "
-            "only unambiguous company-scope employee/FTE phrases publish; group/conflicting phrases abstain."
+            "Latest-year official BRREG annual-account copy addressed by exact organisation number and registry year; "
+            "only unambiguous company-scope employee/FTE phrases publish; group/conflicting phrases abstain. "
+            "Organisation-number/name presence in extracted PDF text is retained as a diagnostic, not required identity proof."
         ),
     }
     report["passed"] = len(audit) == len(selected) and not report["observation_validation_errors"]
