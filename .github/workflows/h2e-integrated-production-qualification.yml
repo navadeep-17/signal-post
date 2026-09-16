@@ -1,0 +1,142 @@
+name: H2e Integrated Production Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2e-official-workforce"
+    paths:
+      - "scripts/run_signalpost_final.py"
+      - "src/norway_company_agent/registry_workforce.py"
+      - "src/norway_company_agent/workforce_contract.py"
+      - ".github/workflows/h2e-integrated-production-qualification.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run full regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Reuse locked fresh H2e cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 35051402737 \
+            --repo navadeep-17/signal-post \
+            --name h2e-registry-workforce-qualification \
+            --dir prior
+          test -s prior/fresh-h2e-300.jsonl
+          echo 'edccd719c765469323f72314f6b1fe65dbf1c6e2f6b4acdf9ce77ad8cfc38015  prior/fresh-h2e-300.jsonl' | sha256sum -c -
+
+      - name: Download current official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Run integrated production pipeline
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_final.py \
+            --organisations prior/fresh-h2e-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/integrated-final.jsonl \
+            --report out/integrated-report.json \
+            --work-dir out/integrated-work \
+            --run-id h2e-integrated-production-qualification \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 5406 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400
+
+      - name: Verify integrated workforce invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'src')
+          from norway_company_agent.external_footprint import validate_observation
+
+          report = json.loads(Path('out/integrated-report.json').read_text())
+          profiles = [json.loads(line) for line in Path('out/integrated-work/profiles.jsonl').read_text().splitlines() if line.strip()]
+          final = [json.loads(line) for line in Path('out/integrated-final.jsonl').read_text().splitlines() if line.strip()]
+
+          assert report['passed'] is True, report
+          assert report['final_objects'] == 300, report
+          assert report['source_policy']['registry_workforce_snapshot_enabled'] is True, report
+          assert report['source_policy']['registry_workforce_network_requests'] == 0, report
+          assert report['source_policy']['third_party_cost_usd'] == 0.0, report
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] == 5406, report
+          assert not report['external_signals']['validation_errors'], report
+
+          observations = [
+              obs
+              for profile in profiles
+              for obs in (profile.get('external_observations') or [])
+              if isinstance(obs, dict) and obs.get('signal_type') == 'workforce_snapshot'
+          ]
+          validation_errors = [
+              {'id': obs.get('id'), 'errors': validate_observation(obs)}
+              for obs in observations
+              if validate_observation(obs)
+          ]
+          assert not validation_errors, validation_errors
+
+          claims = [
+              claim
+              for item in final
+              for claim in (item.get('claims') or [])
+              if claim.get('field') == 'external.workforce_snapshot'
+          ]
+          companies = {str(obs.get('organisation_number') or '') for obs in observations}
+          assert observations, 'No integrated workforce observations produced'
+          assert len(observations) == len(claims) == len(companies), (len(observations), len(claims), len(companies))
+
+          summary = {
+              'fresh_companies': 300,
+              'workforce_companies': len(companies),
+              'company_coverage': round(len(companies) / 300, 6),
+              'workforce_observations': len(observations),
+              'workforce_contract_claims': len(claims),
+              'added_workforce_network_requests': 0,
+              'structural_request_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
+              'observed_conservative_challenge_request_charge': report['request_budget']['observed_conservative_challenge_request_charge'],
+              'third_party_cost_usd': report['source_policy']['third_party_cost_usd'],
+          }
+          Path('out/h2e-integrated-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload integrated H2e artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2e-integrated-production-qualification
+          if-no-files-found: error
+          path: |
+            brreg-enheter.sha256
+            out/integrated-report.json
+            out/integrated-final.jsonl
+            out/integrated-work/profiles.jsonl
+            out/h2e-integrated-summary.json
