@@ -152,6 +152,7 @@ jobs:
           PY
 
       - name: Upload integrated H2g artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: h2g-integrated-production-qualification
