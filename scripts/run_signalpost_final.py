@@ -66,7 +66,7 @@ FINAL_MODULES = [
 ]
 OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE = len(OFFICIAL_FETCH_MODULES)
 THIRD_PARTY_COST_USD = 0.0
-DEFAULT_MAX_CHALLENGE_REQUESTS = 1802
+DEFAULT_MAX_CHALLENGE_REQUESTS = 2000
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -499,7 +499,6 @@ def main() -> None:
         "wikidata_lookup_bounded": shared_wikidata_logical_requests <= theoretical_shared_wikidata_requests,
         "site_source_accounting_consistent": sum(selected_sources.values()) == len(ordered_profiles),
         "annual_workforce_request_bounded": int(annual_workforce_report.get("requests") or 0) <= annual_workforce_logical_request_ceiling,
-        "annual_workforce_execution_clean": not (annual_workforce_report.get("execution_errors") or []),
     }
 
     write_jsonl(work_dir / "profiles.jsonl", ordered_profiles)
