@@ -1,0 +1,163 @@
+name: H2g Integrated Production Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/h2g-annual-workforce"
+    paths:
+      - "scripts/run_signalpost_final.py"
+      - "src/norway_company_agent/annual_report_workforce.py"
+      - "tests/test_h2g_annual_report_workforce.py"
+      - ".github/workflows/h2g-integrated-production-qualification.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Ensure qualified OCR runtime
+        run: |
+          if ! command -v pdftoppm >/dev/null 2>&1 || ! command -v tesseract >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y poppler-utils tesseract-ocr
+          fi
+          pdftoppm -v
+          tesseract --version | head -n 1
+
+      - name: Reuse locked independent H2g transfer cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 35104937900 \
+            --repo navadeep-17/signal-post \
+            --name h2g-annual-workforce-qualification-v2 \
+            --dir prior
+          test -s prior/fresh-h2g-v2-300.jsonl
+          test "$(wc -l < prior/fresh-h2g-v2-300.jsonl)" -eq 300
+          echo 'abaa68d267355ee7f24e59c82408aabb513b8e146706aa6b380b6dc3e0946404  prior/fresh-h2g-v2-300.jsonl' | sha256sum -c -
+
+      - name: Download current official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Run integrated production pipeline
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_final.py \
+            --organisations prior/fresh-h2g-v2-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/integrated-final.jsonl \
+            --report out/integrated-report.json \
+            --work-dir out/integrated-work \
+            --run-id h2g-integrated-production \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --max-challenge-requests 6000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Verify integrated H2g invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/integrated-report.json').read_text())
+          profiles = [json.loads(line) for line in Path('out/integrated-work/profiles.jsonl').read_text().splitlines() if line.strip()]
+          final = [json.loads(line) for line in Path('out/integrated-final.jsonl').read_text().splitlines() if line.strip()]
+
+          assert report['passed'] is True, report
+          assert len(profiles) == 300 and len(final) == 300, (len(profiles), len(final))
+          assert report['request_budget']['annual_report_workforce_logical_request_ceiling'] == 297, report['request_budget']
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] <= 6000, report['request_budget']
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 6000, report['request_budget']
+          h2g = report['annual_report_workforce']
+          assert h2g['runtime_available'] is True, h2g
+          assert h2g['requests'] <= 297, h2g
+          assert h2g['accepted'] >= 200, h2g
+          assert not h2g['execution_errors'], h2g
+          assert report['external_signals']['companies_with_workforce'] >= 280, report['external_signals']
+          assert report['external_signals']['annual_report_workforce_observations'] == h2g['accepted'], (report['external_signals'], h2g)
+          assert not report['external_signals']['validation_errors'], report['external_signals']
+          assert not report['contract_errors'], report['contract_errors']
+          assert not report['budget_errors'], report['budget_errors']
+
+          profile_workforce = {}
+          h2g_profile_count = 0
+          for profile in profiles:
+              org = str(profile['organisation_number'])
+              observations = [
+                  row for row in (profile.get('external_observations') or [])
+                  if isinstance(row, dict) and row.get('signal_type') == 'workforce_snapshot'
+              ]
+              if observations:
+                  assert len(observations) == 1, (org, observations)
+                  profile_workforce[org] = observations[0]
+                  if observations[0].get('source_class') == 'official_annual_account_copy':
+                      h2g_profile_count += 1
+
+          final_claims = {}
+          for item in final:
+              org = str(item['organisation_number'])
+              claims = [claim for claim in (item.get('claims') or []) if claim.get('field') == 'external.workforce_snapshot']
+              if claims:
+                  assert len(claims) == 1, (org, claims)
+                  final_claims[org] = claims[0]
+
+          assert set(final_claims) == set(profile_workforce), (len(final_claims), len(profile_workforce))
+          assert h2g_profile_count == h2g['accepted'], (h2g_profile_count, h2g)
+
+          summary = {
+              'profiles': len(profiles),
+              'workforce_companies': len(profile_workforce),
+              'workforce_coverage': round(len(profile_workforce) / len(profiles), 6),
+              'h2g_accepted': h2g['accepted'],
+              'h2g_requests': h2g['requests'],
+              'h2g_runtime_seconds': h2g['runtime_seconds'],
+              'h2g_status_counts': h2g['status_counts'],
+              'observed_challenge_charge': report['request_budget']['observed_conservative_challenge_request_charge'],
+              'structural_challenge_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
+              'third_party_cost_usd': report['source_policy']['third_party_cost_usd'],
+          }
+          Path('out/h2g-integrated-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload integrated H2g artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2g-integrated-production-qualification
+          if-no-files-found: error
+          path: |
+            out/integrated-report.json
+            out/integrated-final.jsonl
+            out/integrated-work/profiles.jsonl
+            out/h2g-integrated-summary.json
