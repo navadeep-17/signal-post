@@ -1,4 +1,4 @@
-name: H2g Annual Workforce Qualification
+name: H2g Annual Workforce Qualification V2
 
 on:
   workflow_dispatch:
@@ -111,53 +111,61 @@ jobs:
           cat exclude-4600.jsonl prior-h2d-fresh-300.jsonl > exclude-4900.jsonl
           test "$(wc -l < exclude-4900.jsonl)" -eq 4900
 
-      - name: Extend exclusions through H2e to 5200
+      - name: Extend exclusions through H2e and first H2g to 5500
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p prior-h2e
+          mkdir -p prior-h2e prior-h2g1
           gh run download 35051402737 \
             --repo navadeep-17/signal-post \
             --name h2e-registry-workforce-qualification \
             --dir prior-h2e
           test -s prior-h2e/fresh-h2e-300.jsonl
-          test "$(wc -l < prior-h2e/fresh-h2e-300.jsonl)" -eq 300
           echo 'edccd719c765469323f72314f6b1fe65dbf1c6e2f6b4acdf9ce77ad8cfc38015  prior-h2e/fresh-h2e-300.jsonl' | sha256sum -c -
           cat exclude-4900.jsonl prior-h2e/fresh-h2e-300.jsonl > exclude-5200.jsonl
           test "$(wc -l < exclude-5200.jsonl)" -eq 5200
 
-      - name: Select fresh disjoint H2g 300
+          gh run download 35092456045 \
+            --repo navadeep-17/signal-post \
+            --name h2g-annual-workforce-qualification \
+            --dir prior-h2g1
+          test -s prior-h2g1/fresh-h2g-300.jsonl
+          echo '85eea94589af258745ce5398eb382b9d2c41ea8b95a3448b14dbd2c0c6e0b62a  prior-h2g1/fresh-h2g-300.jsonl' | sha256sum -c -
+          cat exclude-5200.jsonl prior-h2g1/fresh-h2g-300.jsonl > exclude-5500.jsonl
+          test "$(wc -l < exclude-5500.jsonl)" -eq 5500
+
+      - name: Select independent fresh H2g transfer 300
         run: |
           uv run python scripts/select_disjoint_validation_batch.py \
             --universe signalpost-universe.jsonl.gz \
-            --exclude exclude-5200.jsonl \
-            --count 300 --seed 20260929 \
-            --evaluation-split h2g_annual_report_workforce \
-            --sample-slice fresh_ocr_annual_report_workforce_validation \
-            --output fresh-h2g-300.jsonl \
-            --report fresh-h2g-selection.json
+            --exclude exclude-5500.jsonl \
+            --count 300 --seed 20260930 \
+            --evaluation-split h2g_annual_report_workforce_transfer \
+            --sample-slice fresh_thread_bounded_ocr_transfer_validation \
+            --output fresh-h2g-v2-300.jsonl \
+            --report fresh-h2g-v2-selection.json
           uv run python - <<'PY'
           import hashlib, json
           from pathlib import Path
-          report = json.loads(Path('fresh-h2g-selection.json').read_text())
+          report = json.loads(Path('fresh-h2g-v2-selection.json').read_text())
           assert report['count'] == 300, report
-          assert report['excluded_rows'] == 5200, report
+          assert report['excluded_rows'] == 5500, report
           assert report['overlap_count'] == 0, report
-          digest = hashlib.sha256(Path('fresh-h2g-300.jsonl').read_bytes()).hexdigest()
-          Path('fresh-h2g-manifest.sha256').write_text(digest + '\n')
+          digest = hashlib.sha256(Path('fresh-h2g-v2-300.jsonl').read_bytes()).hexdigest()
+          Path('fresh-h2g-v2-manifest.sha256').write_text(digest + '\n')
           print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
           PY
 
-      - name: Run current production pipeline on fresh H2g 300
+      - name: Run current production pipeline on independent fresh H2g 300
         run: |
           mkdir -p out
           uv run python scripts/run_signalpost_final.py \
-            --organisations fresh-h2g-300.jsonl \
+            --organisations fresh-h2g-v2-300.jsonl \
             --bulk brreg-enheter.csv \
             --output out/base-final.jsonl \
             --report out/base-report.json \
             --work-dir out/base-work \
-            --run-id h2g-production-baseline \
+            --run-id h2g-v2-production-baseline \
             --expected-count 300 \
             --workers 8 \
             --site-timeout 6 \
@@ -165,7 +173,12 @@ jobs:
             --max-third-party-cost-usd 0 \
             --max-wall-runtime-seconds 2400
 
-      - name: Qualify H2g annual-report OCR workforce
+      - name: Qualify thread-bounded H2g annual-report OCR workforce
+        env:
+          OMP_THREAD_LIMIT: "1"
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
         run: |
           uv run python scripts/qualify_h2g_annual_workforce.py \
             --profiles out/base-work/profiles.jsonl \
@@ -182,28 +195,30 @@ jobs:
             --base-structural-charge 5406 \
             --max-structural-charge 6000
 
-      - name: Verify H2g qualification invariants
+      - name: Verify H2g transfer qualification invariants
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
           base = json.loads(Path('out/base-report.json').read_text())
           h2g = json.loads(Path('out/h2g-report.json').read_text())
-          selection = json.loads(Path('fresh-h2g-selection.json').read_text())
+          selection = json.loads(Path('fresh-h2g-v2-selection.json').read_text())
           assert base['passed'] is True, base
           assert h2g['passed'] is True, h2g
           assert selection['count'] == 300, selection
-          assert selection['excluded_rows'] == 5200, selection
+          assert selection['excluded_rows'] == 5500, selection
           assert selection['overlap_count'] == 0, selection
           assert h2g['added_logical_requests'] <= 297, h2g
           assert h2g['projected_structural_challenge_request_charge'] <= 6000, h2g
           assert h2g['third_party_cost_usd'] == 0.0, h2g
           assert not h2g['validation_errors'], h2g
           assert not h2g['contract_projection_errors'], h2g
+          assert h2g['status_counts'].get('error', 0) == 0, h2g
+          assert h2g['status_counts'].get('worker_error', 0) == 0, h2g
           assert h2g['accepted'] > 0, h2g
           assert h2g['combined_h2e_h2g_workforce_companies'] > h2g['existing_h2e_workforce_companies'], h2g
           print(json.dumps({
-              'manifest_sha256': Path('fresh-h2g-manifest.sha256').read_text().strip(),
+              'manifest_sha256': Path('fresh-h2g-v2-manifest.sha256').read_text().strip(),
               'existing_h2e_workforce_companies': h2g['existing_h2e_workforce_companies'],
               'eligible': h2g['eligible_missing_registry_count_with_account_year'],
               'requests': h2g['requests'],
@@ -212,21 +227,22 @@ jobs:
               'combined_company_coverage': h2g['combined_h2e_h2g_company_coverage'],
               'structural_charge': h2g['projected_structural_challenge_request_charge'],
               'runtime_seconds': h2g['runtime_seconds'],
+              'org_number_recovered': h2g['organisation_number_recovered'],
               'status_counts': h2g['status_counts'],
           }, indent=2))
           PY
 
-      - name: Upload H2g qualification artifacts
+      - name: Upload H2g transfer qualification artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: h2g-annual-workforce-qualification
+          name: h2g-annual-workforce-qualification-v2
           if-no-files-found: error
           path: |
             signalpost-universe.sha256
             brreg-enheter.sha256
-            fresh-h2g-300.jsonl
-            fresh-h2g-selection.json
-            fresh-h2g-manifest.sha256
+            fresh-h2g-v2-300.jsonl
+            fresh-h2g-v2-selection.json
+            fresh-h2g-v2-manifest.sha256
             out/base-report.json
             out/base-work/profiles.jsonl
             out/h2g-report.json
