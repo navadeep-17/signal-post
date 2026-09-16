@@ -1,0 +1,193 @@
+name: H2h Fagfolkguiden Review Coverage Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2h-fagfolkguiden-review-coverage"
+    paths:
+      - "scripts/screen_h2h_fagfolkguiden_review_coverage.py"
+      - ".github/workflows/h2h-fagfolkguiden-review-coverage.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+          uv run python scripts/screen_h2h_fagfolkguiden_review_coverage.py --help >/dev/null
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+
+      - name: Recreate prior 4900-company exclusion set
+        run: |
+          uv run python select_entry_batch.py --universe signalpost-universe.jsonl.gz --count 1000 --seed 20260823 --output entry-companies.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude entry-companies.jsonl --count 300 --seed 20260915 --output known-validation-300.jsonl --report known-validation-selection.json
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-1300.jsonl --count 300 --seed 20260916 --evaluation-split h1c_secondary_confirmation --sample-slice fresh_external_precision_validation --output prior-h1c-fresh-300.jsonl --report prior-h1c-selection.json
+          cat exclude-1300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-1600.jsonl --count 300 --seed 20260917 --evaluation-split h1d_recall_recovery --sample-slice fresh_zero_cost_site_recall_validation --output prior-h1d-fresh-300.jsonl --report prior-h1d-selection.json
+          cat exclude-1600.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-1900.jsonl --count 300 --seed 20260918 --evaluation-split h1d_zero_overlap_confirmation --sample-slice fresh_transfer_validation --output prior-h1d-confirm-300.jsonl --report prior-h1d-confirm-selection.json
+          cat exclude-1900.jsonl prior-h1d-confirm-300.jsonl > exclude-2200.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-2200.jsonl --count 300 --seed 20260919 --evaluation-split h1d_final_zero_overlap --sample-slice fresh_final_recall_validation --output prior-h1d-final-300.jsonl --report prior-h1d-final-selection.json
+          cat exclude-2200.jsonl prior-h1d-final-300.jsonl > exclude-2500.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-2500.jsonl --count 300 --seed 20260920 --evaluation-split h1e_wikidata_candidate --sample-slice fresh_zero_cost_external_candidate_validation --output prior-h1e-failed-300.jsonl --report prior-h1e-failed-selection.json
+          cat exclude-2500.jsonl prior-h1e-failed-300.jsonl > exclude-2800.jsonl
+
+          test "$(wc -l < validation/h1e-fresh-300-exclusion.jsonl)" -eq 300
+          echo '5b4c4ae41a01c8b29aefa703bfd754da3e7448b33cbbbcb831d705032ef030b7  validation/h1e-fresh-300-exclusion.jsonl' | sha256sum -c -
+          cat exclude-2800.jsonl validation/h1e-fresh-300-exclusion.jsonl > exclude-3100.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-3100.jsonl --count 300 --seed 20260922 --evaluation-split h2a_company_social --sample-slice fresh_profile_handle_validation --output prior-h2a-fresh-300.jsonl --report prior-h2a-selection.json
+          echo '1d1da002538c0a493303934de53925984c36f641bef2e7623df48897b2e4a88f  prior-h2a-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3100.jsonl prior-h2a-fresh-300.jsonl > exclude-3400.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-3400.jsonl --count 300 --seed 20260923 --evaluation-split h2b_company_activity --sample-slice fresh_dated_company_activity_validation --output prior-h2b-fresh-300.jsonl --report prior-h2b-selection.json
+          echo '0bff58af0b8535e71c677dbe44c873a7dfe63805839eb72044896577e1c968dc  prior-h2b-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3400.jsonl prior-h2b-fresh-300.jsonl > exclude-3700.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-3700.jsonl --count 300 --seed 20260924 --evaluation-split h2c_company_contact_email --sample-slice fresh_same_domain_contact_email_validation --output prior-h2c-fresh-300.jsonl --report prior-h2c-selection.json
+          echo 'eee5765bcdfed57aa81489c2f3ef613bf612fcde92f73e5dc641df97905812bf  prior-h2c-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3700.jsonl prior-h2c-fresh-300.jsonl > exclude-4000.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-4000.jsonl --count 300 --seed 20260925 --evaluation-split h1f_zero_cost_tld_recall --sample-slice fresh_compact_com_fallback_validation --output prior-h1f-fresh-300.jsonl --report prior-h1f-selection.json
+          echo 'da9584073e526207d2bfe52c525509c2852daaa8fb85f26fd9c586a5e4ee4a6e  prior-h1f-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-4000.jsonl prior-h1f-fresh-300.jsonl > exclude-4300.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-4300.jsonl --count 300 --seed 20260926 --evaluation-split h1g_zero_cost_hyphenated_no_recall --sample-slice fresh_hyphenated_no_fallback_validation --output prior-h1g-fresh-300.jsonl --report prior-h1g-selection.json
+          echo '62c70f68049a73ae0d4eac60478bee3478e3894be5dd7039bfa28519db7e4dea  prior-h1g-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-4300.jsonl prior-h1g-fresh-300.jsonl > exclude-4600.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-4600.jsonl --count 300 --seed 20260927 --evaluation-split h2d_wikidata_linkedin --sample-slice fresh_exact_org_linkedin_validation --output prior-h2d-fresh-300.jsonl --report prior-h2d-selection.json
+          echo '73ffeb9a5010c6bc86a5b7ab2ed07e6d18e206b6db2f016a4ba4fe4e7d56e55c  prior-h2d-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-4600.jsonl prior-h2d-fresh-300.jsonl > exclude-4900.jsonl
+          test "$(wc -l < exclude-4900.jsonl)" -eq 4900
+
+      - name: Extend exclusions through H2e and both H2g cohorts to 5800
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior-h2e prior-h2g1 prior-h2g2
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir prior-h2e
+          echo 'edccd719c765469323f72314f6b1fe65dbf1c6e2f6b4acdf9ce77ad8cfc38015  prior-h2e/fresh-h2e-300.jsonl' | sha256sum -c -
+          cat exclude-4900.jsonl prior-h2e/fresh-h2e-300.jsonl > exclude-5200.jsonl
+
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir prior-h2g1
+          echo '85eea94589af258745ce5398eb382b9d2c41ea8b95a3448b14dbd2c0c6e0b62a  prior-h2g1/fresh-h2g-300.jsonl' | sha256sum -c -
+          cat exclude-5200.jsonl prior-h2g1/fresh-h2g-300.jsonl > exclude-5500.jsonl
+
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir prior-h2g2
+          echo 'abaa68d267355ee7f24e59c82408aabb513b8e146706aa6b380b6dc3e0946404  prior-h2g2/fresh-h2g-v2-300.jsonl' | sha256sum -c -
+          cat exclude-5500.jsonl prior-h2g2/fresh-h2g-v2-300.jsonl > exclude-5800.jsonl
+          test "$(wc -l < exclude-5800.jsonl)" -eq 5800
+
+      - name: Select fresh H2h review screen 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-5800.jsonl \
+            --count 100 --seed 20261001 \
+            --evaluation-split h2h_fagfolkguiden_review_coverage \
+            --sample-slice fresh_rights_review_source_coverage_screen \
+            --output fresh-h2h-100.jsonl \
+            --report fresh-h2h-selection.json
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          report = json.loads(Path('fresh-h2h-selection.json').read_text())
+          assert report['count'] == 100, report
+          assert report['excluded_rows'] == 5800, report
+          assert report['overlap_count'] == 0, report
+          digest = hashlib.sha256(Path('fresh-h2h-100.jsonl').read_bytes()).hexdigest()
+          Path('fresh-h2h-manifest.sha256').write_text(digest + '\n')
+          print(json.dumps({**report, 'manifest_sha256': digest}, indent=2))
+          PY
+
+      - name: Build offline BRREG profiles for fresh H2h 100
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from norway_company_agent.batch import profiles_from_bulk, read_organisation_inputs
+          inputs = read_organisation_inputs('fresh-h2h-100.jsonl')
+          orgs = [row['organisation_number'] for row in inputs]
+          profiles, metadata = profiles_from_bulk('brreg-enheter.csv', orgs)
+          assert len(profiles) == 100, (len(profiles), metadata)
+          Path('fresh-h2h-profiles.jsonl').write_text(''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in profiles), encoding='utf-8')
+          print(json.dumps(metadata, indent=2))
+          PY
+
+      - name: Run bounded Fagfolkguiden source-coverage screen
+        run: |
+          mkdir -p out
+          uv run python scripts/screen_h2h_fagfolkguiden_review_coverage.py \
+            --profiles fresh-h2h-profiles.jsonl \
+            --audit out/h2h-audit.jsonl \
+            --report out/h2h-report.json \
+            --limit 100 \
+            --timeout 25 \
+            --min-start-interval 1.5
+
+      - name: Verify H2h screening invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          selection = json.loads(Path('fresh-h2h-selection.json').read_text())
+          report = json.loads(Path('out/h2h-report.json').read_text())
+          assert selection['count'] == 100 and selection['excluded_rows'] == 5800 and selection['overlap_count'] == 0, selection
+          assert report['profiles'] == 100, report
+          assert report['requests'] == 100, report
+          assert report['third_party_cost_usd'] == 0.0, report
+          assert report['publication_enabled'] is False, report
+          assert report['rights_status'] == 'review_required', report
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Upload H2h coverage-screen artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2h-fagfolkguiden-review-coverage
+          if-no-files-found: error
+          path: |
+            fresh-h2h-100.jsonl
+            fresh-h2h-manifest.sha256
+            fresh-h2h-selection.json
+            out/h2h-report.json
+            out/h2h-audit.jsonl
