@@ -107,10 +107,7 @@ def collect(profile: dict, *, timeout: float, ocr_pages: int, ocr_dpi: int) -> t
     try:
         request = urllib.request.Request(
             url,
-            headers={
-                "User-Agent": UA,
-                "Accept": "application/octet-stream",
-            },
+            headers={"User-Agent": UA, "Accept": "application/octet-stream"},
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read(MAX_PDF_BYTES + 1)
@@ -142,14 +139,16 @@ def collect(profile: dict, *, timeout: float, ocr_pages: int, ocr_dpi: int) -> t
             "organisation_number_in_combined_text": org_in_text,
             "legal_name_in_combined_text": name_in_text,
         }
-
-        count, span, status, measure = workforce.extract_candidate(text)
-        if count is None:
+        if not org_in_text:
             return None, {
                 **result,
                 **diagnostics,
-                "status": status,
+                "status": "organisation_number_not_in_ocr_text",
             }
+
+        count, span, status, measure = workforce.extract_candidate(text)
+        if count is None:
+            return None, {**result, **diagnostics, "status": status}
 
         digest = hashlib.sha256(raw).hexdigest()
         observation = {
@@ -162,14 +161,9 @@ def collect(profile: dict, *, timeout: float, ocr_pages: int, ocr_dpi: int) -> t
             "content_sha256": digest,
             "exact_entity": True,
             "identity_proof": [
-                {
-                    "type": "official_brreg_annual_account_endpoint_organisation_number",
-                    "value": org,
-                },
-                {
-                    "type": "registry_latest_submitted_accounts_year",
-                    "value": year,
-                },
+                {"type": "official_brreg_annual_account_endpoint_organisation_number", "value": org},
+                {"type": "organisation_number_in_ocr_text", "value": org},
+                {"type": "registry_latest_submitted_accounts_year", "value": year},
             ],
             "acquisition_mode": "official_api",
             "rights_status": "approved",
@@ -183,7 +177,7 @@ def collect(profile: dict, *, timeout: float, ocr_pages: int, ocr_dpi: int) -> t
                 "year": year,
                 "scope": "company_phrase",
             },
-            "strategy": "annual_report_workforce_snapshot_brreg_ocr_v3",
+            "strategy": "annual_report_workforce_snapshot_brreg_ocr_exact_org_v4",
         }
         errors = validate_observation(observation)
         if errors:
@@ -211,8 +205,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--min-start-interval", type=float, default=2.1)
-    parser.add_argument("--ocr-pages", type=int, default=15)
-    parser.add_argument("--ocr-dpi", type=int, default=130)
+    parser.add_argument("--ocr-pages", type=int, default=8)
+    parser.add_argument("--ocr-dpi", type=int, default=110)
     args = parser.parse_args()
 
     profiles = [json.loads(line) for line in Path(args.profiles).read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -227,12 +221,7 @@ def main() -> None:
         if remaining > 0:
             time.sleep(remaining)
         last_start = time.monotonic()
-        observation, result = collect(
-            profile,
-            timeout=args.timeout,
-            ocr_pages=args.ocr_pages,
-            ocr_dpi=args.ocr_dpi,
-        )
+        observation, result = collect(profile, timeout=args.timeout, ocr_pages=args.ocr_pages, ocr_dpi=args.ocr_dpi)
         audit.append(result)
         if observation:
             observations.append(observation)
@@ -240,7 +229,7 @@ def main() -> None:
     statuses = Counter(str(row.get("status") or "unknown") for row in audit)
     total_bytes = sum(int(row.get("bytes") or 0) for row in audit)
     report = {
-        "experiment": "h2g_annual_report_workforce_ocr_screen_v3",
+        "experiment": "h2g_annual_report_workforce_ocr_screen_v4",
         "profiles": len(profiles),
         "eligible": len(eligible),
         "selected": len(selected),
@@ -260,7 +249,8 @@ def main() -> None:
         ],
         "claim_boundary": (
             "Latest-year official BRREG annual-account copy addressed by exact organisation number and registry year; "
-            "OCR is extraction-only; only unambiguous company-scope employee/FTE phrases publish; group/conflicting phrases abstain."
+            "the exact target organisation number must also be recovered from OCR text; only unambiguous company-scope "
+            "employee/FTE phrases publish; group/conflicting phrases abstain."
         ),
     }
     report["passed"] = len(audit) == len(selected) and not report["observation_validation_errors"]
