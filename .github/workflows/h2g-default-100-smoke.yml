@@ -1,0 +1,117 @@
+name: H2g Default 100 Production Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/h2g-annual-workforce"
+    paths:
+      - ".github/workflows/h2g-default-100-smoke.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and test
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Ensure OCR runtime
+        run: |
+          if ! command -v pdftoppm >/dev/null 2>&1 || ! command -v tesseract >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y poppler-utils tesseract-ocr
+          fi
+
+      - name: Reuse locked transfer cohort and select 100
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 35104937900 \
+            --repo navadeep-17/signal-post \
+            --name h2g-annual-workforce-qualification-v2 \
+            --dir prior
+          echo 'abaa68d267355ee7f24e59c82408aabb513b8e146706aa6b380b6dc3e0946404  prior/fresh-h2g-v2-300.jsonl' | sha256sum -c -
+          head -n 100 prior/fresh-h2g-v2-300.jsonl > smoke-100.jsonl
+          test "$(wc -l < smoke-100.jsonl)" -eq 100
+
+      - name: Download official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Run production defaults on 100 companies
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_final.py \
+            --organisations smoke-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/final.jsonl \
+            --report out/report.json \
+            --work-dir out/work \
+            --run-id h2g-default-100-smoke \
+            --expected-count 100
+
+      - name: Verify default-budget and production invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/report.json').read_text())
+          final = [json.loads(line) for line in Path('out/final.jsonl').read_text().splitlines() if line.strip()]
+          assert report['passed'] is True, report
+          assert len(final) == 100, len(final)
+          budget = report['request_budget']
+          assert budget['max_challenge_requests'] == 2000, budget
+          assert budget['base_theoretical_challenge_request_charge_ceiling'] == 1802, budget
+          assert budget['annual_report_workforce_logical_request_ceiling'] == 99, budget
+          assert budget['theoretical_challenge_request_charge_ceiling'] == 2000, budget
+          assert budget['observed_conservative_challenge_request_charge'] <= 2000, budget
+          h2g = report['annual_report_workforce']
+          assert h2g['runtime_available'] is True, h2g
+          assert h2g['requests'] <= 99, h2g
+          assert not h2g['execution_errors'], h2g
+          assert report['external_signals']['companies_with_workforce'] >= 90, report['external_signals']
+          assert not report['external_signals']['validation_errors'], report['external_signals']
+          assert not report['contract_errors'], report['contract_errors']
+          assert not report['budget_errors'], report['budget_errors']
+          summary = {
+              'workforce_companies': report['external_signals']['companies_with_workforce'],
+              'h2g_accepted': h2g['accepted'],
+              'h2g_requests': h2g['requests'],
+              'observed_charge': budget['observed_conservative_challenge_request_charge'],
+              'structural_ceiling': budget['theoretical_challenge_request_charge_ceiling'],
+              'runtime_seconds': report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd': report['source_policy']['third_party_cost_usd'],
+          }
+          Path('out/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2g-default-100-production-smoke
+          if-no-files-found: warn
+          path: |
+            out/report.json
+            out/final.jsonl
+            out/summary.json
