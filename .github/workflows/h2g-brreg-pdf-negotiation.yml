@@ -1,0 +1,107 @@
+name: H2g BRREG Annual PDF Negotiation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2g-annual-report-workforce"
+    paths:
+      - ".github/workflows/h2g-brreg-pdf-negotiation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch BRREG annual-account OpenAPI contract
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --max-time 30 \
+            'https://data.brreg.no/regnskapsregisteret/regnskap/v3/api-docs/aarsregnskap' \
+            --output out/openapi.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          spec = json.loads(Path('out/openapi.json').read_text())
+          matches = {}
+          for path, operations in spec.get('paths', {}).items():
+              if 'aarsregnskap/kopi' in path and '{orgnr}' in path and '{aar}' in path:
+                  response = (((operations.get('get') or {}).get('responses') or {}).get('200') or {})
+                  matches[path] = sorted((response.get('content') or {}).keys())
+          Path('out/openapi-media-types.json').write_text(json.dumps(matches, indent=2) + '\n')
+          print(json.dumps(matches, indent=2))
+          assert matches, 'annual-account copy path missing from OpenAPI contract'
+          PY
+
+      - name: Probe response negotiation on known public annual account
+        shell: bash
+        run: |
+          set -u
+          URL='https://data.brreg.no/regnskapsregisteret/regnskap/aarsregnskap/kopi/936802176/2025'
+          UA='SignalpostResearchPOC/1.0 (+https://builderr.ai)'
+          : > out/probe.tsv
+          probe() {
+            label="$1"
+            accept="$2"
+            headers="out/${label}.headers"
+            body="out/${label}.body"
+            if [ -n "$accept" ]; then
+              result=$(curl -sS -L --max-time 40 -A "$UA" -H "Accept: $accept" -D "$headers" -o "$body" -w '%{http_code}\t%{content_type}\t%{size_download}' "$URL" || true)
+            else
+              result=$(curl -sS -L --max-time 40 -A "$UA" -D "$headers" -o "$body" -w '%{http_code}\t%{content_type}\t%{size_download}' "$URL" || true)
+            fi
+            printf '%s\t%s\t%s\n' "$label" "$accept" "$result" >> out/probe.tsv
+            printf '\n=== %s ===\n' "$label"
+            cat "$headers" || true
+            printf 'body-prefix: '
+            head -c 12 "$body" 2>/dev/null | od -An -tx1 || true
+          }
+          probe no_explicit_accept ''
+          probe accept_any '*/*'
+          probe accept_pdf 'application/pdf'
+          probe accept_octet 'application/octet-stream'
+          cat out/probe.tsv
+
+      - name: Summarize negotiation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = []
+          for line in Path('out/probe.tsv').read_text().splitlines():
+              parts = line.split('\t')
+              while len(parts) < 5:
+                  parts.append('')
+              label, accept, status, content_type, size = parts[:5]
+              body = Path(f'out/{label}.body')
+              prefix = body.read_bytes()[:8].hex() if body.exists() else ''
+              rows.append({
+                  'label': label,
+                  'accept': accept or None,
+                  'status': int(status) if status.isdigit() else None,
+                  'content_type': content_type or None,
+                  'bytes': int(float(size)) if size else 0,
+                  'body_prefix_hex': prefix,
+                  'pdf_magic': prefix.startswith('25504446'),
+              })
+          result = {'probes': rows}
+          Path('out/negotiation-report.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result, indent=2))
+          assert any(row['status'] == 200 and row['pdf_magic'] for row in rows), result
+          PY
+
+      - name: Upload negotiation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2g-brreg-pdf-negotiation
+          if-no-files-found: error
+          path: |
+            out/openapi-media-types.json
+            out/probe.tsv
+            out/negotiation-report.json
+            out/*.headers
