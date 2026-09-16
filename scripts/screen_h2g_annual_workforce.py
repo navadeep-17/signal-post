@@ -6,7 +6,9 @@ import hashlib
 import io
 import json
 import re
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -53,7 +55,46 @@ def _normalized_words(value: object) -> str:
     return " ".join(re.findall(r"[\wÆØÅæøå]+", str(value or "").casefold(), flags=re.UNICODE))
 
 
-def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
+def _ocr_pdf(raw: bytes, *, pages: int, dpi: int) -> str:
+    if pages <= 0:
+        return ""
+    with tempfile.TemporaryDirectory(prefix="signalpost-h2g-ocr-") as temporary:
+        root = Path(temporary)
+        pdf_path = root / "report.pdf"
+        prefix = root / "page"
+        pdf_path.write_bytes(raw)
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-f",
+                "1",
+                "-l",
+                str(pages),
+                "-jpeg",
+                "-r",
+                str(dpi),
+                str(pdf_path),
+                str(prefix),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=180,
+        )
+        chunks: list[str] = []
+        for image_path in sorted(root.glob("page-*.jpg")):
+            completed = subprocess.run(
+                ["tesseract", str(image_path), "stdout", "-l", "eng", "--psm", "6"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            chunks.append(completed.stdout)
+        return "\n".join(chunks)
+
+
+def collect(profile: dict, *, timeout: float, ocr_pages: int, ocr_dpi: int) -> tuple[dict | None, dict]:
     org = str(profile.get("organisation_number") or "")
     year = latest_account_year(profile)
     if registry_employee_count(profile) is not None:
@@ -68,8 +109,6 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
             url,
             headers={
                 "User-Agent": UA,
-                # BRREG's current annual-account OpenAPI contract advertises
-                # application/octet-stream for this PDF-streaming response.
                 "Accept": "application/octet-stream",
             },
         )
@@ -80,19 +119,28 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
             return None, {**result, "status": "unsupported_pdf", "bytes": len(raw), "content_type": content_type}
 
         reader = PdfReader(io.BytesIO(raw), strict=False)
-        text = "\n".join((page.extract_text() or "") for page in reader.pages[:120])
+        digital_text = "\n".join((page.extract_text() or "") for page in reader.pages[:120])
+        ocr_used = workforce.needs_ocr(digital_text) and ocr_pages > 0
+        ocr_text = ""
+        if ocr_used:
+            ocr_text = _ocr_pdf(raw, pages=min(ocr_pages, len(reader.pages)), dpi=ocr_dpi)
+        text = digital_text + ("\n" + ocr_text if ocr_text else "")
+
         digits = re.sub(r"\D", "", text)
-        org_in_pdf = org in digits
+        org_in_text = org in digits
         normalized_name = _normalized_words(profile.get("name"))
         normalized_text = _normalized_words(text)
-        name_in_pdf = bool(normalized_name and normalized_name in normalized_text)
+        name_in_text = bool(normalized_name and normalized_name in normalized_text)
         diagnostics = {
             "pages": len(reader.pages),
             "bytes": len(raw),
             "content_type": content_type,
-            "text_characters": len(text.strip()),
-            "organisation_number_in_extracted_text": org_in_pdf,
-            "legal_name_in_extracted_text": name_in_pdf,
+            "digital_text_characters": len(digital_text.strip()),
+            "ocr_used": ocr_used,
+            "ocr_pages": min(ocr_pages, len(reader.pages)) if ocr_used else 0,
+            "ocr_characters": len(ocr_text.strip()),
+            "organisation_number_in_combined_text": org_in_text,
+            "legal_name_in_combined_text": name_in_text,
         }
 
         count, span, status, measure = workforce.extract_candidate(text)
@@ -101,7 +149,6 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
                 **result,
                 **diagnostics,
                 "status": status,
-                "needs_ocr": workforce.needs_ocr(text),
             }
 
         digest = hashlib.sha256(raw).hexdigest()
@@ -136,7 +183,7 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
                 "year": year,
                 "scope": "company_phrase",
             },
-            "strategy": "annual_report_workforce_snapshot_brreg_path_identity_v2",
+            "strategy": "annual_report_workforce_snapshot_brreg_ocr_v3",
         }
         errors = validate_observation(observation)
         if errors:
@@ -156,14 +203,16 @@ def collect(profile: dict, *, timeout: float) -> tuple[dict | None, dict]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Corrected BRREG annual-report workforce yield screen.")
+    parser = argparse.ArgumentParser(description="Corrected BRREG annual-report workforce OCR yield screen.")
     parser.add_argument("--profiles", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--report", required=True)
     parser.add_argument("--audit", required=True)
-    parser.add_argument("--limit", type=int, default=60)
+    parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--min-start-interval", type=float, default=2.1)
+    parser.add_argument("--ocr-pages", type=int, default=15)
+    parser.add_argument("--ocr-dpi", type=int, default=130)
     args = parser.parse_args()
 
     profiles = [json.loads(line) for line in Path(args.profiles).read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -178,18 +227,20 @@ def main() -> None:
         if remaining > 0:
             time.sleep(remaining)
         last_start = time.monotonic()
-        observation, result = collect(profile, timeout=args.timeout)
+        observation, result = collect(
+            profile,
+            timeout=args.timeout,
+            ocr_pages=args.ocr_pages,
+            ocr_dpi=args.ocr_dpi,
+        )
         audit.append(result)
         if observation:
             observations.append(observation)
 
     statuses = Counter(str(row.get("status") or "unknown") for row in audit)
-    needs_ocr = sum(bool(row.get("needs_ocr")) for row in audit)
     total_bytes = sum(int(row.get("bytes") or 0) for row in audit)
-    org_in_pdf = sum(bool(row.get("organisation_number_in_extracted_text")) for row in audit)
-    name_in_pdf = sum(bool(row.get("legal_name_in_extracted_text")) for row in audit)
     report = {
-        "experiment": "h2g_corrected_annual_report_workforce_screen_v2",
+        "experiment": "h2g_annual_report_workforce_ocr_screen_v3",
         "profiles": len(profiles),
         "eligible": len(eligible),
         "selected": len(selected),
@@ -197,9 +248,9 @@ def main() -> None:
         "accepted": len(observations),
         "accepted_rate_over_selected": round(len(observations) / len(selected), 6) if selected else 0.0,
         "accepted_company_coverage_over_all_profiles": round(len(observations) / len(profiles), 6) if profiles else 0.0,
-        "needs_ocr_without_digital_match": needs_ocr,
-        "organisation_number_in_extracted_text": org_in_pdf,
-        "legal_name_in_extracted_text": name_in_pdf,
+        "ocr_used": sum(bool(row.get("ocr_used")) for row in audit),
+        "organisation_number_in_combined_text": sum(bool(row.get("organisation_number_in_combined_text")) for row in audit),
+        "legal_name_in_combined_text": sum(bool(row.get("legal_name_in_combined_text")) for row in audit),
         "status_counts": dict(statuses),
         "bytes": total_bytes,
         "third_party_cost_usd": 0.0,
@@ -209,8 +260,7 @@ def main() -> None:
         ],
         "claim_boundary": (
             "Latest-year official BRREG annual-account copy addressed by exact organisation number and registry year; "
-            "only unambiguous company-scope employee/FTE phrases publish; group/conflicting phrases abstain. "
-            "Organisation-number/name presence in extracted PDF text is retained as a diagnostic, not required identity proof."
+            "OCR is extraction-only; only unambiguous company-scope employee/FTE phrases publish; group/conflicting phrases abstain."
         ),
     }
     report["passed"] = len(audit) == len(selected) and not report["observation_validation_errors"]
