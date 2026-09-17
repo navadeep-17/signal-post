@@ -44,7 +44,7 @@ jobs:
           gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
           gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
           gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
-      - name: Recreate exclusions and freeze release manifest
+      - name: Recreate exclusions and verify frozen release manifest
         run: |
           uv run python scripts/freeze_final_release_1000.py \
             --universe signalpost-universe.jsonl.gz \
@@ -54,6 +54,7 @@ jobs:
             --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
             --output-dir release-freeze \
             --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
           cat release-freeze/final-release-freeze-summary.json
       - uses: actions/upload-artifact@v4
         with:
@@ -143,6 +144,8 @@ jobs:
           uv run python - <<'PY'
           import json, os
           from pathlib import Path
+          from norway_company_agent.output_contract import validate_contract_object
+
           idx=os.environ['IDX']
           report=json.loads(Path(f'out/release-chunk-{idx}-report.json').read_text())
           rows=[json.loads(x) for x in Path(f'out/release-chunk-{idx}.jsonl').read_text().splitlines() if x.strip()]
@@ -156,7 +159,12 @@ jobs:
           assert report['contract_errors'] == []
           assert report['change_errors'] == []
           assert report['runtime']['wall_runtime_seconds'] <= 2400
-          assert all(len(r.get('claims') or []) == len(r.get('evidence') or []) for r in rows)
+          contract_failures=[
+              {'organisation_number': row['organisation_number'], 'errors': errors}
+              for row in rows
+              if (errors := validate_contract_object(row))
+          ]
+          assert contract_failures == [], contract_failures
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
       - uses: actions/upload-artifact@v4
@@ -178,7 +186,10 @@ jobs:
     needs: release-chunk
     runs-on: ubuntu-latest
     if: always() && needs.release-chunk.result == 'success'
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: final-release-chunk-*
@@ -189,6 +200,8 @@ jobs:
           python - <<'PY'
           import hashlib, json
           from pathlib import Path
+          from norway_company_agent.output_contract import validate_contract_object
+
           rows=[]; reports=[]
           for idx in range(10):
               output=Path(f'chunks/out/release-chunk-{idx}.jsonl')
@@ -198,9 +211,14 @@ jobs:
               reports.append(json.loads(report.read_text()))
           assert len(rows)==1000 and len({r['organisation_number'] for r in rows})==1000
           assert all(r['run']['terminal_status']=='completed' for r in rows)
+          contract_failures=[
+              {'organisation_number': row['organisation_number'], 'errors': errors}
+              for row in rows
+              if (errors := validate_contract_object(row))
+          ]
+          assert contract_failures == [], contract_failures
           total_claims=sum(len(r.get('claims') or []) for r in rows)
           total_evidence=sum(len(r.get('evidence') or []) for r in rows)
-          assert total_claims==total_evidence
           Path('final-release-1000-output.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False, separators=(',',':'))+'\n' for r in rows))
           summary={
               'chunks':10,
@@ -209,6 +227,7 @@ jobs:
               'terminal_completed':1000,
               'claims':total_claims,
               'evidence':total_evidence,
+              'contract_validation_errors':len(contract_failures),
               'observed_conservative_challenge_requests':sum(r['request_budget']['observed_conservative_challenge_request_charge'] for r in reports),
               'structural_challenge_request_ceiling':sum(r['request_budget']['theoretical_challenge_request_charge_ceiling'] for r in reports),
               'wall_runtime_seconds_sum':sum(r['runtime']['wall_runtime_seconds'] for r in reports),
