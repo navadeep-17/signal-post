@@ -1,127 +1,99 @@
 # Signalpost requirements matrix
 
-Updated: 2026-09-15
+Updated: 2026-09-17
 
-This file separates official requirements, starter behavior, measured status and remaining work. The current live Builderr Signalpost challenge page is authoritative for scoring, qualification and run limits. The starter's local competition scorer is a diagnostic proxy only.
+This file separates official requirements, measured production status and hidden-evaluator dependencies. The live Builderr Signalpost challenge remains authoritative for scoring, qualification and resource limits. The starter's local competition scorer is diagnostic only.
 
-Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = working foundation but the full scored requirement is not demonstrated; **OPEN** = hidden-evaluator dependent or not yet implemented; **GAP** = known current shortfall.
+Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = strong measured evidence but not full proof of the official hidden requirement; **OPEN** = hidden-evaluator dependent; **GAP** = known shortfall.
 
 ## Qualification and execution requirements
 
-| Requirement | Authority | Current implementation/evidence | Status | Next action |
-|---|---|---|---|---|
-| Use Norwegian organisation number as entity anchor | Live challenge + starter | BRREG bulk/live and every promoted discovery path are keyed back to exact org number | PASS | Preserve invariant for future external observations |
-| Public eligible universe is 411,160 frozen 2025-filer companies | Live challenge + universe metadata | Deterministic selector and published universe are used in validation workflows | PASS | Verify universe hash in submission bundle |
-| Submit at least 1,000 completed profiles + exact manifest | Live challenge | Exact deterministic 1,000-company manifest was run as 800 non-heldout + predeclared 200 heldout; all 1,000 completed | PASS for release corpus | Assemble submission bundle/manifest from audited stack |
-| Generalize beyond development companies | Live challenge | Multiple fresh zero-overlap 300-company validations plus final predeclared heldout 200 completed | PASS observed | Do not tune on consumed heldout; use new disjoint companies for later changes |
-| Exactly one terminal result per evaluation company | Live challenge | Frozen 100, 800 and heldout 200 all had exact expected counts, unique org numbers and zero silent drops | PASS | Preserve in final runner |
-| Final documented claims/evidence envelope | `OUTPUT_CONTRACT.md` | `run_signalpost_final.py` emits validated `claims[]`, `evidence[]`, `changes[]`, errors and operations | PASS | Keep contract regression on every PR |
-| Claim-level source, retrieval time and period where relevant | Live challenge + contract | Release artifacts validate claim-specific evidence and financial periods/currency | PASS | Extend same requirement to every new external signal |
-| Missing/blocked/not-applicable remain distinct | Live challenge + contract | Explicit mapping and regressions; missing is never silently zero | PASS | Preserve in UI/research layers |
-| No fabricated financial values | Live challenge | Official deterministic BRREG accounting path; missing values remain missing | PASS | Preserve |
-| External precision >=95%; no material wrong-company publication | Live challenge | Final heldout website audit: 20 correct / 0 wrong; extensive wrong-entity regressions for Oslo Mikrosement, ØkonomiBistand and St. Hanshaugen Venstre | PARTIAL / strong observed evidence | Builderr hidden evaluation remains authoritative; 20/20 does not statistically prove population >=95% |
-| Weighted external company recall >=60% | Live challenge | Current production external path is mainly exact company website + company-owned fields; official hidden denominator is unavailable locally | **OPEN / PRIMARY RISK** | Expand qualified zero-cost external signals and submit for independent measurement |
-| Coverage >=21/35 | Live challenge | Cannot be computed from own outputs because Builderr owns the versioned union and availability labels | **OPEN / PRIMARY RISK** | Same as above |
-| Overall score >=65/100 | Live challenge | Hidden judge authoritative | OPEN | Cannot honestly self-score; use readiness diagnostics only |
-| Idempotent refresh | Live challenge | Deterministic refresh fixture: expected changes reproduced; current→current rerun yields zero changes | PASS current tracked fields | Extend normalization/refresh to each promoted external signal |
-| Previous snapshot/history preserved | Live challenge | Changes preserve old/new values, hashes, source provenance and times | PASS current tracked fields | Extend to external observations |
-| 45-minute wall-clock / 100 companies | Live challenge | Frozen 100 about 95 s; 800 run 518.772 s; heldout 200 122.656 s | PASS with large headroom | Revalidate after each production connector |
-| <=2,000 outbound requests / 100 companies | Live challenge | H1e final structure: <=901 logical / <=1,802 conservative challenge-charged requests per 100; frozen 100 observed 583 logical / 1,166 conservative | PASS | Do not spend headroom without measured coverage gain |
-| <=$10 external API spend / 100 | Live challenge + project decision | Final policy is stricter: $0; search API requests 0 | PASS | Preserve $0 unless user explicitly changes policy |
-| Machine-readable run report | Starter | Consolidated count, contract, refresh, budget, runtime and site-source report | PASS | Include in submission evidence |
-| One evaluator command | Live challenge + starter | `scripts/run_signalpost_final.py` runs the promoted production stack | PASS | Keep setup/run path documented |
-| Source rights documented | Live challenge | `CONNECTOR_STATUS.md` records approved/conditional/experimental/blocked paths; production uses official/company-owned plus CC0 Wikidata candidate nomination | PASS current production stack | Re-review any new source before promotion |
-| Server-side secrets / no committed keys | Live challenge | Production stack requires no paid API secret | PASS current stack | Keep secret scan |
-| Safe URL handling | Live challenge | public-URL checks, SSRF protection, robots handling and bounded redirects | PASS | Preserve for all URL-taking connectors |
-| Pinned dependencies | Starter | `uv.lock`; `uv sync --locked` passes CI | PASS | Keep CI |
-| Core regression suite | Starter | Current release CI: 205 tests + 5 subtests | PASS | Required on every PR |
-| Snapshot drift does not crash batch | Hard terminal-output gate | Missing current BRREG bulk row is retained; live official lookup can recover; no fabricated identity | PASS | Keep drift regression |
-| Candidate discovery independently verified | Live challenge/starter | H1a/H1c/H1d/H1e nominate candidates; company page identity is independently fetched/gated before publication | PASS | Keep discovery separate from evidence |
-| UI makes evidence/gaps/changes inspectable | UX category | Static prototype exists | PARTIAL | Improve after external coverage work |
-| Research answers only from supported evidence | Synthesis category | deterministic answer/screen layer with explicit abstention on unqualified topics | PARTIAL / safe | Add qualified external observations before richer synthesis |
-| Models/APIs/licences/caches/hosting declared | Submission contract | Connector register and decisions document current stack | PARTIAL | Produce final submission manifest/checklist |
-| Expected cost per 100 declared | Submission contract | $0 third-party API spend measured on frozen release runs | PASS | Re-measure after any production change |
+| Requirement | Current implementation/evidence | Status | Next action |
+|---|---|---|---|
+| Organisation number is the entity anchor | BRREG bulk/live and every promoted discovery path resolve back to exact org number | PASS | Preserve invariant |
+| Frozen eligible universe | deterministic selector uses Builderr's 411,160-company universe | PASS | Freeze new final manifest/digest |
+| At least 1,000 completed profiles | prior release audit completed 1,000; a new post-H2g final corpus is still required because production changed materially | PARTIAL for current production SHA | Run new disjoint 1,000 release corpus |
+| Generalize beyond development companies | many zero-overlap cohorts plus H2g fresh-300 transfer | PASS observed | Do not tune on future final heldout subset |
+| Exactly one terminal result/company | maintained across frozen 100, larger release runs, H2g 300 and default 100 smoke | PASS | Keep contract gate |
+| Claims/evidence/changes/operations envelope | final runner emits validated output contract | PASS | Preserve |
+| Claim-level provenance/time/hash/period | validated for official, website and workforce claims | PASS | Preserve |
+| Distinct missing/blocked/not-applicable states | explicit mappings and regressions | PASS | Preserve |
+| No fabricated financials | deterministic BRREG accounting path | PASS | Preserve |
+| External precision >=95% | strong wrong-entity regressions; previous heldout website audit 20/20 correct; later site promotions manually audited | PARTIAL / strong observed evidence | Hidden evaluator authoritative |
+| Weighted external company recall >=60% | H2e+H2g gives near-universal workforce evidence; website/social/contact remain much narrower; official hidden denominator unavailable | **OPEN / PRIMARY UNKNOWN** | Measure release diagnostics; Builderr hidden judge decides |
+| Coverage >=21/35 | official field availability/union hidden | **OPEN / PRIMARY UNKNOWN** | Cannot honestly self-score |
+| Overall >=65/100 | hidden judge | OPEN | Do not invent score |
+| Idempotent refresh/history | exact change fixture + zero-change rerun; old/new hashes and provenance preserved | PASS current tracked fields | Re-check post-H2g release package |
+| 45-minute wall time / 100 | H2g default 100 smoke: 427.825 s | PASS | Revalidate across new ten-chunk release |
+| <=2,000 outbound requests / 100 | production structural ceiling exactly 2,000 with H2g; default 100 observed 1,370 | PASS | Keep per-chunk budget gate |
+| <=$10 external API spend / 100 | stricter project policy: $0 third-party spend | PASS | Preserve unless policy changes |
+| One evaluator command | `scripts/run_signalpost_final.py` | PASS | Freeze exact command/setup |
+| Source rights documented | connector register + source landscape audit | PASS production stack | Include in submission package |
+| Safe URL/SSRF/redirect handling | hardened site stack | PASS | Preserve |
+| Pinned dependencies and tests | `uv.lock`; current suite >200 tests plus subtests | PASS | Run on release SHA |
+| Snapshot drift safe | missing BRREG bulk row no longer crashes batch | PASS | Preserve |
+| Candidate discovery independently verified | H1 paths nominate only; page evidence proves publication | PASS | Preserve |
+| UI exposes evidence/gaps/changes | substantial static prototype exists | PARTIAL | Harden after release data is frozen |
+| Research answers are evidence-bounded | deterministic answer/screen layer abstains when unsupported | PARTIAL / safe | Improve synthesis after release-scale data run |
+| Models/APIs/licences/caches/hosting declared | mostly documented across connector/decision docs | PARTIAL | Produce final submission manifest |
 
 ## Current official-scoring readiness
 
-The live official scoring is 35 coverage / 30 accuracy / 20 refresh / 10 synthesis / 5 UX.
-
 | Official category | Current readiness | Why |
 |---|---|---|
-| Coverage & source discovery (35) | **RED / not established** | Builderr weights external company recall heavily; production still lacks major jobs/reviews/activity/metrics/sentiment families |
-| Accuracy, identity & evidence (30) | **GREEN / strongest** | exact-org anchoring, conservative entity gates, claim evidence, 20/20 heldout website audit |
-| Refresh & extensibility (20) | **GREEN current fields / YELLOW breadth** | robust idempotent refresh but narrow dynamic external signal set |
-| Decision-useful synthesis (10) | **YELLOW** | safe cited answers/screens; explicit abstention limits external insight |
-| UX & interaction (5) | **YELLOW** | usable static prototype, but data breadth matters more now |
+| Coverage & source discovery (35) | **YELLOW/RED — materially improved, not established** | H2g dramatically raises workforce coverage, but ratings/reviews, independent activity, metrics, sentiment and platform breadth remain sparse; official weighted recall is hidden |
+| Accuracy, identity & evidence (30) | **GREEN / strongest** | exact-org anchoring, conservative site identity, claim evidence and extensive wrong-entity regressions |
+| Refresh & extensibility (20) | **GREEN current fields / YELLOW breadth** | robust refresh contract; fewer dynamic external families than ideal |
+| Decision-useful synthesis (10) | **YELLOW** | safe evidence-bounded layer but needs release-data-driven polish |
+| UX & interaction (5) | **YELLOW** | usable static prototype; final polish remains |
 
-Do not convert these readiness labels into an invented official point score. Builderr's hidden companies/labels and versioned external union are required for the real score.
+Do not convert readiness labels into an invented official score.
 
-## Full 1,000 release evidence
+## Post-H2g production evidence
 
-Audited application SHA:
+Production application SHA before documentation-only PR #27:
 
-`24145ffb98e36c31a16145d6408a7556a38b5289`
+`b14ef3c277d8f1512064f865d4028e23dcd8bacf`
 
-### Non-heldout 800
+### H2g integrated fresh 300
 
-- workflow `34946808243`
-- artifact digest `sha256:153fd7bf25a424650fe427bde8d0da559aec0835184892ba2fa231900d08655e`
-- 800/800 completed
-- 12,696 claims / 12,696 evidence items
-- 4,688 logical / 9,376 conservative requests
-- 518.772 s
-- $0, search API 0
-- 0 contract/change/budget errors
-- 55 verified sites
-- one known current-BRREG snapshot drift org safely retained
+- final objects: 300/300
+- H2e+H2g workforce companies: **296/300 = 98.67%**
+- H2g accepted: 256/260
+- H2g requests: 260
+- observed conservative request charge: 4,106 / 6,000
+- wall runtime: 1,277.63 s / 2,400 s
+- $0 third-party cost
+- 0 execution/external-validation/contract errors
 
-### Predeclared heldout 200
+### H2g default 100 production smoke
 
-Heldout SHA:
+- final objects: 100/100
+- workforce companies: **100/100**
+- H2g accepted: 84/84
+- observed conservative request charge: **1,370 / 2,000**
+- structural ceiling: **2,000 / 2,000**
+- wall runtime: **427.825 s**
+- $0 third-party cost
+- 0 execution/validation/contract/budget errors
 
-`fb81f7695ee91606d1af7eee00e8323a326ebc33b79b3cb1a4f046573ae3368f`
+## External-source experiments after H2g
 
-- workflow `34948307697`
-- artifact digest `sha256:d2e87c64324df31643ef969b9fd432d33fe971c8689c36833b9a56edf5176efd`
-- 200/200 completed
-- 3,191 claims / 3,191 evidence items
-- 1,208 logical / 2,416 conservative requests = 1,208 conservative/100
-- 122.656 s
-- $0, search API 0
-- 0 contract/change/budget errors
-- 20 verified websites
-- manual website audit: 20 correct / 0 wrong
+- H2h Fagfolkguiden reviews: **DROP**. Fresh 100 produced 21 exact pages but 0 rated companies; rights also unresolved because pages expose Google-derived review content.
+- H2i NAV jobs: **SHELVED**. A bounded 20-company screen traversed 30,000 feed items and found 0 exact active jobs; workforce is already near-saturated.
+- Remaining zero-cost candidates were audited in `FINAL_SOURCE_LANDSCAPE_AUDIT.md`; broad connector hunting is paused unless new evidence changes the source landscape.
 
-The 200-company heldout is consumed and cannot be used for future tuning.
+## Historical release evidence
 
-## Observable external reach across the full 1,000
-
-These are diagnostics from the exact release artifacts, **not official recall**:
-
-- verified official website: 75/1,000 = 7.5%
-- company description from verified site: 56/1,000 = 5.6%
-- publishable company-declared social links: 32/1,000 = 3.2%
-- 55 publishable declared handle URLs across those 32 companies
-  - Facebook: 25 companies
-  - Instagram: 19
-  - LinkedIn: 10
-  - YouTube: 1
-- 19 companies have at least two publishable social platforms declared by the exact company site
-
-These declarations do not imply social-platform posts, metrics, jobs, reviews or sentiment were fetched.
-
-## Historical qualification highlights
-
-- starter baseline: 104 tests + 5 subtests; 10-company live smoke green.
-- frozen development 100 manifest SHA: `51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3`.
-- output-contract qualification: 100 objects, 1,568 claims/evidence, artifact `sha256:1a2ba378e16d8a1f9a47983fa38853ad4ae9aa4a8c623c37a30fc7f18816e070`.
-- refresh qualification: exact 2/2 changes + idempotent rerun, artifact `sha256:e317bdf7612e2327324e34a9895a27d82db89702712c82c7b981ac274d3291cf`.
-- H1d final fresh 300: 15→18 verified sites, 18/18 audit correct, no request-ceiling increase.
-- H1e fresh 300: 16→17 verified sites, sole new site manually correct; production ceiling became 1,802 conservative requests/100.
-- snapshot-drift live smoke: 2/2 terminal outputs with missing bulk entity retained honestly.
+The older 1,000-company release (800 + predeclared 200 heldout) remains valid evidence for its audited application SHA, including 20/20 manually correct heldout websites, but it predates H2g and therefore cannot certify the current production stack. Its heldout 200 is consumed and must never be reused for tuning.
 
 ## Next action
 
-See `SCORING_READINESS_AUDIT.md`. The next bounded experiment is **H2a company-declared social profile observations**: port the conservative dormant social-handle extractor onto current `main`, emit only the narrow evidence-backed `profile_handle` claim from exact company pages, add no social-platform fetches, spend $0 and validate on a new disjoint corpus outside the consumed original 1,000.
+Follow the finalization plan in `FINAL_SOURCE_LANDSCAPE_AUDIT.md`:
 
-Update this matrix whenever a requirement changes state. Do not mark the official coverage/recall gates PASS from a self-defined denominator.
+1. reconcile permanent documentation;
+2. freeze a new deterministic 1,000-company corpus excluding all previously touched companies;
+3. run current production in ten evaluator-shaped 100-company chunks;
+4. aggregate coverage/precision/operations diagnostics without changing company outputs;
+5. improve evidence-bounded synthesis and the existing prototype;
+6. freeze the final SHA, manifest, source/licence register and submission package.

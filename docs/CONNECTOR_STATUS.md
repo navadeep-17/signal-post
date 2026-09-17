@@ -1,59 +1,63 @@
 # Connector qualification status
 
-This file is the publication-rights and readiness register for external evidence. Code existing in the repository does not by itself make a source competition-safe or publishable.
+Updated: 2026-09-17
+
+This is the publication-rights and production-readiness register. Code existing in the repository does not by itself make a source competition-safe or publishable.
+
+Project cost policy: **$0 third-party API spend**. Builderr permits more, but paid/metered services are intentionally excluded unless the user explicitly changes this project policy.
 
 Status meanings:
 
-- **QUALIFIED BASELINE** — suitable for baseline publication under the starter's current evidence/identity rules.
-- **CONDITIONAL** — usable only after an exact-source/company gate or field-specific requirement passes.
-- **EXPERIMENTAL** — useful for local measurement, not final publication yet.
-- **PLANNED** — preferred production acquisition path not yet implemented/qualified.
-- **BLOCKED** — do not use for qualification/production under the currently reviewed rights, cost, or technical conditions.
-- **DEFERRED** — not worth prioritizing until higher-value gaps are solved.
+- **PRODUCTION / QUALIFIED** — enabled in the final runner under documented evidence/identity rules.
+- **CONDITIONAL** — used only after an exact-company or field-specific gate passes.
+- **EXPERIMENTAL** — measured locally; not final publication.
+- **DROP / BLOCKED** — do not promote under current evidence, rights, cost, or measured yield.
+- **DEFERRED / SHELVED** — potentially useful product intelligence, but not worth another connector cycle now.
 
-Project cost policy: the final strategy targets **$0 third-party API spend**. A free trial or small introductory quota that requires paid continuation is not a production dependency.
-
-| Source / connector | Current code/path | Status | Publication rule / next action |
+| Source / connector | Current path | Status | Publication rule / measured result |
 |---|---|---|---|
-| Brønnøysund bulk/live registry | `official.py`, `batch.py` | QUALIFIED BASELINE | Exact organisation-number anchor; retain official-source provenance |
-| BRREG normalized financials | `official.py` | QUALIFIED BASELINE | Preserve reporting period; 404/not-returned is not zero |
-| BRREG roles/group/subunits | `official.py` | QUALIFIED BASELINE | Company-centric public role context only; preserve source state |
-| Registry-listed company website | `website.py` + `identity.py` | CONDITIONAL | Publish/use only when exact website identity gate passes |
-| BRREG email-domain website discovery (H1a) | `domain_discovery.py`, `run_registry_email_domain_discovery.py`, opt-in `run_competition_batch.py` flag | EXPERIMENTAL / AUDITED 600 / OPT-IN | Candidate derives from official public email only; independently fetch and hardened exact-entity gate. Frozen 600-company qualification audit had 62 candidates, 8 audited exact promotions, 54 quarantined, 267 requests and $0 third-party cost. Runner integration remains off by default and is enabled only with `--enable-email-domain-discovery`. The frozen 100-company runner benchmark improved canonical exact websites 2→3 at +86 requests. |
-| Deterministic legal-name `.no` discovery (H1c) | `zero_cost_discovery.py`, `run_zero_cost_domain_discovery.py`, `zero_cost_registry_guard.py` | CONDITIONAL / AUDITED 100 / ZERO-COST | Generates at most two compact/hyphenated `.no` candidates, performs no search API call, independently fetches candidate homepages, and requires the normal identity gate plus the H1c page-level guard and registry-risk guard. Frozen 100 audit: H1a exact websites 3, preliminary H1c promotions 4, one wrong-entity collision quarantined (`OUT OF BOUNDS AS` vs `Out of Bounds Sweden AB`), hardened H1c promotions 3, final exact websites 6, total requests 666, API cost $0. Never treat DNS/HTTP success, title/name similarity, or a matching domain alone as company identity. |
-| Wikidata exact-org website candidate (H1e) | `wikidata_discovery.py`, `wikidata_fallback.py`, final runner | CONDITIONAL / FRESH-300 QUALIFIED / ZERO-COST | Wikidata structured data is CC0 and is used only for exact `P2333` → `P856` candidate nomination. No fuzzy/name search and no publication from Wikidata alone. Candidates must be independently fetched and prove exact org number or full legal name + BRREG location before the existing registry-risk guard. Fresh zero-overlap 300: 16→17 verified sites, 0 lost, sole promotion `971424079` → `norskeselskab.no` manually audited correct, observed conservative requests 3,544→3,558, structural ceiling 1,802/100, API cost $0. WDQS outage/throttle degrades to H1d rather than failing the batch. |
-| Company-site structured data/text | `website.py`, Scrapy pipeline | CONDITIONAL | Must inherit exact verified site identity and source URL/hash/time |
-| Company-site social links | `identity.py`, `normalize_social_links.py` | CONDITIONAL | Company website must be exact and individual social handle must also pass its identity gate |
-| Company-site news/activity | `extract_company_site_news.py`, `extract_company_site_activity.py` | CONDITIONAL | Exact verified company site; dated/evidence-backed claims only |
-| Annual-report workforce | `run_annual_report_workforce_connector.py` | CONDITIONAL | Official filing evidence and correct reporting period required |
-| Brave Search API standard terms | `run_brave_discovery.py`, `discovery.py` | BLOCKED | Rights review already blocked H1 benchmark use; paid/custom search is also outside the zero-cost final strategy |
-| SerpApi Google Search API | `run_search_discovery.py`, `discovery.py`, manual `h1b-search-discovery.yml` | BLOCKED BY COST POLICY | Keep the provider-neutral H1b code dormant as research infrastructure. Do not configure or use SerpApi in the final strategy; its free quota is not sufficient as a permanent no-spend production dependency. |
-| Tavily search | no promoted production integration | BLOCKED BY COST POLICY | Do not make a paid/limited commercial search API a final dependency. |
-| Existing Google Maps result normalization | `normalize_google_maps_results.py` | EXPERIMENTAL | Do not relabel experimental data; no paid Google Places dependency will be added. |
-| Official Google Places API | not yet promoted | BLOCKED BY COST POLICY | Paid/metered Places usage is outside the final zero-cost strategy. |
-| Existing YouTube search connector | `run_youtube_search_connector.py` | EXPERIMENTAL | Prefer website-declared exact channel; do not depend on unofficial scraping for publication. |
-| Official YouTube Data API | not yet promoted | DEFERRED / FREE-QUOTA REVIEW | Consider only if the required usage remains genuinely zero-cost without a paid continuation dependency and exact-channel proof is available. |
-| Google News RSS | `run_google_news_rss_connector.py` | EXPERIMENTAL / RIGHTS REVIEW | Do not publish until rights and exact-entity article capture are validated; no paid news provider fallback. |
-| LinkedIn company discovery | `discover_linkedin_company_profiles.py` | EXPERIMENTAL DISCOVERY | Useful as candidate/URL research only unless a permitted zero-cost path is established. |
-| LinkedIn guest experiment | `run_linkedin_guest_experiment.py` | EXPERIMENTAL | Not a production foundation; platform terms/reproducibility unresolved. |
-| LinkedIn guest jobs | `run_linkedin_guest_jobs_connector.py` | EXPERIMENTAL | Prefer company careers pages; no paid jobs provider dependency. |
-| Fagfolkguiden reviews | `run_fagfolkguiden_reviews_connector.py` | EXPERIMENTAL / RIGHTS REVIEW | Do not publish before rights + entity precision + evidence-span audit. |
-| Company careers/jobs pages | current website stack can be extended | PLANNED CANDIDATE | Prefer exact company-owned career pages; emit conservative evidence-backed hiring/job observations. |
-| Independent licensed news/search provider | no final provider selected | BLOCKED BY COST POLICY | A paid licensed search/news service is outside the final zero-cost strategy. |
-| Sentiment | `sentiment.py`, `run_sentiment_model.py` | DEFERRED / EXPERIMENTAL | Requires independent source evidence and labelled Norwegian evaluation; never infer company sentiment from marketing copy alone. |
-| Public LinkedIn/Meta/Indeed/Glassdoor scraping as core source | experimental/reference only | DEFERRED / REJECTED FOUNDATION | Starter architecture rejects this as a foundation due rights/reproducibility concerns. |
+| Brønnøysund bulk/live registry | `official.py`, `batch.py` | **PRODUCTION / QUALIFIED** | Exact organisation-number anchor; preserve official provenance and missing states. |
+| BRREG normalized financials | `official.py` | **PRODUCTION / QUALIFIED** | Preserve reporting period; missing/not-returned is never zero. |
+| BRREG roles/group/subunits | `official.py` | **PRODUCTION / QUALIFIED** | Public exact-entity context only. |
+| Registry-listed company website | `website.py`, `identity.py` | **CONDITIONAL / PRODUCTION PATH** | Publish/use only when exact website identity passes. |
+| BRREG email-domain discovery H1a | `domain_discovery.py` | **EXPERIMENTAL / AUDITED** | Safe candidate nomination but off by default; 600-company audit qualified only a small number of domains. |
+| Deterministic `.no` discovery H1c/H1d | `zero_cost_discovery.py`, registry/secondary identity guards | **PRODUCTION / QUALIFIED** | Candidate must be independently fetched and prove exact entity; known wrong-domain regressions remain quarantined. |
+| Wikidata exact-org website fallback H1e | `wikidata_discovery.py`, `wikidata_fallback.py` | **PRODUCTION / QUALIFIED** | Exact `P2333` → `P856` only; Wikidata nominates a candidate and never proves identity. Candidate must pass independent company-page verification. |
+| Hyphenated `.no` fallback H1g | final runner | **PRODUCTION / QUALIFIED** | Runs only when stronger website paths fail and request slots remain; fresh 300 gained 4 audited sites without changing the structural ceiling. |
+| Company-owned description/structured page evidence | `website.py` | **CONDITIONAL / PRODUCTION PATH** | Must inherit exact verified site identity, source URL, retrieval time and hash. |
+| Company-declared social handles H2a | `company_site_social.py`, `external_contract.py`, final runner | **PRODUCTION / QUALIFIED** | Narrow claim only: exact verified company page declared this profile URL. No claim of social activity/metrics. Fresh 300: 10 handles across 5 companies, zero added requests. |
+| Company-site contact emails H2c | contact-email extractor + final contract | **PRODUCTION / QUALIFIED** | Email must occur in retained first-party evidence and registered email domain must match verified website domain. Fresh 300: 24 correct observations across 19 companies, zero added requests. |
+| BRREG live workforce H2e | `registry_workforce.py`, `workforce_contract.py` | **PRODUCTION / QUALIFIED** | Exact BRREG employee count, zero added requests. Fresh 300: 45/300 companies. |
+| BRREG annual-account OCR workforce H2g | production annual-report connector + final runner | **PRODUCTION / QUALIFIED** | Official exact-org PDF; exact org number recovered in OCR; company-scope FTE/employee phrase only; conflicts/group phrases abstain. Integrated fresh 300: 296/300 combined H2e+H2g workforce coverage; default 100 smoke: 100/100; $0. |
+| Company-owned dated activity H2b | experimental extractors | **DROP unchanged design** | Fresh 300: only 1 company with qualifying dated activity. |
+| Company careers/jobs H2f | experimental career-page screen | **DROP unchanged design** | 36 verified sites → 3 careers pages → 0 strict structured job claims; weak incremental leverage because workforce is already saturated. |
+| Fagfolkguiden ratings/reviews H2h | coverage-screen script | **DROP / RIGHTS BLOCKED** | Fresh 100: 21 exact pages, 0 usable aggregate ratings. Source also exposed Google-derived review content without an identified sublicensing basis. |
+| NAV jobs H2i | bounded feasibility screen | **SHELVED** | 20-company screen traversed 30,000 feed items and found 0 exact active jobs; adds little scoring leverage after H2e/H2g workforce saturation. |
+| Brave / SerpApi / Tavily search | dormant discovery code | **BLOCKED** | Commercial/paid or terms unsuitable for the current $0 production strategy. |
+| Google Places / commercial review APIs | not promoted | **BLOCKED BY COST POLICY** | Strong semantic fit to ratings, but paid/metered. |
+| LinkedIn/Glassdoor/Indeed/public-platform scraping | experimental/reference only | **BLOCKED / REJECTED FOUNDATION** | Rights/reproducibility unresolved or adverse. |
+| Official YouTube Data API | not promoted | **DEFERRED** | Exact declared channel reach is too sparse to justify a production dependency now. |
+| Google News RSS / independent news | experimental | **DEFERRED / RIGHTS REVIEW** | No qualified broad zero-cost path. |
+| Patentstyret open data | no production integration | **DEFERRED PRODUCT INTELLIGENCE** | Strong rights and exact-org potential, but IP filings are not an honest substitute for the remaining ratings/buzz/sentiment fields. |
+| BRREG Støtteregisteret | no production integration | **DEFERRED PRODUCT INTELLIGENCE** | Strong official funding evidence, but weak fit to remaining scored external signal families. |
+| Doffin procurement data | no production integration | **DEFERRED** | Useful activity evidence, but weak fit to remaining unsolved scoring families. |
+| OpenStreetMap exact-org place data | no production integration | **REJECT as foundation** | Exact `ref:NO:orgnr` coverage is too sparse for systematic production use. |
+| Sentiment | `sentiment.py`, experiment scripts | **DEFERRED** | Requires broad independent evidence and a labelled Norwegian evaluation set; never infer sentiment from company marketing text. |
+
+## Stop rule for new connectors
+
+Do not start another full connector cycle unless a candidate can plausibly satisfy all of these before production coding:
+
+1. improves a genuinely unsolved Builderr-relevant information family rather than duplicating workforce;
+2. publication/acquisition rights are suitable;
+3. exact entity attribution is possible without weakening identity thresholds;
+4. third-party cost remains $0 under current policy;
+5. a cheap screen suggests roughly 5–10% random-company reach or equally strong hidden-evaluator value;
+6. request/runtime cost fits the 100-company evaluator budget;
+7. deterministic evidence and refresh semantics are possible.
+
+Under the current source audit, broad connector hunting is paused. See `FINAL_SOURCE_LANDSCAPE_AUDIT.md`.
 
 ## Promotion checklist
 
-A connector cannot move to qualified publication until all of the following are demonstrated on a frozen audit corpus:
-
-1. Acquisition mode and source rights are documented and genuinely valid.
-2. Exact legal entity attribution is measured, not assumed from name similarity.
-3. Evidence includes source URL, retrieval time, content hash and field-specific evidence span where required.
-4. Wrong-company publication does not regress the accuracy gate.
-5. The connector adds useful supported coverage on the development corpus.
-6. The gain transfers to a zero-overlap validation corpus.
-7. Request/runtime impact fits the final 100-company batch budget with headroom and third-party API cost remains $0.
-8. Refresh behavior is deterministic/idempotent for the signal type.
-
-If a connector fails rights, exact-entity validation, or the zero-cost policy, its data remains experimental even if it increases the local proxy score.
+A future connector cannot move to production until rights, exact identity, evidence metadata, precision, measured coverage gain, zero-overlap transfer, request/runtime/$0 constraints, and deterministic refresh behavior are all demonstrated on a frozen audit corpus.
