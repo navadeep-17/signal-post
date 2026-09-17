@@ -1,5 +1,7 @@
 # External discovery and sentiment
 
+> **Historical research note (final submission):** This file records pre-production connector and sentiment experiments. It is **not** authoritative for the final Signalpost source mix, current scoring assumptions, or enabled production connectors. The certified production path uses no paid/search API, no sentiment model, and no social-platform scraping. See `SUBMISSION.md`, `submission/manifest.json`, `docs/SUBMISSION_SOURCE_RIGHTS.md`, and `scripts/run_signalpost_final.py`.
+
 External intelligence is now 55/100 in the revised competition rubric. Individual connectors remain
 quarantined until their data-rights and held-out gates pass; planned or experimental output earns zero.
 
