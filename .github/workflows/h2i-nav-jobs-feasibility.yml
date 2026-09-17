@@ -1,0 +1,85 @@
+name: H2i NAV Jobs Feasibility Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/h2i-nav-jobs-feasibility"
+    paths:
+      - "scripts/screen_h2i_nav_jobs_feasibility.py"
+      - ".github/workflows/h2i-nav-jobs-feasibility.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+          uv run python scripts/screen_h2i_nav_jobs_feasibility.py --help >/dev/null
+
+      - name: Reuse exploratory fresh H2h cohort and select 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior-h2h
+          gh run download 35136522325 \
+            --repo navadeep-17/signal-post \
+            --name h2h-fagfolkguiden-review-coverage \
+            --dir prior-h2h
+          echo '08ff94cd39a07b4cb24f8ed0479e2a94c758cd47ca550f0af63cc94382ed98ef  prior-h2h/fresh-h2h-100.jsonl' | sha256sum -c -
+          head -n 20 prior-h2h/fresh-h2h-100.jsonl > h2i-exploratory-20.jsonl
+          test "$(wc -l < h2i-exploratory-20.jsonl)" -eq 20
+          sha256sum h2i-exploratory-20.jsonl > h2i-exploratory-20.sha256
+
+      - name: Run bounded NAV jobs screen
+        run: |
+          mkdir -p out
+          uv run python scripts/screen_h2i_nav_jobs_feasibility.py \
+            --targets h2i-exploratory-20.jsonl \
+            --audit out/h2i-audit.jsonl \
+            --report out/h2i-report.json \
+            --lookback-days 90 \
+            --max-feed-pages 30 \
+            --timeout 20 \
+            --min-start-interval 0.4
+
+      - name: Verify feasibility invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('out/h2i-report.json').read_text())
+          assert r['targets'] == 20, r
+          assert r['publication_enabled'] is False, r
+          assert r['third_party_cost_usd'] == 0.0, r
+          assert r['logical_requests'] <= 500, r
+          assert r['feed_pages'] <= 30, r
+          assert r['detail_requests'] <= r['active_headers'], r
+          print(json.dumps(r, indent=2))
+          PY
+
+      - name: Upload H2i feasibility artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: h2i-nav-jobs-feasibility
+          if-no-files-found: error
+          path: |
+            h2i-exploratory-20.jsonl
+            h2i-exploratory-20.sha256
+            out/h2i-report.json
+            out/h2i-audit.jsonl
