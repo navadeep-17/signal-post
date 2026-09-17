@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "project": "Signalpost",
+  "repository": "https://github.com/navadeep-17/signal-post",
+  "submission_identity": {
+    "production_application_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
+    "certified_release_harness_sha": "550bba0cce64a0a26d878c3b7f41eb20a55dc10e",
+    "f4_submission_workspace_merge_sha": "13e0503be4208a36e7ff34a90bf89b87caf68e3d",
+    "repository_head_rule": "Use the exact commit SHA supplied with the submission; run scripts/verify_submission_bundle.py to print the current checkout SHA."
+  },
+  "entrypoints": {
+    "production_runner": "scripts/run_signalpost_final.py",
+    "output_contract": "OUTPUT_CONTRACT.md",
+    "refresh_replay": "scripts/run_refresh_replay.py",
+    "submission_workspace_builder": "scripts/build_submission_prototype.py",
+    "submission_verifier": "scripts/verify_submission_bundle.py"
+  },
+  "runtime": {
+    "python": ">=3.12",
+    "dependency_lock": "uv.lock",
+    "system_packages_for_annual_report_ocr": [
+      "poppler-utils",
+      "tesseract-ocr"
+    ],
+    "ocr_language": "eng",
+    "ocr_failure_policy": "abstain; do not invent a workforce value",
+    "hosting_required": false
+  },
+  "models_and_paid_apis": {
+    "llm_models_invoked_by_production_runner": [],
+    "paid_apis_invoked_by_production_runner": [],
+    "search_api_requests_per_certified_release": 0,
+    "third_party_api_cost_usd_per_certified_release": 0.0,
+    "third_party_api_cost_usd_per_100_policy": 0.0,
+    "experimental_sentiment_or_platform_connectors_enabled": false
+  },
+  "certified_release": {
+    "workflow_run_id": 35246833190,
+    "release_seed": 20261002,
+    "universe_rows": 411160,
+    "historical_exclusions": 5900,
+    "release_companies": 1000,
+    "overlap_count": 0,
+    "universe_sha256": "1c89710e5b01f8617e86d09fbdff4a52f2f8dbbba297e74f7164b5984f5a0384",
+    "exclusion_sha256": "8a26f96faa98569e8f45d2b1e3b901db8093246e15bf6d0acbdd375bda2f2c69",
+    "release_manifest_sha256": "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26",
+    "manifest_artifact": {
+      "name": "final-release-manifest-1000",
+      "artifact_id": 10508036929
+    },
+    "aggregate_artifact": {
+      "name": "final-release-1000-aggregate",
+      "artifact_id": 10507814620,
+      "artifact_digest_sha256": "8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e"
+    },
+    "aggregate_output_sha256": "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2",
+    "metrics": {
+      "companies": 1000,
+      "unique_organisation_numbers": 1000,
+      "terminal_completed": 1000,
+      "claims": 17098,
+      "deduplicated_evidence_records": 17050,
+      "contract_validation_errors": 0,
+      "runner_contract_errors": 0,
+      "change_errors": 0,
+      "observed_conservative_challenge_requests": 13628,
+      "observed_conservative_challenge_requests_average_per_100": 1362.8,
+      "structural_request_ceiling_total": 20000,
+      "structural_request_ceiling_per_100": 2000,
+      "sum_per_chunk_runtime_seconds": 4194.615,
+      "slowest_100_company_chunk_runtime_seconds": 458.803,
+      "third_party_api_cost_usd": 0.0,
+      "search_api_requests": 0,
+      "workforce_companies": 990,
+      "verified_website_companies": 107,
+      "profile_handle_companies": 48,
+      "profile_handle_observations": 82,
+      "contact_email_companies": 53,
+      "contact_email_observations": 57
+    },
+    "repository_summary_path": "submission/final-release-1000-summary.json"
+  },
+  "source_classes": [
+    {
+      "name": "Brønnøysundregistrene open data and official account copies",
+      "role": "entity identity, registry facts, roles, group structure, locations, financials and workforce evidence",
+      "acquisition": "official API/bulk download",
+      "license_or_rights_basis": "NLOD 2.0 for BRREG open-data datasets; annual-account copies are fetched from the official BRREG service and only bounded claim evidence/hash metadata are retained in output",
+      "attribution": "Brønnøysundregistrene"
+    },
+    {
+      "name": "Wikidata structured data",
+      "role": "exact Norwegian organisation-number to official-website candidate nomination only",
+      "acquisition": "bounded WDQS batch lookup",
+      "license_or_rights_basis": "CC0 structured data",
+      "publication_boundary": "Wikidata only nominates a candidate; independent company-page identity proof is required before website publication"
+    },
+    {
+      "name": "Verified company-owned public web pages",
+      "role": "website identity proof, bounded description/contact/social-link evidence",
+      "acquisition": "bounded public HTTP retrieval with safe URL/redirect handling and robots policy",
+      "license_or_rights_basis": "No blanket content-reuse licence is assumed. The system retains source URL, retrieval time, content hash and a bounded factual claim span rather than republishing full pages.",
+      "publication_boundary": "Only exact-company evidence is published; ambiguous or conflicting pages abstain"
+    }
+  ],
+  "explicit_non_sources": [
+    "No LinkedIn page scraping",
+    "No Meta platform scraping",
+    "No Google Maps/review scraping",
+    "No paid search API",
+    "No public-review corpus",
+    "No independent sentiment model in the production runner",
+    "No inferred hiring activity, follower counts, engagement or platform verification"
+  ],
+  "known_limitations": [
+    "Builderr owns the hidden availability denominator, external union and official score; this repository does not claim that hidden recall, coverage or total-score gates are proven.",
+    "Verified company websites, social declarations and contact emails are intentionally narrower than official registry/workforce coverage because publication requires exact-entity evidence.",
+    "Annual-report workforce extraction abstains on missing or conflicting company-scope employee/FTE phrases.",
+    "A company-declared social URL means only that the exact verified company page declared that URL; the platform page itself is not fetched.",
+    "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; deliverability is not claimed."
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "chunks": 10,
+  "companies": 1000,
+  "unique_organisations": 1000,
+  "terminal_completed": 1000,
+  "claims": 17098,
+  "evidence": 17050,
+  "contract_validation_errors": 0,
+  "observed_conservative_challenge_requests": 13628,
+  "structural_challenge_request_ceiling": 20000,
+  "wall_runtime_seconds_sum": 4194.615,
+  "third_party_cost_usd": 0.0,
+  "search_api_requests": 0,
+  "all_chunks_passed": true,
+  "contract_errors": 0,
+  "change_errors": 0
+}
