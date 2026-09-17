@@ -1,22 +1,21 @@
 # Signalpost — evidence-backed Norwegian company intelligence
 
-This repository is the final Signalpost submission implementation for exact-entity Norwegian company research. The production path resolves a Norwegian organisation number, gathers official and carefully qualified public evidence, emits one auditable output object per company, and refreshes material changes without silently filling missing values.
+This repository is the final Signalpost submission implementation. Given a Norwegian organisation number, the production runner resolves the exact legal entity, gathers official and carefully qualified public evidence, and emits one terminal, auditable output object per company.
 
-Start with **`SUBMISSION.md`** for the evaluator command, certified release identities, setup, source-rights declaration and known limitations.
+**Evaluator entry point:** read `SUBMISSION.md` first.
 
-## Final production principles
+## Production guarantees
 
 - Organisation number is the identity anchor.
-- Official Brønnøysund sources are preferred for company facts and financials.
-- Website/domain discovery only nominates candidates; publication requires exact-company page evidence.
-- Company-owned pages may support bounded first-party contact/social-link claims.
-- Social platforms themselves are not fetched by the production runner.
-- Missing, blocked, ambiguous and failed states remain explicit.
-- Financials and workforce values are never imputed.
+- Missing, blocked, ambiguous, not-applicable and failed states remain explicit; missing values are never silently zeroed.
+- Official Brønnøysund sources are preferred for registry facts, financials, roles, locations, group structure and workforce evidence.
+- Website/domain discovery nominates candidates; publication requires exact-company page evidence.
+- Social platforms are not fetched by production. A social-handle claim only means an exact verified company page declared that URL.
+- The production runner invokes no LLM, paid API, search API, sentiment model or social-platform scraper.
 - Third-party API spend policy is **$0 per 100-company run**.
-- The production runner invokes **no LLM, paid search API, sentiment model or social-platform scraper**.
+- Production requires **no server-side secrets or API keys**.
 
-## Evaluator setup
+## Setup
 
 Requires Python 3.12+, `uv`, Poppler and Tesseract OCR.
 
@@ -30,9 +29,9 @@ curl --fail --location --retry 3 --retry-delay 2 \
   --output brreg-enheter.csv
 ```
 
-If the OCR executables are unavailable, OCR-dependent annual-report workforce extraction abstains; the terminal company record still completes.
+If the OCR executables are unavailable, OCR-dependent annual-report workforce extraction abstains instead of fabricating a value; the terminal company result can still complete.
 
-## One production command
+## One evaluator command
 
 For a 100-company evaluator JSONL batch:
 
@@ -58,32 +57,46 @@ uv run python scripts/run_signalpost_final.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-The final JSONL follows `OUTPUT_CONTRACT.md`: each input receives one terminal object containing `claims[]`, `evidence[]`, `changes[]`, `errors[]` and operation metrics.
+The output follows `OUTPUT_CONTRACT.md`: `claims[]`, `evidence[]`, `changes[]`, `errors[]` and operations metadata.
 
-## Certified 1,000-company release
+## Certified 1,000-company submission corpus
 
-The final release used a deterministic 1,000-company corpus with zero overlap against 5,900 previously touched companies.
+The **exact submitted manifest and completed certified profiles are committed in this repository**:
 
-- Frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`
-- Aggregate output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
-- Aggregate artifact digest: `sha256:8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e`
+- `submission/final-release-1000.jsonl`
+- `submission/final-release-1000-output.jsonl.gz`
+
+The output is gzip-compressed only to keep the repository compact. Decompress it without changing its certified bytes:
+
+```bash
+mkdir -p out
+gzip -dc submission/final-release-1000-output.jsonl.gz > out/final-release-1000-output.jsonl
+```
+
+Certified identities:
+
+- frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`
+- uncompressed aggregate output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
+- certified replay: `35246833190`
 - 1,000 / 1,000 terminal `completed`
-- 17,098 claims
-- 17,050 deduplicated evidence records
-- 0 canonical contract-validation errors
+- 17,098 claims / 17,050 deduplicated evidence records
+- 0 canonical contract errors
 - 13,628 observed conservative requests across ten 100-company chunks
-- 1,362.8 observed conservative requests per 100 on average
-- 2,000 structural request ceiling per 100
-- slowest 100-company chunk: 458.803 seconds
-- $0 third-party API spend
-- 0 search-API requests
-- 990 / 1,000 companies with workforce evidence
+- slowest chunk: 458.803 seconds
+- $0 third-party API spend / 0 search-API requests
 
-The exact frozen manifest and completed certified output are preserved as immutable artifacts from GitHub Actions replay `35246833190`; their names, IDs and hashes are pinned in `SUBMISSION.md` and `submission/manifest.json`. The aggregate summary is also committed at `submission/final-release-1000-summary.json`. See `docs/FINAL_RELEASE_1000_AUDIT.md` for the complete audit. These results do not claim Builderr's hidden weighted external recall, coverage score or overall score; the hidden denominator and labels remain evaluator-owned.
+The full audit is `docs/FINAL_RELEASE_1000_AUDIT.md`. These diagnostics do **not** claim Builderr's hidden coverage, weighted external recall or total score are already satisfied.
 
-## Submission-facing evidence workspace
+## Verify before submission
 
-Generate the static evidence UI from any final output-contract JSONL:
+```bash
+uv run python scripts/verify_submission_bundle.py
+uv run --with pytest pytest -q
+```
+
+The submission verifier validates the machine manifest, the committed 1,000-company manifest, the compressed certified output, the exact uncompressed output digest, organisation-number order, terminal states, output-contract references and certified summary.
+
+## Evidence workspace
 
 ```bash
 uv run python scripts/build_submission_prototype.py \
@@ -91,27 +104,7 @@ uv run python scripts/build_submission_prototype.py \
   --output out/signalpost-workspace.html
 ```
 
-The workspace exposes financial periods, workforce/effective-year evidence, verified website/contact/social declarations, leadership, locations, explicit unknowns, change history, source URLs, retrieval times, hashes and request/runtime/cost metadata. It deliberately does not infer sentiment, hiring activity, review scores, follower counts, engagement or missing values.
-
-## Verify the submission bundle
-
-```bash
-uv run python scripts/verify_submission_bundle.py
-uv run --with pytest pytest -q
-```
-
-To verify downloaded certified release artifacts:
-
-```bash
-gh run download 35246833190 --repo navadeep-17/signal-post \
-  --name final-release-manifest-1000 --dir out/certified-manifest
-gh run download 35246833190 --repo navadeep-17/signal-post \
-  --name final-release-1000-aggregate --dir out/certified-aggregate
-
-uv run python scripts/verify_submission_bundle.py \
-  --release-manifest out/certified-manifest/final-release-1000.jsonl \
-  --aggregate-output out/certified-aggregate/final-release-1000-output.jsonl
-```
+The static workspace exposes period-aware financials, workforce/effective-year evidence, verified website/contact/social declarations, leadership, locations, unknowns, changes, source URLs, timestamps, hashes and request/runtime/cost metadata. It does not infer reviews, sentiment, hiring activity, followers, engagement or missing values.
 
 ## Refresh proof
 
@@ -123,15 +116,15 @@ uv run python scripts/run_refresh_replay.py \
 
 The saved replay is expected to detect exactly two material changes, no false changes, and no additional changes on an idempotent rerun.
 
-## Final documentation map
+## Final documentation
 
-- `SUBMISSION.md` — evaluator guide and final bundle identity
-- `submission/manifest.json` — machine-readable submission declaration
-- `submission/EMAIL_TEMPLATE.md` — ready-to-fill Builderr submission email
-- `docs/SUBMISSION_SOURCE_RIGHTS.md` — source/licence/acquisition/cache/hosting declaration
+- `SUBMISSION.md` — evaluator guide and exact submission checklist
+- `submission/manifest.json` — machine-readable final declaration
+- `submission/EMAIL_TEMPLATE.md` — submission email template with contact placeholders
+- `docs/SUBMISSION_SOURCE_RIGHTS.md` — source/licence/acquisition/retention policy
 - `docs/FINAL_RELEASE_1000_AUDIT.md` — certified release-scale evidence
-- `docs/REQUIREMENTS_MATRIX.md` — final requirement/status mapping
-- `docs/FINAL_SOURCE_LANDSCAPE_AUDIT.md` — source-landscape stop rule and rejected/deferred experiments
-- `OUTPUT_CONTRACT.md` — final output schema
+- `docs/REQUIREMENTS_MATRIX.md` — final requirement mapping
+- `docs/SCORING_READINESS_AUDIT.md` — final pre-submission risk assessment
+- `OUTPUT_CONTRACT.md` — output schema
 
-Historical research documents remain in the repository for auditability. They may discuss experiments that were later rejected or disabled. The authoritative final production path is defined by `SUBMISSION.md`, `submission/manifest.json`, `docs/SUBMISSION_SOURCE_RIGHTS.md` and `scripts/run_signalpost_final.py`.
+Historical experiment scripts and documents are retained for auditability. They are not enabled by `scripts/run_signalpost_final.py` unless the final submission documents explicitly say otherwise.

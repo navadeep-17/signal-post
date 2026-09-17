@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import subprocess
@@ -7,47 +8,60 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "submission" / "manifest.json"
+SUBMISSION = ROOT / "submission"
+MANIFEST = SUBMISSION / "manifest.json"
 
 
-def test_submission_manifest_is_frozen_and_self_consistent() -> None:
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     body = json.loads(MANIFEST.read_text(encoding="utf-8"))
     release = body["certified_release"]
     metrics = release["metrics"]
+    artifacts = release["repository_artifacts"]
 
+    assert body["schema_version"] == 2
+    assert body["runtime"]["server_side_secrets_required"] == []
     assert body["submission_identity"]["production_application_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
     assert release["release_companies"] == 1000
     assert release["overlap_count"] == 0
     assert release["release_manifest_sha256"] == "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26"
     assert release["aggregate_output_sha256"] == "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2"
     assert release["aggregate_artifact"]["artifact_digest_sha256"] == "8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e"
+    assert artifacts["aggregate_output_gzip_sha256"] == "7c9e7e822d2ad0fa5a2809ae5a092c9072eb0eed03899b190f62320a5f0c2bc1"
     assert metrics["terminal_completed"] == 1000
     assert metrics["contract_validation_errors"] == 0
-    assert metrics["runner_contract_errors"] == 0
-    assert metrics["change_errors"] == 0
     assert metrics["structural_request_ceiling_per_100"] == 2000
     assert metrics["third_party_api_cost_usd"] == 0.0
-    assert body["models_and_paid_apis"]["llm_models_invoked_by_production_runner"] == []
-    assert body["models_and_paid_apis"]["paid_apis_invoked_by_production_runner"] == []
 
 
 def test_submission_manifest_sidecar_matches_bytes() -> None:
-    digest = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
-    expected = (ROOT / "submission" / "manifest.sha256").read_text(encoding="utf-8").split()[0]
-    assert digest == expected
+    expected = (SUBMISSION / "manifest.sha256").read_text(encoding="utf-8").split()[0]
+    assert _sha256(MANIFEST) == expected
 
 
-def test_submission_docs_preserve_claim_boundaries() -> None:
+def test_committed_certified_manifest_and_output_hashes_match() -> None:
+    body = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    release = body["certified_release"]
+    release_manifest = SUBMISSION / "final-release-1000.jsonl"
+    output_gz = SUBMISSION / "final-release-1000-output.jsonl.gz"
+
+    assert _sha256(release_manifest) == release["release_manifest_sha256"]
+    assert _sha256(output_gz) == release["repository_artifacts"]["aggregate_output_gzip_sha256"]
+    assert hashlib.sha256(gzip.decompress(output_gz.read_bytes())).hexdigest() == release["aggregate_output_sha256"]
+
+
+def test_submission_docs_preserve_claim_and_secret_boundaries() -> None:
     submission = (ROOT / "SUBMISSION.md").read_text(encoding="utf-8")
-    rights = (ROOT / "docs" / "SUBMISSION_SOURCE_RIGHTS.md").read_text(encoding="utf-8")
-    combined = submission + "\n" + rights
-
-    assert "does **not** claim that Builderr's hidden weighted external recall" in submission
-    assert "production runner invokes **no LLM and no sentiment model**" in rights
-    assert "zero requests to social platforms" in rights
-    assert "mailbox deliverability" in combined
-    assert "follower" in combined
-    assert "No blanket content-reuse licence is assumed" in rights
+    email = (SUBMISSION / "EMAIL_TEMPLATE.md").read_text(encoding="utf-8")
+    assert "hidden weighted external company recall" in submission
+    assert "Server-side secrets required: **none**" in submission
+    assert "Contact name: `<CONTACT_NAME>`" in email
+    assert "Contact email: `<CONTACT_EMAIL>`" in email
+    assert "mailbox deliverability" in submission
+    assert "follower" in submission
 
 
 def test_repository_only_submission_verifier_passes() -> None:
@@ -62,3 +76,8 @@ def test_repository_only_submission_verifier_passes() -> None:
     report = json.loads(completed.stdout)
     assert report["passed"] is True
     assert report["repository_bundle_errors"] == []
+    assert report["repository_artifacts"]["manifest_rows"] == 1000
+    assert report["repository_artifacts"]["aggregate_output_rows"] == 1000
+    assert report["repository_artifacts"]["terminal_completed"] == 1000
+    assert report["repository_artifacts"]["contract_failures"] == []
+    assert report["repository_artifacts"]["manifest_output_order_match"] is True
