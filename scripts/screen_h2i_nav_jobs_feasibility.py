@@ -17,6 +17,7 @@ BRREG_SUBUNITS = "https://data.brreg.no/enhetsregisteret/api/underenheter"
 LEGAL_SUFFIXES = {
     "AS", "ASA", "ANS", "DA", "ENK", "NUF", "SA", "BA", "KS", "IKS", "HF", "KF", "SF"
 }
+JWT_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 
 
 def _org(value: Any) -> str | None:
@@ -48,13 +49,16 @@ def _read_targets(path: Path) -> list[dict[str, str]]:
 def _public_token(session: requests.Session, timeout: float) -> str:
     r = session.get(f"{NAV_BASE}/api/publicToken", timeout=timeout)
     r.raise_for_status()
-    token = r.text.strip().strip('"')
-    if token.startswith("{"):
+    text = r.text.strip()
+    if text.startswith("{"):
         data = r.json()
         token = str(data.get("token") or data.get("access_token") or "").strip()
-    if not token:
-        raise RuntimeError("NAV public token endpoint returned no token")
-    return token
+        if token:
+            return token
+    match = JWT_RE.search(text)
+    if not match:
+        raise RuntimeError("NAV public token endpoint returned no JWT")
+    return match.group(0)
 
 
 def main() -> None:
@@ -101,7 +105,7 @@ def main() -> None:
                 n = _name(row.get("navn"))
                 if n:
                     candidate_names[target["org"]].add(n)
-        except Exception as exc:  # diagnostics only
+        except Exception as exc:
             subunit_errors.append({"org": target["org"], "error": f"{type(exc).__name__}: {exc}"})
 
     token = _public_token(session, args.timeout)
