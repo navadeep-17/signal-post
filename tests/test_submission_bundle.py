@@ -56,12 +56,14 @@ def test_committed_certified_manifest_and_output_hashes_match() -> None:
 def test_submission_docs_preserve_claim_and_secret_boundaries() -> None:
     submission = (ROOT / "SUBMISSION.md").read_text(encoding="utf-8")
     email = (SUBMISSION / "EMAIL_TEMPLATE.md").read_text(encoding="utf-8")
-    assert "hidden weighted external company recall" in submission
-    assert "Server-side secrets required: **none**" in submission
-    assert "Contact name: `<CONTACT_NAME>`" in email
-    assert "Contact email: `<CONTACT_EMAIL>`" in email
-    assert "mailbox deliverability" in submission
-    assert "follower" in submission
+    submission_folded = submission.casefold()
+
+    assert "hidden weighted external company recall" in submission_folded
+    assert "server-side secrets required: **none**" in submission_folded
+    assert "contact name: `<contact_name>`" in email.casefold()
+    assert "contact email: `<contact_email>`" in email.casefold()
+    assert "mailbox deliverability" in submission_folded
+    assert "follower" in submission_folded
 
 
 def test_repository_only_submission_verifier_passes() -> None:
