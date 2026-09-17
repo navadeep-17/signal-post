@@ -1,0 +1,254 @@
+name: Final Release 1000 v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/final-1000-freeze"
+    paths:
+      - "scripts/freeze_final_release_1000.py"
+      - ".github/workflows/final-release-1000-v2.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  freeze-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync locked environment
+        run: uv sync --locked
+      - name: Download frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+      - name: Download archived qualification manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+      - name: Recreate exclusions and verify frozen release manifest
+        run: |
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered validation/h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze \
+            --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/final-release-freeze-summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-release-manifest-1000
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            release-freeze/final-release-1000.jsonl
+            release-freeze/final-release-1000.sha256
+            release-freeze/final-release-1000.report.json
+            release-freeze/final-release-freeze-summary.json
+
+  release-chunk:
+    needs: freeze-manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9]
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+      - name: Sync and regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-release-manifest-1000
+          path: release-manifest
+      - name: Slice frozen evaluator chunk
+        run: |
+          IDX=${{ matrix.chunk }}
+          START=$((IDX * 100 + 1))
+          END=$((START + 99))
+          sed -n "${START},${END}p" release-manifest/final-release-1000.jsonl > release-chunk-${IDX}.jsonl
+          test "$(wc -l < release-chunk-${IDX}.jsonl)" -eq 100
+          sha256sum release-chunk-${IDX}.jsonl > release-chunk-${IDX}.sha256
+      - name: Download current BRREG bulk snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+      - name: Run production stack
+        run: |
+          IDX=${{ matrix.chunk }}
+          mkdir -p out/chunk-${IDX}
+          uv run python scripts/run_signalpost_final.py \
+            --organisations release-chunk-${IDX}.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/release-chunk-${IDX}.jsonl \
+            --report out/release-chunk-${IDX}-report.json \
+            --work-dir out/chunk-${IDX}/work \
+            --run-id final-release-1000-chunk-${IDX} \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+      - name: Verify hard gates
+        env:
+          IDX: ${{ matrix.chunk }}
+        run: |
+          uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from norway_company_agent.output_contract import validate_contract_object
+
+          idx=os.environ['IDX']
+          report=json.loads(Path(f'out/release-chunk-{idx}-report.json').read_text())
+          rows=[json.loads(x) for x in Path(f'out/release-chunk-{idx}.jsonl').read_text().splitlines() if x.strip()]
+          assert report['passed'] is True, report
+          assert len(rows)==100 and len({r['organisation_number'] for r in rows})==100
+          assert all(r['run']['terminal_status']=='completed' for r in rows)
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] <= 2000
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 2000
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          assert report['contract_errors'] == []
+          assert report['change_errors'] == []
+          assert report['runtime']['wall_runtime_seconds'] <= 2400
+          contract_failures=[
+              {'organisation_number': row['organisation_number'], 'errors': errors}
+              for row in rows
+              if (errors := validate_contract_object(row))
+          ]
+          assert contract_failures == [], contract_failures
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: final-release-chunk-${{ matrix.chunk }}
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            release-chunk-${{ matrix.chunk }}.jsonl
+            release-chunk-${{ matrix.chunk }}.sha256
+            brreg-enheter.sha256
+            out/release-chunk-${{ matrix.chunk }}.jsonl
+            out/release-chunk-${{ matrix.chunk }}-report.json
+            out/chunk-${{ matrix.chunk }}/work/profiles.jsonl
+            out/chunk-${{ matrix.chunk }}/work/internal-envelopes.jsonl
+
+  aggregate-release:
+    needs: release-chunk
+    runs-on: ubuntu-latest
+    if: always() && needs.release-chunk.result == 'success'
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: final-release-chunk-*
+          path: chunks
+          merge-multiple: true
+      - name: Aggregate immutable release results
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          from norway_company_agent.output_contract import validate_contract_object
+
+          rows=[]; reports=[]
+          for idx in range(10):
+              output=Path(f'chunks/out/release-chunk-{idx}.jsonl')
+              report=Path(f'chunks/out/release-chunk-{idx}-report.json')
+              assert output.exists() and report.exists(), (output, report)
+              rows.extend(json.loads(x) for x in output.read_text().splitlines() if x.strip())
+              reports.append(json.loads(report.read_text()))
+          assert len(rows)==1000 and len({r['organisation_number'] for r in rows})==1000
+          assert all(r['run']['terminal_status']=='completed' for r in rows)
+          contract_failures=[
+              {'organisation_number': row['organisation_number'], 'errors': errors}
+              for row in rows
+              if (errors := validate_contract_object(row))
+          ]
+          assert contract_failures == [], contract_failures
+          total_claims=sum(len(r.get('claims') or []) for r in rows)
+          total_evidence=sum(len(r.get('evidence') or []) for r in rows)
+          Path('final-release-1000-output.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False, separators=(',',':'))+'\n' for r in rows))
+          summary={
+              'chunks':10,
+              'companies':1000,
+              'unique_organisations':1000,
+              'terminal_completed':1000,
+              'claims':total_claims,
+              'evidence':total_evidence,
+              'contract_validation_errors':len(contract_failures),
+              'observed_conservative_challenge_requests':sum(r['request_budget']['observed_conservative_challenge_request_charge'] for r in reports),
+              'structural_challenge_request_ceiling':sum(r['request_budget']['theoretical_challenge_request_charge_ceiling'] for r in reports),
+              'wall_runtime_seconds_sum':sum(r['runtime']['wall_runtime_seconds'] for r in reports),
+              'third_party_cost_usd':sum(r['source_policy']['third_party_cost_usd'] for r in reports),
+              'search_api_requests':sum(r['source_policy']['search_api_requests'] for r in reports),
+              'all_chunks_passed':all(r['passed'] for r in reports),
+              'contract_errors':sum(len(r.get('contract_errors') or []) for r in reports),
+              'change_errors':sum(len(r.get('change_errors') or []) for r in reports),
+          }
+          assert summary['all_chunks_passed'] and summary['third_party_cost_usd']==0.0
+          assert summary['search_api_requests']==0 and summary['contract_errors']==0 and summary['change_errors']==0
+          Path('final-release-1000-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+          Path('final-release-1000-output.sha256').write_text(hashlib.sha256(Path('final-release-1000-output.jsonl').read_bytes()).hexdigest()+'\n')
+          print(json.dumps(summary, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-release-1000-aggregate
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            final-release-1000-output.jsonl
+            final-release-1000-output.sha256
+            final-release-1000-summary.json
