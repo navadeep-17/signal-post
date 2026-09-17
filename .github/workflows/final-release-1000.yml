@@ -1,0 +1,323 @@
+name: Final Release 1000
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/final-1000-freeze"
+    paths:
+      - ".github/workflows/final-release-1000.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  freeze-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync locked environment
+        run: uv sync --locked
+      - name: Download Builderr frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+      - name: Recreate deterministic historical exclusions through 4900
+        run: |
+          uv run python select_entry_batch.py --universe signalpost-universe.jsonl.gz --count 1000 --seed 20260823 --output entry-companies.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude entry-companies.jsonl --count 300 --seed 20260915 --output known-validation-300.jsonl --report known-validation-selection.json
+          cat entry-companies.jsonl known-validation-300.jsonl > exclude-1300.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-1300.jsonl --count 300 --seed 20260916 --evaluation-split h1c_secondary_confirmation --sample-slice fresh_external_precision_validation --output prior-h1c-fresh-300.jsonl --report prior-h1c-selection.json
+          cat exclude-1300.jsonl prior-h1c-fresh-300.jsonl > exclude-1600.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-1600.jsonl --count 300 --seed 20260917 --evaluation-split h1d_recall_recovery --sample-slice fresh_zero_cost_site_recall_validation --output prior-h1d-fresh-300.jsonl --report prior-h1d-selection.json
+          cat exclude-1600.jsonl prior-h1d-fresh-300.jsonl > exclude-1900.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-1900.jsonl --count 300 --seed 20260918 --evaluation-split h1d_zero_overlap_confirmation --sample-slice fresh_transfer_validation --output prior-h1d-confirm-300.jsonl --report prior-h1d-confirm-selection.json
+          cat exclude-1900.jsonl prior-h1d-confirm-300.jsonl > exclude-2200.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-2200.jsonl --count 300 --seed 20260919 --evaluation-split h1d_final_zero_overlap --sample-slice fresh_final_recall_validation --output prior-h1d-final-300.jsonl --report prior-h1d-final-selection.json
+          cat exclude-2200.jsonl prior-h1d-final-300.jsonl > exclude-2500.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-2500.jsonl --count 300 --seed 20260920 --evaluation-split h1e_wikidata_candidate --sample-slice fresh_zero_cost_external_candidate_validation --output prior-h1e-failed-300.jsonl --report prior-h1e-failed-selection.json
+          cat exclude-2500.jsonl prior-h1e-failed-300.jsonl > exclude-2800.jsonl
+
+          test "$(wc -l < validation/h1e-fresh-300-exclusion.jsonl)" -eq 300
+          echo '5b4c4ae41a01c8b29aefa703bfd754da3e7448b33cbbbcb831d705032ef030b7  validation/h1e-fresh-300-exclusion.jsonl' | sha256sum -c -
+          cat exclude-2800.jsonl validation/h1e-fresh-300-exclusion.jsonl > exclude-3100.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-3100.jsonl --count 300 --seed 20260922 --evaluation-split h2a_company_social --sample-slice fresh_profile_handle_validation --output prior-h2a-fresh-300.jsonl --report prior-h2a-selection.json
+          echo '1d1da002538c0a493303934de53925984c36f641bef2e7623df48897b2e4a88f  prior-h2a-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3100.jsonl prior-h2a-fresh-300.jsonl > exclude-3400.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-3400.jsonl --count 300 --seed 20260923 --evaluation-split h2b_company_activity --sample-slice fresh_dated_company_activity_validation --output prior-h2b-fresh-300.jsonl --report prior-h2b-selection.json
+          echo '0bff58af0b8535e71c677dbe44c873a7dfe63805839eb72044896577e1c968dc  prior-h2b-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3400.jsonl prior-h2b-fresh-300.jsonl > exclude-3700.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-3700.jsonl --count 300 --seed 20260924 --evaluation-split h2c_company_contact_email --sample-slice fresh_same_domain_contact_email_validation --output prior-h2c-fresh-300.jsonl --report prior-h2c-selection.json
+          echo 'eee5765bcdfed57aa81489c2f3ef613bf612fcde92f73e5dc641df97905812bf  prior-h2c-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-3700.jsonl prior-h2c-fresh-300.jsonl > exclude-4000.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-4000.jsonl --count 300 --seed 20260925 --evaluation-split h1f_zero_cost_tld_recall --sample-slice fresh_compact_com_fallback_validation --output prior-h1f-fresh-300.jsonl --report prior-h1f-selection.json
+          echo 'da9584073e526207d2bfe52c525509c2852daaa8fb85f26fd9c586a5e4ee4a6e  prior-h1f-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-4000.jsonl prior-h1f-fresh-300.jsonl > exclude-4300.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-4300.jsonl --count 300 --seed 20260926 --evaluation-split h1g_zero_cost_hyphenated_no_recall --sample-slice fresh_hyphenated_no_fallback_validation --output prior-h1g-fresh-300.jsonl --report prior-h1g-selection.json
+          echo '62c70f68049a73ae0d4eac60478bee3478e3894be5dd7039bfa28519db7e4dea  prior-h1g-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-4300.jsonl prior-h1g-fresh-300.jsonl > exclude-4600.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-4600.jsonl --count 300 --seed 20260927 --evaluation-split h2d_wikidata_linkedin --sample-slice fresh_exact_org_linkedin_validation --output prior-h2d-fresh-300.jsonl --report prior-h2d-selection.json
+          echo '73ffeb9a5010c6bc86a5b7ab2ed07e6d18e206b6db2f016a4ba4fe4e7d56e55c  prior-h2d-fresh-300.jsonl' | sha256sum -c -
+          cat exclude-4600.jsonl prior-h2d-fresh-300.jsonl > exclude-4900.jsonl
+          test "$(wc -l < exclude-4900.jsonl)" -eq 4900
+      - name: Extend exclusions through H2e/H2g to 5800
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior-h2e prior-h2g1 prior-h2g2
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir prior-h2e
+          echo 'edccd719c765469323f72314f6b1fe65dbf1c6e2f6b4acdf9ce77ad8cfc38015  prior-h2e/fresh-h2e-300.jsonl' | sha256sum -c -
+          cat exclude-4900.jsonl prior-h2e/fresh-h2e-300.jsonl > exclude-5200.jsonl
+
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir prior-h2g1
+          echo '85eea94589af258745ce5398eb382b9d2c41ea8b95a3448b14dbd2c0c6e0b62a  prior-h2g1/fresh-h2g-300.jsonl' | sha256sum -c -
+          cat exclude-5200.jsonl prior-h2g1/fresh-h2g-300.jsonl > exclude-5500.jsonl
+
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir prior-h2g2
+          echo 'abaa68d267355ee7f24e59c82408aabb513b8e146706aa6b380b6dc3e0946404  prior-h2g2/fresh-h2g-v2-300.jsonl' | sha256sum -c -
+          cat exclude-5500.jsonl prior-h2g2/fresh-h2g-v2-300.jsonl > exclude-5800.jsonl
+          test "$(wc -l < exclude-5800.jsonl)" -eq 5800
+      - name: Recreate H2h 100 and freeze 5900-company exclusion set
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-5800.jsonl \
+            --count 100 --seed 20261001 \
+            --evaluation-split h2h_fagfolkguiden_review_coverage \
+            --sample-slice fresh_rights_review_source_coverage_screen \
+            --output prior-h2h-100.jsonl \
+            --report prior-h2h-selection.json
+          echo '08ff94cd39a07b4cb24f8ed0479e2a94c758cd47ca550f0af63cc94382ed98ef  prior-h2h-100.jsonl' | sha256sum -c -
+          cat exclude-5800.jsonl prior-h2h-100.jsonl > exclude-5900.jsonl
+          test "$(wc -l < exclude-5900.jsonl)" -eq 5900
+      - name: Freeze new zero-overlap release 1000
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-5900.jsonl \
+            --count 1000 --seed 20261002 \
+            --evaluation-split final_release_1000_post_h2g \
+            --sample-slice frozen_submission_release \
+            --output final-release-1000.jsonl \
+            --report final-release-selection.json
+          test "$(wc -l < final-release-1000.jsonl)" -eq 1000
+          test "$(python - <<'PY'
+import json
+from pathlib import Path
+rows=[json.loads(x) for x in Path('final-release-1000.jsonl').read_text().splitlines() if x.strip()]
+print(len({r['organisation_number'] for r in rows}))
+PY
+          )" -eq 1000
+          sha256sum final-release-1000.jsonl > final-release-1000.sha256
+          cat final-release-selection.json
+          cat final-release-1000.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-release-manifest-1000
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            final-release-1000.jsonl
+            final-release-1000.sha256
+            final-release-selection.json
+            signalpost-universe.sha256
+
+  release-chunk:
+    needs: freeze-manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9]
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+      - name: Sync locked environment and regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-release-manifest-1000
+          path: release-manifest
+      - name: Slice frozen 100-company evaluator chunk
+        run: |
+          IDX=${{ matrix.chunk }}
+          START=$((IDX * 100 + 1))
+          END=$((START + 99))
+          sed -n "${START},${END}p" release-manifest/final-release-1000.jsonl > release-chunk-${IDX}.jsonl
+          test "$(wc -l < release-chunk-${IDX}.jsonl)" -eq 100
+          sha256sum release-chunk-${IDX}.jsonl > release-chunk-${IDX}.sha256
+      - name: Download current official BRREG bulk registry
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+      - name: Run production final runner
+        run: |
+          IDX=${{ matrix.chunk }}
+          mkdir -p out/chunk-${IDX}
+          uv run python scripts/run_signalpost_final.py \
+            --organisations release-chunk-${IDX}.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/release-chunk-${IDX}.jsonl \
+            --report out/release-chunk-${IDX}-report.json \
+            --work-dir out/chunk-${IDX}/work \
+            --run-id final-release-1000-chunk-${IDX} \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+      - name: Verify release chunk hard gates
+        run: |
+          IDX=${{ matrix.chunk }} uv run python - <<'PY'
+          import json, os
+          from pathlib import Path
+          idx=os.environ['IDX']
+          report=json.loads(Path(f'out/release-chunk-{idx}-report.json').read_text())
+          rows=[json.loads(x) for x in Path(f'out/release-chunk-{idx}.jsonl').read_text().splitlines() if x.strip()]
+          assert report['passed'] is True, report
+          assert len(rows)==100
+          assert len({r['organisation_number'] for r in rows})==100
+          assert all(r['run']['terminal_status']=='completed' for r in rows)
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] <= 2000, report['request_budget']
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 2000, report['request_budget']
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          assert report['contract_errors'] == []
+          assert report['change_errors'] == []
+          assert report['runtime']['wall_runtime_seconds'] <= 2400
+          for row in rows:
+              assert len(row.get('claims') or []) == len(row.get('evidence') or []), row['organisation_number']
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: final-release-chunk-${{ matrix.chunk }}
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            release-chunk-${{ matrix.chunk }}.jsonl
+            release-chunk-${{ matrix.chunk }}.sha256
+            brreg-enheter.sha256
+            out/release-chunk-${{ matrix.chunk }}.jsonl
+            out/release-chunk-${{ matrix.chunk }}-report.json
+            out/chunk-${{ matrix.chunk }}/work/profiles.jsonl
+            out/chunk-${{ matrix.chunk }}/work/internal-envelopes.jsonl
+
+  aggregate-release:
+    needs: release-chunk
+    runs-on: ubuntu-latest
+    if: always() && needs.release-chunk.result == 'success'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: final-release-chunk-*
+          path: chunks
+          merge-multiple: true
+      - name: Aggregate frozen release evidence
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows=[]; reports=[]
+          for idx in range(10):
+              output=Path(f'chunks/out/release-chunk-{idx}.jsonl')
+              report=Path(f'chunks/out/release-chunk-{idx}-report.json')
+              assert output.exists(), output
+              assert report.exists(), report
+              rows.extend(json.loads(x) for x in output.read_text().splitlines() if x.strip())
+              reports.append(json.loads(report.read_text()))
+          assert len(rows)==1000
+          assert len({r['organisation_number'] for r in rows})==1000
+          assert all(r['run']['terminal_status']=='completed' for r in rows)
+          Path('final-release-1000-output.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False, separators=(',',':'))+'\n' for r in rows))
+          total_claims=sum(len(r.get('claims') or []) for r in rows)
+          total_evidence=sum(len(r.get('evidence') or []) for r in rows)
+          assert total_claims==total_evidence
+          summary={
+              'chunks':10,
+              'companies':1000,
+              'unique_organisations':1000,
+              'terminal_completed':1000,
+              'claims':total_claims,
+              'evidence':total_evidence,
+              'observed_conservative_challenge_requests':sum(r['request_budget']['observed_conservative_challenge_request_charge'] for r in reports),
+              'structural_challenge_request_ceiling':sum(r['request_budget']['theoretical_challenge_request_charge_ceiling'] for r in reports),
+              'wall_runtime_seconds_sum':sum(r['runtime']['wall_runtime_seconds'] for r in reports),
+              'third_party_cost_usd':sum(r['source_policy']['third_party_cost_usd'] for r in reports),
+              'search_api_requests':sum(r['source_policy']['search_api_requests'] for r in reports),
+              'all_chunks_passed':all(r['passed'] for r in reports),
+              'contract_errors':sum(len(r.get('contract_errors') or []) for r in reports),
+              'change_errors':sum(len(r.get('change_errors') or []) for r in reports),
+          }
+          assert summary['all_chunks_passed']
+          assert summary['third_party_cost_usd']==0.0
+          assert summary['search_api_requests']==0
+          assert summary['contract_errors']==0
+          assert summary['change_errors']==0
+          Path('final-release-1000-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+          Path('final-release-1000-output.sha256').write_text(hashlib.sha256(Path('final-release-1000-output.jsonl').read_bytes()).hexdigest()+'\n')
+          print(json.dumps(summary, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-release-1000-aggregate
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            final-release-1000-output.jsonl
+            final-release-1000-output.sha256
+            final-release-1000-summary.json
