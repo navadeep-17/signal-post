@@ -1,12 +1,15 @@
-# Builderr submission email template
+# Builderr Signalpost submission email template
 
-Replace `<FINAL_MAIN_SHA>` with `git rev-parse HEAD` from the exact submitted checkout.
+Replace every angle-bracket placeholder before sending.
 
 **To:** submit@builderr.ai  
 **Subject:** Signalpost submission — navadeep-17/signal-post
 
 Repository: https://github.com/navadeep-17/signal-post  
-Commit SHA: `<FINAL_MAIN_SHA>`
+Exact commit SHA: `<FINAL_MAIN_SHA>`  
+Contact name: `<CONTACT_NAME>`  
+Contact email: `<CONTACT_EMAIL>`  
+Contact phone/other: `<CONTACT_PHONE_OR_OTHER>`
 
 Evaluator command:
 
@@ -34,10 +37,12 @@ uv run python scripts/run_signalpost_final.py \
 
 Runtime: Python 3.12+, `uv`, `poppler-utils`, `tesseract-ocr`.
 
-Models/APIs: the production runner invokes no LLM, no sentiment model, no paid API and no search API. It uses official Brønnøysundregistrene sources, bounded Wikidata candidate lookup, and independently verified company-owned public pages. Social platforms are not fetched; only profile URLs declared by verified company pages may be published.
+Models/APIs: production invokes no LLM, no sentiment model, no paid API, no search API and no social-platform scraper/API. It uses official Brønnøysundregistrene sources, bounded Wikidata candidate lookup and independently verified company-owned public pages.
+
+Server-side secrets/API keys required: **none**.
 
 Expected third-party API cost per 100-company run: **$0.00**.
 
-Certified release evidence: 1,000/1,000 terminal completed, 0 contract errors, frozen manifest SHA-256 `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`, aggregate output SHA-256 `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`.
+Submitted corpus: exact 1,000-company manifest and certified completed profiles are committed under `submission/`. Frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`. Uncompressed certified output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`.
 
-Evaluator/setup/source-rights details: `SUBMISSION.md`.
+Full evaluator/setup/source-rights guide: `SUBMISSION.md`.

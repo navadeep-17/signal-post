@@ -1,179 +1,65 @@
-# Signalpost challenge scoring readiness audit
+# Signalpost final pre-submission scoring/readiness audit
 
-Updated: 2026-09-17
+Updated: 2026-09-18
 
-This is a release-readiness audit against the current live Builderr Signalpost challenge. It does not convert local diagnostics into an invented official score.
+This document records the final pre-submission risk assessment. Builderr's live challenge page remains authoritative for scoring and qualification. Local diagnostics are not converted into an invented official score.
 
-## Authority and claim boundary
+## Final implementation identity
 
-Source-of-truth order:
+- production application behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
+- certified release harness SHA: `550bba0cce64a0a26d878c3b7f41eb20a55dc10e`
+- certified 1,000 replay: `35246833190`
+- final release audit: `docs/FINAL_RELEASE_1000_AUDIT.md`
+- final submission declaration: `SUBMISSION.md` + `submission/manifest.json`
 
-1. current live Builderr Signalpost challenge page for scoring, qualification and resource limits;
-2. starter `README.md`, `OUTPUT_CONTRACT.md` and tests for evaluator interface;
-3. starter implementation/docs as diagnostics;
-4. our measured experiments.
+The post-release F4/F5/pre-submit commits change UX, documentation, verification and repository packaging only; they do not change certified production collection behavior.
 
-Official scoring remains 35 coverage / 30 accuracy / 20 refresh / 10 synthesis / 5 UX. Qualification requires at least 65 overall, at least 21/35 coverage, at least 60% weighted external company recall, at least 95% external precision, and all hard gates. Builderr owns the external availability denominator and hidden company labels, so official coverage points and weighted recall cannot be computed locally.
+## What is directly established
 
-## Current production candidate
-
-Production application SHA:
-
-`b14ef3c277d8f1512064f865d4028e23dcd8bacf`
-
-Current `main` also contains documentation-only PR #27 (`013ae109...`) recording the final source-landscape audit. No application behavior changed in PR #27.
-
-## What is already proven or strongly evidenced
-
-| Requirement / score area | Evidence | Readiness |
+| Requirement | Evidence | Status |
 |---|---|---|
-| Terminal outputs | large runs and H2g qualification complete without silent drops | GREEN |
-| Output contract / evidence | claim-specific evidence, URLs, timestamps, hashes and reporting periods validate cleanly | GREEN |
-| Financial honesty | deterministic BRREG path; missing is not zero | GREEN |
-| Exact website identity | hardened wrong-entity regressions plus prior heldout 20/20 website audit | GREEN observed / hidden judge authoritative |
-| Workforce evidence | H2e+H2g reached 296/300 on fresh transfer and 100/100 on default 100 smoke | GREEN strong |
-| Request budget | H2g structural ceiling exactly 2,000 conservative requests/100; default 100 observed 1,370 | GREEN |
-| Runtime | H2g default 100: 427.825 s; integrated 300: 1,277.63 s | GREEN |
-| Third-party cost | $0 | GREEN |
-| Refresh/idempotency | deterministic change contract and zero-change replay | GREEN current fields |
-| Source rights / safe URLs | production uses official/company-owned/CC0 nomination paths with documented gates | GREEN |
-| Research/screening | deterministic evidence-bounded answers; unsupported topics abstain | YELLOW |
-| UX | substantial static prototype exists | YELLOW |
-| Coverage >=21/35 | hidden evaluator required | **NOT ESTABLISHED** |
-| Weighted external recall >=60% | hidden evaluator required | **NOT ESTABLISHED** |
-| Overall >=65 | hidden evaluator required | **NOT COMPUTABLE LOCALLY** |
+| Exactly one terminal result/company | certified 1,000: 1,000 unique, 1,000 completed | PASS |
+| Output contract | 17,098 claims, 17,050 deduplicated evidence, 0 canonical errors | PASS |
+| Financial honesty | deterministic BRREG path; unavailable is not zero | PASS |
+| Exact-company identity | org-number anchor + strict website gates + wrong-company regressions | PASS implementation; evaluator precision authoritative |
+| Refresh/idempotency | deterministic replay: expected changes only, zero duplicates on rerun | PASS |
+| Request ceiling | structural 2,000/100; max observed certified chunk 1,404 | PASS |
+| Wall time | slowest certified 100-company chunk 458.803 s | PASS |
+| Third-party cost | $0 | PASS |
+| Source rights / URL safety | final rights register + hardened web path | PASS implementation |
+| Server-side secrets | none required; explicitly declared | PASS |
+| 1,000 submitted profiles + manifest | exact certified manifest/output committed under `submission/` | PASS |
+| Reproducibility | pinned `uv.lock`, one runner command, bundle verifier, CI | PASS |
+| Evidence-bounded UX | final output-contract workspace, desktop/mobile verified | PASS implementation; evaluator UX score authoritative |
 
-## H2g changed the coverage picture
+## What remains evaluator-owned
 
-Before H2g, workforce evidence existed mainly where the live BRREG entity record exposed employee count. H2g adds exact-entity workforce observations from the latest official annual-account PDF only when H2e is absent.
+The following cannot be honestly proven from local data:
 
-Independent fresh-300 transfer:
+- official coverage points (minimum 21/35);
+- weighted external company recall (minimum 60%);
+- official external precision percentage (minimum 95%);
+- overall score (minimum 65/100).
 
-- H2e workforce: 40/300;
-- H2g selected: 260;
-- H2g accepted: 256/260 = 98.46%;
-- combined workforce coverage: **296/300 = 98.67%**;
-- exact organisation number recovered in all 260 tested reports;
-- zero validation/contract/execution errors;
-- $0 third-party cost.
+Builderr builds a versioned checked union from submissions and its own collectors, so local site rates are not the official denominator.
 
-Integrated production qualification:
+## Certified release breadth
 
-- 300/300 terminal objects;
-- 296/300 workforce companies;
-- 4,106 conservative request charge / 6,000;
-- 1,277.63 s / 2,400 s;
-- $0;
-- zero production qualification errors.
+On the fresh zero-overlap 1,000:
 
-Default 100-company production smoke:
+- workforce evidence: 990/1,000;
+- verified websites: 107/1,000;
+- company-declared social-handle companies: 48/1,000;
+- qualifying contact-email companies: 53/1,000.
 
-- 100/100 terminal objects;
-- **100/100 workforce companies**;
-- H2g accepted 84/84;
-- 1,370 conservative requests / 2,000;
-- 427.825 s;
-- $0;
-- zero execution/validation/contract/budget errors.
+These are real supported claims, but they do not substitute for absent job/review/activity/sentiment/platform-metric families.
 
-This is strong evidence for the workforce/jobs information family, but it must not be relabelled as ratings, reviews, buzz, engagement or sentiment.
+## Main competitive risk
 
-## External signal breadth still missing
+**Coverage is the main remaining risk.** Current reviewed Builderr entries show that a total score above 65 can still fail qualification when coverage is below the minimum. Our accuracy/evidence posture is deliberately conservative, while website/contact/social/public-activity breadth is narrower.
 
-Current production has qualified:
+The project previously screened additional zero-cost sources and rejected/shelved them when measured yield, rights or exact-entity safety did not justify promotion. Do not weaken identity thresholds or revive unqualified scraping solely to inflate local counts.
 
-- exact verified official website evidence;
-- company-owned description/structured page evidence where present;
-- verified company-declared social-profile URLs;
-- verified same-domain contact email;
-- official workforce snapshot through H2e/H2g.
+## Pre-submission decision
 
-The largest remaining sparse/absent families are:
-
-- ratings/reviews/place summaries;
-- dated independent/public activity;
-- social follower/engagement metrics;
-- qualified sentiment;
-- broader second-platform external evidence.
-
-### Measured post-H2g screens
-
-**H2h Fagfolkguiden reviews — DROP**
-
-Fresh 100, excluding 5,800 prior companies:
-
-- 100 requests;
-- 21 exact company pages;
-- **0 rated companies**;
-- 77 HTTP 404s, 2 source errors;
-- runtime 513.779 s;
-- $0;
-- publication disabled;
-- rights remained unresolved because page ratings were Google-derived.
-
-Zero measured rating yield plus uncertain publication rights makes further H2h work unjustified.
-
-**H2i NAV jobs — SHELVED**
-
-Bounded 20-company feasibility screen:
-
-- 90-day lookback;
-- 30 feed pages / 30,000 items traversed;
-- 7 candidate employer headers;
-- 3 detail requests;
-- **0 exact main/subunit active-job matches**;
-- 54 logical requests;
-- $0.
-
-Even if later cohorts yield jobs, the local workforce/jobs family is already near-saturated by H2e/H2g, so incremental scoring leverage is weak.
-
-## Current official-category readiness
-
-### Coverage & source discovery — 35
-
-**Status: YELLOW/RED — materially improved but not proven.**
-
-H2g dramatically strengthens one major external information family. However, Builderr weights multiple external fields and owns the availability denominator. Sparse ratings/reviews, public activity/metrics, sentiment and source breadth mean we still cannot claim 21/35 or 60% weighted external recall.
-
-### Accuracy, identity & evidence — 30
-
-**Status: GREEN / strongest area.**
-
-Exact org-number anchoring, conservative website verification, wrong-org vetoes, claim-level provenance and explicit abstention behavior remain the project's strongest qualities.
-
-### Refresh & extensibility — 20
-
-**Status: GREEN current fields / YELLOW breadth.**
-
-Idempotent refresh and previous/current evidence are implemented. Dynamic external-signal breadth is narrower than ideal.
-
-### Decision-useful synthesis — 10
-
-**Status: YELLOW.**
-
-The research layer is safe and source-bounded. The next value now comes from presenting the qualified release data more clearly rather than inventing missing signals.
-
-### UX & interaction — 5
-
-**Status: YELLOW.**
-
-The static prototype is substantial but needs release-data-driven polish, especially visible provenance, missing states, workforce periods and change history.
-
-## Source-hunting stop decision
-
-The final source landscape audit reviewed the remaining zero-cost candidates and set a stop rule: do not start another full connector cycle unless a source plausibly improves a genuinely unsolved information family, has suitable rights, supports exact entity proof, remains $0, shows roughly 5–10% random-company reach (or equal hidden-evaluator value), fits request/runtime limits, and supports deterministic evidence/refresh semantics.
-
-Under current evidence, no remaining source clears that bar strongly enough to justify another broad connector cycle. See `FINAL_SOURCE_LANDSCAPE_AUDIT.md`.
-
-## Release finalization plan
-
-The next engineering work is:
-
-1. reconcile permanent production docs after H2g/H2h/H2i;
-2. freeze a new deterministic 1,000-company corpus outside all previously touched companies (historical exclusion count is 5,900 unique companies after H2h; H2i reused H2h companies);
-3. run current production in ten independent evaluator-shaped 100-company chunks;
-4. aggregate operational and coverage diagnostics without altering outputs;
-5. improve evidence-bounded synthesis and the existing prototype around the qualified fields;
-6. freeze final code SHA, manifest/digest, source/licence register, setup instructions and submission package.
-
-The previous 1,000 release remains evidence for its older application SHA, but it predates H2g and its heldout subset is consumed. It must not be used to certify or tune the current production stack.
+Submit the clean certified version first. Builderr allows revised commits during the challenge. If the first concrete evaluator report identifies a deficient weighted field family, use a later revision for a measured, rights-safe connector targeted to that field. Do not tune against the frozen 1,000 release corpus.

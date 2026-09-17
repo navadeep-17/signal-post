@@ -1,12 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "Signalpost",
   "repository": "https://github.com/navadeep-17/signal-post",
   "submission_identity": {
     "production_application_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
     "certified_release_harness_sha": "550bba0cce64a0a26d878c3b7f41eb20a55dc10e",
     "f4_submission_workspace_merge_sha": "13e0503be4208a36e7ff34a90bf89b87caf68e3d",
-    "repository_head_rule": "Use the exact commit SHA supplied with the submission; run scripts/verify_submission_bundle.py to print the current checkout SHA."
+    "repository_head_rule": "Submit the exact final main commit SHA externally. The verifier prints the current checkout SHA."
   },
   "entrypoints": {
     "production_runner": "scripts/run_signalpost_final.py",
@@ -24,7 +24,8 @@
     ],
     "ocr_language": "eng",
     "ocr_failure_policy": "abstain; do not invent a workforce value",
-    "hosting_required": false
+    "hosting_required": false,
+    "server_side_secrets_required": []
   },
   "models_and_paid_apis": {
     "llm_models_invoked_by_production_runner": [],
@@ -44,6 +45,15 @@
     "universe_sha256": "1c89710e5b01f8617e86d09fbdff4a52f2f8dbbba297e74f7164b5984f5a0384",
     "exclusion_sha256": "8a26f96faa98569e8f45d2b1e3b901db8093246e15bf6d0acbdd375bda2f2c69",
     "release_manifest_sha256": "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26",
+    "aggregate_output_sha256": "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2",
+    "repository_artifacts": {
+      "manifest_path": "submission/final-release-1000.jsonl",
+      "manifest_sha256_path": "submission/final-release-1000.sha256",
+      "aggregate_output_gzip_path": "submission/final-release-1000-output.jsonl.gz",
+      "aggregate_output_uncompressed_sha256_path": "submission/final-release-1000-output.sha256",
+      "aggregate_output_gzip_sha256_path": "submission/final-release-1000-output.jsonl.gz.sha256",
+      "aggregate_output_gzip_sha256": "7c9e7e822d2ad0fa5a2809ae5a092c9072eb0eed03899b190f62320a5f0c2bc1"
+    },
     "manifest_artifact": {
       "name": "final-release-manifest-1000",
       "artifact_id": 10508036929
@@ -53,7 +63,6 @@
       "artifact_id": 10507814620,
       "artifact_digest_sha256": "8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e"
     },
-    "aggregate_output_sha256": "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2",
     "metrics": {
       "companies": 1000,
       "unique_organisation_numbers": 1000,
@@ -85,7 +94,7 @@
       "name": "Brønnøysundregistrene open data and official account copies",
       "role": "entity identity, registry facts, roles, group structure, locations, financials and workforce evidence",
       "acquisition": "official API/bulk download",
-      "license_or_rights_basis": "NLOD 2.0 for BRREG open-data datasets; annual-account copies are fetched from the official BRREG service and only bounded claim evidence/hash metadata are retained in output",
+      "license_or_rights_basis": "NLOD 2.0 for BRREG open-data datasets; official annual-account copies are fetched only to extract bounded claim evidence/hash metadata",
       "attribution": "Brønnøysundregistrene"
     },
     {
@@ -93,14 +102,14 @@
       "role": "exact Norwegian organisation-number to official-website candidate nomination only",
       "acquisition": "bounded WDQS batch lookup",
       "license_or_rights_basis": "CC0 structured data",
-      "publication_boundary": "Wikidata only nominates a candidate; independent company-page identity proof is required before website publication"
+      "publication_boundary": "candidate only; independent company-page identity proof is required before website publication"
     },
     {
       "name": "Verified company-owned public web pages",
-      "role": "website identity proof, bounded description/contact/social-link evidence",
-      "acquisition": "bounded public HTTP retrieval with safe URL/redirect handling and robots policy",
-      "license_or_rights_basis": "No blanket content-reuse licence is assumed. The system retains source URL, retrieval time, content hash and a bounded factual claim span rather than republishing full pages.",
-      "publication_boundary": "Only exact-company evidence is published; ambiguous or conflicting pages abstain"
+      "role": "website identity proof and bounded description/contact/social-link evidence",
+      "acquisition": "bounded public HTTP retrieval with safe URL/redirect handling",
+      "license_or_rights_basis": "No blanket content-reuse licence is assumed; retain provenance and bounded factual spans rather than republishing pages",
+      "publication_boundary": "only exact-company evidence is published; ambiguous/conflicting pages abstain"
     }
   ],
   "explicit_non_sources": [
@@ -114,7 +123,7 @@
   ],
   "known_limitations": [
     "Builderr owns the hidden availability denominator, external union and official score; this repository does not claim that hidden recall, coverage or total-score gates are proven.",
-    "Verified company websites, social declarations and contact emails are intentionally narrower than official registry/workforce coverage because publication requires exact-entity evidence.",
+    "Verified company websites, social declarations and contact emails are intentionally conservative because publication requires exact-entity evidence.",
     "Annual-report workforce extraction abstains on missing or conflicting company-scope employee/FTE phrases.",
     "A company-declared social URL means only that the exact verified company page declared that URL; the platform page itself is not fetched.",
     "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; deliverability is not claimed."
