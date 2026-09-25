@@ -40,6 +40,9 @@ jobs:
       - name: Audit V2 canonical recovery on certified 1000
         run: uv run python scripts/audit_canonical_v2.py
 
+      - name: Verify submission bundle
+        run: uv run python scripts/verify_submission_bundle.py
+
       - name: Run deterministic refresh replay
         run: |
           uv run python scripts/run_refresh_replay.py \
