@@ -16,6 +16,29 @@ The projection must never:
 
 Every canonical fact reuses the original `evidence_ids` and is hard-gated before output.
 
+## Recovered official data that V1 was already fetching
+
+The V2 audit found a concrete mapping loss in the Version 1 adapter. The runner already fetched the exact BRREG entity endpoint (`registry_live`) for every company, but the final output adapter did not project the normalized values from that module. This meant official facts could be fetched, charged and retained internally yet remain invisible to Builderr's canonical scorer.
+
+V2 now projects these already-fetched live BRREG values when the same field is not already available from the frozen bulk row:
+
+- legal name;
+- legal form;
+- employee count;
+- municipality from the business address;
+- primary industry code and label;
+- business address;
+- postal address;
+- bankruptcy flag;
+- liquidation flag;
+- latest submitted accounts year.
+
+This adds **zero network requests**. It also preserves the existing exact-company bulk value whenever that value is already published, so the live projection acts as a recovery/fallback layer rather than silently replacing certified facts.
+
+The audit also found a separate bulk-normalization mismatch: `sampling.normalize_row()` preserved `industry_code` and `industry_label`, while the output adapter expected `profile["industry"]`. V2 retains the existing scalar keys used by sampling strata and additionally carries an output-ready structured `industry` value. That gives the bulk registry path a zero-network industry fallback if the live endpoint is unavailable.
+
+Importantly, the `website` field present in the live BRREG entity record is **not** promoted directly to `official_website`. Website publication still goes through the existing independent identity-verification gate.
+
 ## Canonical families
 
 | Existing claim | Canonical field/family |
@@ -25,6 +48,10 @@ Every canonical fact reuses the original `evidence_ids` and is hard-gated before
 | `municipality` | `company.municipality` |
 | `industry` | `company.industry` |
 | `employee_count` | `company.employee_count` |
+| `business_address` | `company.business_address` |
+| `postal_address` | `company.postal_address` |
+| `bankrupt` | `company.bankrupt` |
+| `liquidating` | `company.liquidating` |
 | `group_structure` | `company.group_structure` |
 | `latest_submitted_accounts` | `accounts.latest_submitted` |
 | `accounting_obligation` | `accounts.accounting_obligation` |
@@ -80,14 +107,17 @@ uv run python scripts/run_signalpost_v2.py \
 
 The HTML is self-contained and can be opened directly or served as a static file. It is generated from the exact evaluator output, not from a separate demo dataset.
 
+For reviewer visibility, the V2 branch also commits `submission/v2-product-preview.html`. That preview is deterministically rebuilt from the certified V1 1,000-company output after zero-network canonical projection; its metadata is recorded in `submission/v2-product-preview.json`. The preview proves the data-linked product path but does not claim to contain the later live-registry recovery values, because those internal `registry_live` records were not present in the frozen V1 public JSONL.
+
 ## What V2 does not change
 
-- existing BRREG/accounting collection behavior;
 - website identity thresholds;
 - request/cost budgets;
 - Wikidata's candidate-only role;
 - H2 social/contact interpretation boundaries;
 - annual-report workforce semantics;
 - refresh/change semantics.
+
+The only official-data behavior change is publication of BRREG values that the existing runner already fetched, plus preservation of the bulk industry value that was previously normalized under mismatched keys.
 
 This iteration is intended to recover evaluator-visible value from already-supported facts before adding broader source families.
