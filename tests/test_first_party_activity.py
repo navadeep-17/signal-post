@@ -73,7 +73,13 @@ def test_generic_careers_page_is_not_a_hiring_fact_even_with_apply_copy() -> Non
             "https://example.no/careers",
             "Careers — Example AS",
             "See our full-time opportunities. Apply now to join the team.",
-        )
+        ),
+        _page(
+            "https://example.no/careers/",
+            "Join our team | Example AS",
+            "Full-time positions in Oslo. Apply now.",
+            "generic-rich",
+        ),
     )
     assert extract_strict_first_party_facts(profile)["jobs"] == []
 
@@ -97,6 +103,30 @@ def test_specific_role_page_requires_explicit_apply_action_and_job_detail() -> N
     assert len(jobs) == 1
     assert jobs[0]["title"] == "Software Engineer | Example AS"
     assert extract_strict_first_party_facts(rejected)["jobs"] == []
+
+
+def test_explicit_job_id_query_can_identify_a_detail_page() -> None:
+    profile = _profile(
+        _page(
+            "https://example.no/jobs?jobid=42",
+            "Senior Platform Engineer | Example AS",
+            "Full-time position in Oslo. Apply now.",
+        )
+    )
+    jobs = extract_strict_first_party_facts(profile)["jobs"]
+    assert len(jobs) == 1
+    assert jobs[0]["url"].endswith("jobid=42")
+
+
+def test_generic_filter_query_does_not_turn_job_index_into_detail() -> None:
+    profile = _profile(
+        _page(
+            "https://example.no/jobs?department=engineering",
+            "Engineering opportunities | Example AS",
+            "Full-time positions. Apply now.",
+        )
+    )
+    assert extract_strict_first_party_facts(profile)["jobs"] == []
 
 
 def test_cross_domain_role_page_is_rejected() -> None:
@@ -123,6 +153,12 @@ def test_dated_specific_update_is_published_but_indexes_and_undated_pages_are_no
             "News | Example AS",
             "Latest stories 2026-09-20.",
             "news2",
+        ),
+        _page(
+            "https://example.no/news/",
+            "Latest company news | Example AS",
+            "Stories updated 2026-09-20.",
+            "news-index-rich",
         ),
         _page(
             "https://example.no/news/new-contract",
