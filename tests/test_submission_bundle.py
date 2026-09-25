@@ -36,7 +36,8 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     assert revision["changes_v1_certified_corpus"] is False
     assert revision["product_surface_generated_from_final_output"] is True
     assert revision["generic_careers_page_counts_as_hiring"] is False
-    assert revision["canonical_audit"]["canonical_facts"] == 20003
+    assert revision["canonical_audit"]["canonical_facts"] == 19951
+    assert revision["canonical_audit"]["selected_fact_counts"]["person_role"] == 3932
     assert revision["canonical_audit"]["validation_errors"] == 0
     assert revision["canonical_audit"]["official_score_claimed"] is False
 
@@ -105,5 +106,5 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert report["repository_artifacts"]["terminal_completed"] == 1000
     assert report["repository_artifacts"]["contract_failures"] == []
     assert report["repository_artifacts"]["manifest_output_order_match"] is True
-    assert report["repository_artifacts"]["v2_canonical_facts"] == 20003
+    assert report["repository_artifacts"]["v2_canonical_facts"] == 19951
     assert report["repository_artifacts"]["v2_canonical_failures"] == []
