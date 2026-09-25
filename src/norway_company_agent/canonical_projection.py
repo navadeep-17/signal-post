@@ -6,6 +6,32 @@ from typing import Any
 
 
 CANONICAL_SCHEMA_VERSION = "signalpost-canonical-v2"
+CANONICAL_FIELD_BY_TYPE = {
+    "company_name": "company.name",
+    "legal_form": "company.legal_form",
+    "municipality": "company.municipality",
+    "industry": "company.industry",
+    "registered_employee_count": "company.employee_count",
+    "latest_submitted_accounts": "company.latest_submitted_accounts",
+    "accounting_obligation": "company.accounting_obligation",
+    "group_structure": "company.group_structure",
+    "workforce_snapshot": "company.workforce_snapshot",
+    "financial_revenue": "financial.revenue",
+    "financial_operating_result": "financial.operating_result",
+    "financial_profit_before_tax": "financial.profit_before_tax",
+    "financial_annual_result": "financial.annual_result",
+    "financial_assets": "financial.assets",
+    "financial_equity": "financial.equity",
+    "financial_debt": "financial.debt",
+    "person_role": "people.role",
+    "registered_location": "locations.registered_workplace",
+    "website": "website.official",
+    "company_description": "website.description",
+    "contact_email": "website.contact_email",
+    "social_profile": "public.social_profile",
+    "job_posting": "hiring.job_posting",
+    "company_update": "public.company_update",
+}
 
 
 def _claim_index(contract: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -25,6 +51,8 @@ def _fact(
 ) -> dict[str, Any]:
     item = {
         "type": fact_type,
+        "canonical_field": CANONICAL_FIELD_BY_TYPE[fact_type],
+        "source_field": claim.get("field"),
         "value": claim.get("value") if value is None else value,
         "availability": claim.get("availability"),
         "confidence": claim.get("confidence"),
@@ -67,8 +95,6 @@ def _flatten_roles(claim: dict[str, Any]) -> list[dict[str, Any]]:
     for ordinal, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        # Keep inactive rows explicit instead of silently deleting history. The canonical
-        # value exposes the source's inactive flag so a scorer/product can distinguish it.
         facts.append(_fact("person_role", claim, value=dict(row), ordinal=ordinal))
     return facts
 
@@ -88,13 +114,11 @@ def _flatten_locations(claim: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
-    """Add an evaluator-friendly canonical projection without changing source claims.
+    """Project existing source-backed claims into explicit evaluator-facing facts.
 
-    Builderr feedback on the first 700-company diagnostic indicated that the generic
-    claims envelope was not being mapped into enough canonical official/external facts.
-    This layer is deliberately zero-network and lossless: it only normalizes already-
-    published claims and reuses their evidence IDs. Existing ``claims`` and ``evidence``
-    remain the source of truth and are left untouched.
+    This is zero-network and lossless. It never relaxes company identity checks, invents
+    missing values, or replaces the original claims/evidence envelope. It only makes the
+    already-published official and first-party facts explicit enough for canonical mapping.
     """
 
     index = _claim_index(contract)
@@ -146,6 +170,10 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         facts.append(_fact("contact_email", claim))
     for claim in index.get("external.workforce_snapshot") or []:
         facts.append(_fact("workforce_snapshot", claim))
+    for claim in index.get("external.job_posting") or []:
+        facts.append(_fact("job_posting", claim))
+    for claim in index.get("external.company_update") or []:
+        facts.append(_fact("company_update", claim))
 
     company_keys = {
         "company_name",
@@ -156,8 +184,10 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "latest_submitted_accounts",
         "accounting_obligation",
         "group_structure",
+        "workforce_snapshot",
     }
-    external_keys = {"website", "company_description", "social_profile", "contact_email", "workforce_snapshot"}
+    website_keys = {"website", "company_description", "contact_email"}
+    activity_keys = {"social_profile", "company_update"}
 
     canonical = {
         "schema_version": CANONICAL_SCHEMA_VERSION,
@@ -166,18 +196,22 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "financials": [item for item in facts if str(item["type"]).startswith("financial_")],
         "people": [item for item in facts if item["type"] == "person_role"],
         "locations": [item for item in facts if item["type"] == "registered_location"],
-        "company_website": [item for item in facts if item["type"] in external_keys],
-        # Jobs and dated public activity remain intentionally empty until a strict real-role
-        # or dated-activity extractor qualifies them. A generic careers page is never hiring.
-        "jobs": [],
-        "public_activity": [],
+        "company_website": [item for item in facts if item["type"] in website_keys],
+        "jobs": [item for item in facts if item["type"] == "job_posting"],
+        "public_activity": [item for item in facts if item["type"] in activity_keys],
     }
     canonical["data_areas"] = {
-        "company_record": bool(canonical["company_record"]),
-        "financials": bool(canonical["financials"]),
-        "people_and_locations": bool(canonical["people"] or canonical["locations"]),
+        "company_record": any(item.get("availability") == "available" for item in canonical["company_record"]),
+        "financials": any(item.get("availability") == "available" for item in canonical["financials"]),
+        "people_and_locations": any(
+            item.get("availability") == "available"
+            for item in (canonical["people"] + canonical["locations"])
+        ),
         "company_website": any(item.get("availability") == "available" for item in canonical["company_website"]),
-        "hiring_and_public_activity": bool(canonical["jobs"] or canonical["public_activity"]),
+        "hiring_and_public_activity": any(
+            item.get("availability") == "available"
+            for item in (canonical["jobs"] + canonical["public_activity"])
+        ),
     }
 
     return {
@@ -210,8 +244,13 @@ def validate_canonical_projection(contract: dict[str, Any]) -> list[str]:
         if not isinstance(fact, dict):
             errors.append(f"canonical fact {position} is not an object")
             continue
-        if not fact.get("type"):
+        fact_type = str(fact.get("type") or "")
+        if not fact_type:
             errors.append(f"canonical fact {position} missing type")
+        if fact.get("canonical_field") != CANONICAL_FIELD_BY_TYPE.get(fact_type):
+            errors.append(f"canonical fact {position} has unexpected canonical_field")
+        if not fact.get("source_field"):
+            errors.append(f"canonical fact {position} missing source_field")
         refs = fact.get("evidence_ids") or []
         if not refs:
             errors.append(f"canonical fact {position} lacks evidence ids")
