@@ -26,9 +26,7 @@ CORE_PROFILE_FIELDS = (
     ("legal_form", "legal_form"),
     ("employee_count", "employees"),
     ("municipality", "municipality"),
-    ("municipality_number", "municipality_number"),
-    ("bankrupt", "bankrupt"),
-    ("liquidating", "liquidating"),
+    ("industry", "industry"),
     ("latest_submitted_accounts", "latest_submitted_accounts"),
 )
 
@@ -343,28 +341,6 @@ def project_terminal_envelope(
                 availability="available",
                 claim_span=f"{field}={profile.get(profile_key)}",
             )
-
-    industry_code = profile.get("industry_code")
-    industry_label = profile.get("industry_label")
-    if industry_code not in (None, "") or industry_label not in (None, ""):
-        industry = {
-            "code": industry_code or None,
-            "description": industry_label or None,
-        }
-        _add_claim(
-            claims,
-            evidence_entries,
-            org=org,
-            evidence_key="registry",
-            record=registry,
-            field="industry",
-            value=industry,
-            availability="available",
-            claim_span=(
-                f"industry.code={industry['code']}; "
-                f"industry.description={industry['description']}"
-            ),
-        )
 
     _website_claims(profile, (profile.get("evidence") or {}).get("website"), claims, evidence_entries)
     _financial_claims(profile, (profile.get("evidence") or {}).get("financials"), claims, evidence_entries)
