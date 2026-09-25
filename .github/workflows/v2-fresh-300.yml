@@ -1,0 +1,200 @@
+name: V2 Fresh 300 Validation
+
+on:
+  push:
+    branches:
+      - revision/v2-canonical-product
+    paths:
+      - .github/workflows/v2-fresh-300.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Download frozen universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+      - name: Download archived qualification manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+      - name: Reconstruct consumed cohorts and select fresh V2 300
+        run: |
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered validation/h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze \
+            --release-seed 20261002
+          cat release-freeze/exclude-5900.jsonl submission/final-release-1000.jsonl > v2-exclude-6900.jsonl
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('v2-exclude-6900.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(r['organisation_number']) for r in rows]
+          assert len(rows)==6900 and len(set(orgs))==6900, (len(rows), len(set(orgs)))
+          PY
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude v2-exclude-6900.jsonl \
+            --output fresh-v2-300.jsonl \
+            --report fresh-v2-300-selection.json \
+            --count 300 \
+            --seed 20261003 \
+            --evaluation-split v2_canonical_product_fresh_validation \
+            --sample-slice strict_first_party_activity
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('fresh-v2-300-selection.json').read_text())
+          assert report['count']==300 and report['overlap_count']==0, report
+          assert report['excluded_rows']==6900, report
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Download current BRREG bulk snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+      - name: Run V2 stack on fresh 300
+        run: |
+          mkdir -p out/work
+          uv run python scripts/run_signalpost_v2.py \
+            --organisations fresh-v2-300.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/fresh-v2-300-output.jsonl \
+            --report out/fresh-v2-300-report.json \
+            --product-output out/fresh-v2-300.html \
+            --work-dir out/work \
+            --run-id v2-fresh-300-20261003 \
+            --expected-count 300 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 6000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+      - name: Verify V2 hard gates and summarize yield
+        run: |
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          from norway_company_agent.output_contract import validate_contract_object
+          from norway_company_agent.canonical_projection import validate_canonical_projection
+
+          rows=[json.loads(x) for x in Path('out/fresh-v2-300-output.jsonl').read_text().splitlines() if x.strip()]
+          report=json.loads(Path('out/fresh-v2-300-report.json').read_text())
+          selection=json.loads(Path('fresh-v2-300-selection.json').read_text())
+          assert len(rows)==300 and len({r['organisation_number'] for r in rows})==300
+          assert all((r.get('run') or {}).get('terminal_status')=='completed' for r in rows)
+          assert report['passed'] is True, report
+          assert report['canonical_projection']['validation_errors']==[], report['canonical_projection']
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] <= 6000
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 6000
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          assert report['runtime']['wall_runtime_seconds'] <= 2400
+          contract_failures=[]; canonical_failures=[]
+          fact_counts=Counter(); company_area_counts=Counter(); activity=[]
+          for row in rows:
+              errs=validate_contract_object(row)
+              if errs: contract_failures.append({'organisation_number':row['organisation_number'],'errors':errs})
+              errs2=validate_canonical_projection(row)
+              if errs2: canonical_failures.append({'organisation_number':row['organisation_number'],'errors':errs2})
+              profile=row.get('canonical_profile') or {}
+              for area, present in (profile.get('data_areas') or {}).items():
+                  if present: company_area_counts[area]+=1
+              ev={str(e.get('id')):e for e in row.get('evidence') or [] if e.get('id')}
+              for fact in row.get('canonical_facts') or []:
+                  t=str(fact.get('type') or 'unknown'); fact_counts[t]+=1
+                  if t in {'job_posting','company_update'}:
+                      activity.append({
+                          'organisation_number': row['organisation_number'],
+                          'type': t,
+                          'value': fact.get('value'),
+                          'confidence': fact.get('confidence'),
+                          'evidence': [ev[x] for x in fact.get('evidence_ids') or [] if x in ev],
+                      })
+          assert not contract_failures, contract_failures[:5]
+          assert not canonical_failures, canonical_failures[:5]
+          Path('out/fresh-v2-activity-facts.jsonl').write_text(''.join(json.dumps(x,ensure_ascii=False,separators=(',',':'))+'\n' for x in activity), encoding='utf-8')
+          summary={
+              'seed': selection['seed'],
+              'companies': len(rows),
+              'excluded_prior_internal_companies': selection['excluded_rows'],
+              'overlap_count': selection['overlap_count'],
+              'selection_sha256': selection['output_sha256'],
+              'canonical_facts': sum(fact_counts.values()),
+              'companies_by_data_area': dict(sorted(company_area_counts.items())),
+              'fact_type_counts': dict(sorted(fact_counts.items())),
+              'job_posting_facts': fact_counts.get('job_posting',0),
+              'company_update_facts': fact_counts.get('company_update',0),
+              'activity_companies': len({x['organisation_number'] for x in activity}),
+              'verified_website_companies': report.get('website_discovery',{}).get('verified_site_count'),
+              'observed_conservative_challenge_requests': report['request_budget']['observed_conservative_challenge_request_charge'],
+              'theoretical_challenge_request_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
+              'wall_runtime_seconds': report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd': report['source_policy']['third_party_cost_usd'],
+              'search_api_requests': report['source_policy']['search_api_requests'],
+              'canonical_validation_errors': len(canonical_failures),
+              'contract_validation_errors': len(contract_failures),
+          }
+          Path('out/fresh-v2-300-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v2-fresh-300-validation
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            fresh-v2-300.jsonl
+            fresh-v2-300-selection.json
+            brreg-enheter.sha256
+            out/fresh-v2-300-output.jsonl
+            out/fresh-v2-300-report.json
+            out/fresh-v2-300-summary.json
+            out/fresh-v2-activity-facts.jsonl
+            out/fresh-v2-300.html
+            out/work/profiles.jsonl
