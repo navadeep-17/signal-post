@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_submission_prototype import build_html  # noqa: E402
+from build_v2_product import build_v2_html  # noqa: E402
 from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 
@@ -57,7 +57,7 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        build_html(projected, title="Signalpost V2 — evidence-backed company intelligence"),
+        build_v2_html(projected, title="Signalpost V2 — evidence-backed company intelligence"),
         encoding="utf-8",
     )
     print(json.dumps({
@@ -67,6 +67,13 @@ def main() -> None:
         "canonical_facts": sum(len(row.get("canonical_facts") or []) for row in projected),
         "bytes": output.stat().st_size,
         "data_linked": True,
+        "canonical_areas": [
+            "company_record",
+            "financials",
+            "people_and_locations",
+            "company_website",
+            "hiring_and_public_activity",
+        ],
     }, indent=2))
 
 
