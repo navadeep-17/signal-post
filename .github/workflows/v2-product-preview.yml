@@ -1,0 +1,88 @@
+name: V2 Product Preview
+
+on:
+  push:
+    branches:
+      - feature/v2-canonical-product-surface
+    paths:
+      - src/norway_company_agent/canonical_contract.py
+      - scripts/project_canonical_output.py
+      - scripts/build_submission_prototype.py
+      - .github/workflows/v2-product-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-preview:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout V2 branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/v2-canonical-product-surface
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Verify frozen source output
+        shell: bash
+        run: |
+          set -euo pipefail
+          gzip -dc submission/final-release-1000-output.jsonl.gz > /tmp/final-release-1000-output.jsonl
+          echo "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2  /tmp/final-release-1000-output.jsonl" | sha256sum -c -
+
+      - name: Project canonical V2 facts without network
+        run: |
+          uv run python scripts/project_canonical_output.py \
+            --input /tmp/final-release-1000-output.jsonl \
+            --output /tmp/final-release-1000-v2.jsonl
+
+      - name: Build data-linked product preview
+        run: |
+          uv run python scripts/build_submission_prototype.py \
+            --input /tmp/final-release-1000-v2.jsonl \
+            --output submission/v2-product-preview.html \
+            --title "Signalpost V2 canonical company intelligence"
+
+      - name: Record preview metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, pathlib
+          output = pathlib.Path('/tmp/final-release-1000-v2.jsonl')
+          preview = pathlib.Path('submission/v2-product-preview.html')
+          rows = sum(1 for line in output.open(encoding='utf-8') if line.strip())
+          meta = {
+              'source_output_sha256': '00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2',
+              'canonical_rows': rows,
+              'canonical_output_sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
+              'preview_sha256': hashlib.sha256(preview.read_bytes()).hexdigest(),
+              'network_requests_for_projection': 0,
+          }
+          pathlib.Path('submission/v2-product-preview.json').write_text(json.dumps(meta, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Commit refreshed preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- submission/v2-product-preview.html submission/v2-product-preview.json; then
+            echo "Preview already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add submission/v2-product-preview.html submission/v2-product-preview.json
+          git commit -m "chore(v2): refresh canonical product preview"
+          git push origin HEAD:feature/v2-canonical-product-surface
