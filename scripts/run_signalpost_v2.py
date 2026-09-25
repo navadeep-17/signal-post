@@ -18,6 +18,11 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
 )
 from norway_company_agent.first_party_activity import project_first_party_activity_claims  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
+from norway_company_agent.synthesis import (  # noqa: E402
+    SYNTHESIS_SCHEMA_VERSION,
+    build_company_synthesis,
+    validate_company_synthesis,
+)
 from norway_company_agent.v2_registry_projection import project_v2_registry_claims  # noqa: E402
 from build_v2_product import build_v2_html, read_jsonl  # noqa: E402
 
@@ -131,15 +136,20 @@ def main() -> None:
             raise SystemExit(f"V2 retained profile missing for {org}")
         with_registry = project_v2_registry_claims(row, profile)
         with_activity = project_first_party_activity_claims(with_registry, profile)
-        projected.append(project_canonical_profile(with_activity))
+        item = project_canonical_profile(with_activity)
+        item["synthesis"] = build_company_synthesis(item)
+        projected.append(item)
 
     errors: list[dict[str, Any]] = []
+    synthesis_errors: list[dict[str, Any]] = []
     for row in projected:
         org = str(row.get("organisation_number") or "")
         for error in validate_contract_object(row):
             errors.append({"organisation_number": org, "layer": "output_contract", "error": error})
         for error in validate_canonical_projection(row):
             errors.append({"organisation_number": org, "layer": "canonical_projection", "error": error})
+        for error in validate_company_synthesis(row):
+            synthesis_errors.append({"organisation_number": org, "layer": "synthesis", "error": error})
 
     _write_jsonl(output_path, projected)
 
@@ -157,8 +167,17 @@ def main() -> None:
         "job_requirement": "specific retained company-owned role page + job detail marker + explicit apply action",
         "company_update_requirement": "specific retained company-owned news/update page + explicit publication date",
     }
+    report["synthesis"] = {
+        "schema_version": SYNTHESIS_SCHEMA_VERSION,
+        "companies": len(projected),
+        "network_requests_added": 0,
+        "llm_used": False,
+        "new_facts_created": False,
+        "validation_errors": synthesis_errors,
+    }
     report.setdefault("checks", {})["canonical_projection_valid"] = not errors
-    report["passed"] = bool(report.get("passed")) and not errors
+    report["checks"]["synthesis_valid"] = not synthesis_errors
+    report["passed"] = bool(report.get("passed")) and not errors and not synthesis_errors
 
     if product_output:
         product_path = Path(product_output)
@@ -172,6 +191,7 @@ def main() -> None:
             "data_linked": True,
             "source_output": str(output_path),
             "companies": len(projected),
+            "deterministic_synthesis": True,
             "canonical_areas": [
                 "company_record",
                 "financials",
