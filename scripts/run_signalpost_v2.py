@@ -18,6 +18,7 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
 )
 from norway_company_agent.first_party_activity import project_first_party_activity_claims  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
+from norway_company_agent.v2_registry_projection import project_v2_registry_claims  # noqa: E402
 from build_v2_product import build_v2_html, read_jsonl  # noqa: E402
 
 
@@ -128,7 +129,8 @@ def main() -> None:
         profile = profiles_by_org.get(org)
         if profile is None:
             raise SystemExit(f"V2 retained profile missing for {org}")
-        with_activity = project_first_party_activity_claims(row, profile)
+        with_registry = project_v2_registry_claims(row, profile)
+        with_activity = project_first_party_activity_claims(with_registry, profile)
         projected.append(project_canonical_profile(with_activity))
 
     errors: list[dict[str, Any]] = []
@@ -144,6 +146,11 @@ def main() -> None:
     report = json.loads(base_report.read_text(encoding="utf-8"))
     report["canonical_projection"] = _canonical_metrics(projected)
     report["canonical_projection"]["validation_errors"] = errors
+    report["canonical_projection"]["v2_registry_projection"] = {
+        "network_requests_added": 0,
+        "fields": ["industry", "municipality_number", "bankrupt", "liquidating"],
+        "source": "exact-org BRREG registry profile retained by the unchanged base collector",
+    }
     report["canonical_projection"]["first_party_activity_projection"] = {
         "network_requests_added": 0,
         "generic_careers_page_counts_as_hiring": False,
