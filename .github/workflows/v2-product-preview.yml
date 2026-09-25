@@ -7,7 +7,7 @@ on:
     paths:
       - src/norway_company_agent/canonical_contract.py
       - scripts/project_canonical_output.py
-      - scripts/build_submission_prototype.py
+      - scripts/build_v2_product.py
       - .github/workflows/v2-product-preview.yml
   workflow_dispatch:
 
@@ -47,9 +47,9 @@ jobs:
             --input /tmp/final-release-1000-output.jsonl \
             --output /tmp/final-release-1000-v2.jsonl
 
-      - name: Build data-linked product preview
+      - name: Build data-linked canonical product preview
         run: |
-          uv run python scripts/build_submission_prototype.py \
+          uv run python scripts/build_v2_product.py \
             --input /tmp/final-release-1000-v2.jsonl \
             --output submission/v2-product-preview.html \
             --title "Signalpost V2 canonical company intelligence"
@@ -69,6 +69,7 @@ jobs:
               'canonical_output_sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
               'preview_sha256': hashlib.sha256(preview.read_bytes()).hexdigest(),
               'network_requests_for_projection': 0,
+              'product_builder': 'scripts/build_v2_product.py',
           }
           pathlib.Path('submission/v2-product-preview.json').write_text(json.dumps(meta, indent=2) + '\n', encoding='utf-8')
           PY
