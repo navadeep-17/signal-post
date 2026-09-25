@@ -103,9 +103,12 @@ def _specific_title(title: str, *, generic: set[str]) -> bool:
     folded = _fold(title)
     if not folded or folded in generic:
         return False
-    # Titles produced by CMSs often append the company/site name. Requiring at least two
-    # lexical tokens keeps one-word section labels from becoming facts while retaining
-    # concrete role/update titles.
+    # A generic section title frequently appears as "Careers — Company" or
+    # "News | Company". The appended brand must not turn that index into a specific
+    # role/article. Reject a generic leading segment separated from a site/brand suffix.
+    segments = re.split(r"\s*(?:\||–|—|:)\s*|\s+-\s+", folded, maxsplit=1)
+    if len(segments) > 1 and segments[0].strip() in generic:
+        return False
     words = re.findall(r"[\wæøåÆØÅ-]+", title, flags=re.UNICODE)
     return len(words) >= 2
 
