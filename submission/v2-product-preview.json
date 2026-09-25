@@ -1,8 +1,8 @@
 {
-  "projected_commit_sha": "5fd1f511aee30bdfea700f1ee1b2ea6ee574acda",
+  "projected_commit_sha": "ef802ebd37d7d88f95c07d8e813d9802a51214c4",
   "source_output_sha256": "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2",
   "canonical_rows": 1000,
-  "canonical_output_sha256": "8e5f0cff455f7eb0397a36966308a4f7ce59a2ce8a2711a9249ac235c3540f96",
+  "canonical_output_sha256": "a3d03988f975f0b87f556ab38dc08659658e4e6cd27ca4ac26cc6b26598c77ce",
   "preview_sha256": "d8f6584d7c7e9558527ad65fcf6a5b1a1625957164c4581da5f7ca278fe3bf7c",
   "network_requests_for_projection": 0,
   "product_builder": "scripts/build_v2_product.py"
