@@ -30,11 +30,11 @@
     "product_surface_generated_from_final_output": true,
     "generic_careers_page_counts_as_hiring": false,
     "canonical_audit": {
-      "source": "immutable certified V1 1000-company output",
-      "ci_run_id": 36129375959,
+      "source": "immutable certified V1 1000-company output; repository-derived after inactive-role safety filter",
+      "ci_run_id": null,
       "companies": 1000,
       "unique_organisation_numbers": 1000,
-      "canonical_facts": 20003,
+      "canonical_facts": 19951,
       "validation_errors": 0,
       "companies_by_data_area": {
         "company_record": 998,
@@ -44,7 +44,7 @@
         "hiring_and_public_activity": 48
       },
       "selected_fact_counts": {
-        "person_role": 3984,
+        "person_role": 3932,
         "registered_location": 971,
         "financial_revenue": 792,
         "financial_operating_result": 976,
