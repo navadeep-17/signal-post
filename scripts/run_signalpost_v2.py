@@ -32,7 +32,7 @@ def main() -> int:
     product_output = Path(known.product_output) if known.product_output else output.with_suffix(".html")
 
     runner = ROOT / "scripts" / "run_signalpost_final.py"
-    builder = ROOT / "scripts" / "build_submission_prototype.py"
+    builder = ROOT / "scripts" / "build_v2_product.py"
     runner_args = [sys.executable, str(runner), "--output", str(output), *remaining]
     completed = subprocess.run(runner_args, cwd=ROOT, check=False)
     if completed.returncode != 0:
@@ -53,7 +53,7 @@ def main() -> int:
             "--output",
             str(product_output),
             "--title",
-            "Signalpost canonical company intelligence",
+            "Signalpost V2 canonical company intelligence",
         ],
         cwd=ROOT,
         check=False,
