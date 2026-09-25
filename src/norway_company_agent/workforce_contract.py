@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from .canonical_contract import project_canonical_contract
+from .canonical_contract import project_canonical_contract, validate_canonical_contract
 from .external_footprint import publishable_observation
 
 
@@ -48,7 +48,11 @@ def _with_canonical(contract: dict[str, Any], claims: list[dict[str, Any]], evid
         "claims": claims,
         "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
     }
-    return project_canonical_contract(final)
+    final = project_canonical_contract(final)
+    errors = validate_canonical_contract(final)
+    if errors:
+        raise ValueError("Invalid V2 canonical projection: " + "; ".join(errors[:10]))
+    return final
 
 
 def project_workforce_observations(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
