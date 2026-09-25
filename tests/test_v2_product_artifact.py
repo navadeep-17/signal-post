@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_submission_prototype import build_html  # noqa: E402
+from build_v2_product import build_v2_html  # noqa: E402
 from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 
@@ -37,11 +37,17 @@ def test_embedded_v2_product_is_exactly_rebuilt_from_certified_evidence() -> Non
         assert validate_canonical_projection(item) == []
         projected.append(item)
 
-    expected = build_html(projected, title=TITLE)
+    expected = build_v2_html(projected, title=TITLE)
     actual = PRODUCT.read_text(encoding="utf-8")
     assert actual == expected
-    assert len(actual.encode("utf-8")) == 17544893
-    assert "Signalpost evidence workspace" in actual
-    assert "Company intelligence you can trace back to evidence." in actual
-    assert "Claim boundary:" in actual
-    assert 'const DATA=' in actual
+    assert len(actual.encode("utf-8")) > 1_000_000
+    assert "Signalpost V2" in actual
+    assert "Builderr canonical view" in actual
+    assert "Company record" in actual
+    assert "Financials" in actual
+    assert "People & locations" in actual
+    assert "Company website" in actual
+    assert "Hiring & public activity" in actual
+    assert "A generic careers page is not a hiring fact." in actual
+    assert "Evidence-bounded brief" in actual
+    assert "const DATA=" in actual
