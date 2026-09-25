@@ -53,6 +53,22 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     assert metrics["third_party_api_cost_usd"] == 0.0
 
 
+def test_v2_submission_components_are_present() -> None:
+    required = (
+        "scripts/run_signalpost_v2.py",
+        "scripts/build_v2_product.py",
+        "scripts/build_certified_v2_product.py",
+        "src/norway_company_agent/canonical_projection.py",
+        "src/norway_company_agent/first_party_activity.py",
+        "submission/signalpost-v2.html",
+        "tests/test_canonical_projection.py",
+        "tests/test_first_party_activity.py",
+        "tests/test_v2_product_artifact.py",
+    )
+    missing = [path for path in required if not (ROOT / path).is_file()]
+    assert missing == []
+
+
 def test_submission_manifest_sidecar_matches_bytes() -> None:
     expected = (SUBMISSION / "manifest.sha256").read_text(encoding="utf-8").split()[0]
     assert _sha256(MANIFEST) == expected
@@ -80,6 +96,11 @@ def test_submission_docs_preserve_v2_and_claim_boundaries() -> None:
     assert "--product-output" in submission
     assert "scripts/run_signalpost_v2.py" in readme
     assert "canonical_facts" in contract
+    assert "19,951" in submission
+    assert "3,932" in submission
+    assert "specific role page" in submission_folded
+    assert "explicit apply" in submission_folded
+    assert "specific dated article" in submission_folded
     assert "server-side secrets required: **none**" in submission_folded
     assert "contact name: `<contact_name>`" in email.casefold()
     assert "contact email: `<contact_email>`" in email.casefold()
