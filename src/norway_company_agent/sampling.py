@@ -40,8 +40,6 @@ def normalize_row(row: dict[str, str]) -> dict[str, Any]:
         "liquidating": _first(row, "underAvvikling", "Under avvikling").lower() == "true",
         "municipality": _first(row, "forretningsadresse.kommune", "Forretningsadresse.kommune"),
         "municipality_number": _first(row, "forretningsadresse.kommunenummer", "Forretningsadresse.kommunenummer"),
-        # Keep the legacy scalar keys because sampling strata depend on them, while
-        # also carrying an output-ready structured industry fact for the contract.
         "industry_code": industry_code,
         "industry_label": industry_label,
         "industry": industry,
@@ -267,4 +265,58 @@ def deterministic_extension_sample(
         "excluded_organisation_numbers": len(excluded_organisation_numbers),
         "overlap_with_excluded": len(selected_orgs & excluded_organisation_numbers),
         "selected_sha256": hashlib.sha256("\n".join(sorted(selected_orgs)).encode()).hexdigest(),
+        "selected_stratum_counts": dict(sorted(__import__("collections").Counter(stratum(item) for item in selected).items())),
+        "legal_form_counts": dict(sorted(__import__("collections").Counter(item["legal_form"] or "missing" for item in selected).items())),
+    }
+
+
+def deterministic_website_audit_sample(
+    path: str | Path,
+    count: int,
+    excluded_organisation_numbers: set[str],
+    excluded_website_hosts: set[str] | None = None,
+    seed: int = 20260823,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Freeze a post-lock audit corpus with unique registry-declared website hosts."""
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    registry_rows = 0
+    website_rows = 0
+    hasher = hashlib.sha256()
+    for record in iter_bulk(path):
+        registry_rows += 1
+        hasher.update(record["organisation_number"].encode())
+        if not record.get("website") or record["organisation_number"] in excluded_organisation_numbers:
+            continue
+        website_rows += 1
+        minimal = {key: value for key, value in record.items() if key != "raw"}
+        rank = hashlib.sha256(f"{seed}:{record['organisation_number']}".encode()).hexdigest()
+        candidates.append((rank, minimal))
+
+    selected: list[dict[str, Any]] = []
+    seen_hosts: set[str] = set(excluded_website_hosts or set())
+    selected_hosts: set[str] = set()
+    for _, record in sorted(candidates, key=lambda item: item[0]):
+        supplied = str(record["website"]).strip()
+        parsed = urllib.parse.urlparse(supplied if "://" in supplied else "https://" + supplied)
+        host = (parsed.hostname or "").casefold().removeprefix("www.")
+        if not host or host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        selected_hosts.add(host)
+        record["sample_slice"] = "fresh_website_audit"
+        record["evaluation_split"] = "independent_final"
+        selected.append(record)
+        if len(selected) == count:
+            break
+
+    return selected, {
+        "seed": seed,
+        "requested": count,
+        "selected": len(selected),
+        "excluded_organisation_numbers": len(excluded_organisation_numbers),
+        "excluded_website_hosts": len(excluded_website_hosts or set()),
+        "registry_rows": registry_rows,
+        "registry_rows_with_website_after_exclusion": website_rows,
+        "unique_hosts_selected": len(selected_hosts),
+        "registry_org_sequence_sha256": hasher.hexdigest(),
     }
