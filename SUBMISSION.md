@@ -1,51 +1,39 @@
-# Signalpost final submission guide
+# Signalpost V2 submission guide
 
-This is the evaluator-facing source of truth for the final repository. The production collector is frozen; this package documents how to run it, verifies the exact certified 1,000-company submission corpus, and describes the source/secret boundaries without enabling experimental connectors.
+This is the evaluator-facing source of truth for the current revision. V2 keeps the qualified V1 collector as the base collection path and adds an evidence-linked canonical projection plus a data-linked product surface. The original V1 submission remains immutable.
 
-## 1. Exact submission identity
+## 1. Revision identity
 
-When submitting, send Builderr the exact final `main` commit SHA from:
+When submitting this revision, send Builderr the exact final `main` commit SHA from:
 
 ```bash
 git rev-parse HEAD
 ```
 
-Immutable implementation/release identities:
+Important historical identities:
 
-- production application behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
-- certified release harness SHA: `550bba0cce64a0a26d878c3b7f41eb20a55dc10e`
-- F4 evidence-workspace merge SHA: `13e0503be4208a36e7ff34a90bf89b87caf68e3d`
+- V1 pinned submission SHA: `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa`
+- V1 base collector behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
+- certified V1 release harness SHA: `550bba0cce64a0a26d878c3b7f41eb20a55dc10e`
 - certified replay: `35246833190`
 - frozen 1,000 manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`
-- certified uncompressed output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
-- certified Actions aggregate artifact digest: `sha256:8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e`
+- certified V1 uncompressed output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
 
-Machine-readable declaration: `submission/manifest.json`.
+V2 does not reselect or rewrite that certified corpus.
 
-## 2. The exact 1,000 submitted profiles are in the repository
+## 2. Why V2 exists
 
-The submission no longer depends on temporary Actions retention for the required corpus:
+Evaluator feedback on the first submission indicated that complete output objects were returned, but relatively little already-collected registry/accounts information was recovered into the evaluator's canonical fields and no data-linked product surface was submitted.
 
-- organisation-number manifest: `submission/final-release-1000.jsonl`
-- completed profiles: `submission/final-release-1000-output.jsonl.gz`
-- manifest digest sidecar: `submission/final-release-1000.sha256`
-- uncompressed output digest sidecar: `submission/final-release-1000-output.sha256`
-- compressed-file digest sidecar: `submission/final-release-1000-output.jsonl.gz.sha256`
-- certified aggregate summary: `submission/final-release-1000-summary.json`
+V2 therefore prioritizes **mapping before new crawling**:
 
-To inspect the profiles:
+1. preserve the original `claims[]` and `evidence[]` envelope;
+2. add flat typed `canonical_facts[]` that reuse the same evidence IDs;
+3. group those facts in `canonical_profile` under company record, financials, people, locations, company website, jobs and public activity;
+4. emit a static HTML product from the exact same final JSONL;
+5. keep identity thresholds, request budgets and source-rights boundaries unchanged.
 
-```bash
-mkdir -p out
-gzip -dc submission/final-release-1000-output.jsonl.gz > out/final-release-1000-output.jsonl
-sha256sum out/final-release-1000-output.jsonl
-```
-
-Expected uncompressed SHA-256:
-
-`00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
-
-`uv run python scripts/verify_submission_bundle.py` additionally checks that all 1,000 organisation numbers are unique, appear in the same order in manifest and output, are terminal `completed`, and pass the canonical output-contract validator.
+A generic careers page is never a hiring fact. V2 only reserves `hiring.job_posting` for a future source-backed real job card/feed/apply fact.
 
 ## 3. Reproducible setup
 
@@ -68,20 +56,21 @@ curl --fail --location --retry 3 --retry-delay 2 \
   --output brreg-enheter.csv
 ```
 
-If Poppler/Tesseract is unavailable, annual-report OCR abstains. It does not invent a workforce value.
+If Poppler/Tesseract is unavailable, annual-report OCR abstains instead of inventing a workforce value.
 
-## 4. Evaluator command
+## 4. One V2 evaluator command
 
 For a 100-company JSONL input:
 
 ```bash
-uv run python scripts/run_signalpost_final.py \
+uv run python scripts/run_signalpost_v2.py \
   --organisations evaluator-100.jsonl \
   --bulk brreg-enheter.csv \
-  --output out/final-output.jsonl \
-  --report out/final-report.json \
+  --output out/final-output-v2.jsonl \
+  --report out/final-report-v2.json \
+  --product-output out/signalpost-v2.html \
   --work-dir out/final-work \
-  --run-id builderr-eval-001 \
+  --run-id builderr-eval-v2-001 \
   --expected-count 100 \
   --workers 8 \
   --site-timeout 6 \
@@ -96,39 +85,90 @@ uv run python scripts/run_signalpost_final.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-The runner emits one terminal object per input plus a machine-readable run report. Availability states are defined by `OUTPUT_CONTRACT.md`.
+The wrapper runs the existing final collector first, then performs a zero-network canonical projection, validates it, writes the V2 JSONL/report and builds the HTML product. `--product-output` is a V2-only flag and is not forwarded to the base collector.
 
-## 5. Certified release evidence
+## 5. V2 output mapping
 
-The frozen 1,000-company corpus was selected from the 411,160-company Builderr universe after excluding 5,900 previously touched companies. Overlap with prior cohorts was zero.
+The original output contract remains intact. V2 additionally emits:
 
-| Property | Certified result |
+- `canonical_facts[]`
+- `canonical_profile`
+
+Canonical namespaces:
+
+- `company.*`
+- `financial.*`
+- `people.*`
+- `locations.*`
+- `website.*`
+- `public.*`
+- reserved `hiring.*`
+
+Examples include `company.industry`, `financial.revenue`, `people.role`, `locations.registered_workplace`, `website.official`, `website.contact_email`, `public.social_profile` and `company.workforce_snapshot`.
+
+Every canonical fact records its `source_field` and reuses the original claim's `evidence_ids`. The projection performs no network access and cannot introduce a fact unsupported by the source envelope.
+
+## 6. Measured canonical recovery on the immutable certified 1,000
+
+The command below projects the committed certified V1 output without crawling:
+
+```bash
+uv run python scripts/audit_canonical_v2.py
+```
+
+Current reproducible result:
+
+| V2 mapping property | Result |
+|---|---:|
+| Companies | 1,000 |
+| Unique organisation numbers | 1,000 |
+| Canonical facts | 20,003 |
+| Canonical validation errors | 0 |
+| Company record area | 998 / 1,000 |
+| Financials area | 998 / 1,000 |
+| People / locations area | 999 / 1,000 |
+| Verified company-website area | 107 / 1,000 |
+| Hiring / public-activity area | 48 / 1,000 |
+| Individual role facts | 3,984 |
+| Registered-location facts | 971 |
+| Revenue facts | 792 |
+| Operating-result facts | 976 |
+| Workforce facts | 990 |
+| Validated social-profile facts | 82 |
+
+These are **mapping diagnostics over the immutable certified V1 corpus**, not an official Builderr score and not proof of hidden recall/coverage thresholds.
+
+## 7. Certified V1 evidence baseline remains unchanged
+
+The exact certified manifest and completed V1 profiles remain in the repository:
+
+- `submission/final-release-1000.jsonl`
+- `submission/final-release-1000-output.jsonl.gz`
+- `submission/final-release-1000.sha256`
+- `submission/final-release-1000-output.sha256`
+- `submission/final-release-1000-output.jsonl.gz.sha256`
+- `submission/final-release-1000-summary.json`
+
+Certified baseline:
+
+| Property | Result |
 |---|---:|
 | Companies | 1,000 / 1,000 |
-| Unique organisation numbers | 1,000 |
 | Terminal `completed` | 1,000 / 1,000 |
-| Claims | 17,098 |
+| Source claims | 17,098 |
 | Deduplicated evidence records | 17,050 |
-| Canonical contract errors | 0 |
-| Runner contract errors | 0 |
-| Change errors | 0 |
+| Contract errors | 0 |
 | Observed conservative requests | 13,628 total |
-| Structural request ceiling | 20,000 total / 2,000 per 100 |
+| Structural ceiling | 2,000 / 100 |
 | Slowest 100-company chunk | 458.803 s |
 | Third-party API cost | $0.00 |
 | Search API requests | 0 |
-| Workforce companies | 990 / 1,000 |
-| Verified website companies | 107 / 1,000 |
-| Companies with declared social handles | 48 / 1,000 |
-| Companies with qualifying contact email | 53 / 1,000 |
 
-See `docs/FINAL_RELEASE_1000_AUDIT.md` for the full audit.
+See `docs/FINAL_RELEASE_1000_AUDIT.md` for full V1 certification evidence.
 
-These measurements establish terminal completeness, evidence-contract validity and resource safety on the certified corpus. They do **not** claim Builderr's hidden weighted external company recall, coverage score or overall score are already met.
+## 8. Models, APIs, rights, secrets and safety
 
-## 6. Models, APIs, licences, secrets and URL safety
-
-Production invokes:
+The V2 evaluator path invokes:
 
 - **no LLM**;
 - **no sentiment model**;
@@ -136,34 +176,31 @@ Production invokes:
 - **no search API**;
 - **no social-platform scraper/API**.
 
-Server-side secrets required: **none**. No API key is required by the production runner.
+Server-side secrets required: **none**.
 
-Production sources:
+Sources remain:
 
 1. Brønnøysundregistrene official bulk/API/account-copy services.
-2. Wikidata structured data as a bounded exact-org-number website-candidate nominator only.
-3. Exact verified company-owned public pages for bounded first-party website/contact/social-link evidence.
+2. Wikidata only as a bounded exact-org-number website-candidate nominator.
+3. Exact verified company-owned public pages for bounded website/contact/social declaration evidence.
 
-Source rights and retention boundaries are documented in `docs/SUBMISSION_SOURCE_RIGHTS.md`. Website retrieval uses the repository's hardened safe-URL/redirect path; private-network/unsafe targets are rejected. Company-page candidates never become published official websites without exact-company evidence.
+Source rights and retention boundaries are documented in `docs/SUBMISSION_SOURCE_RIGHTS.md`. Unsafe/private network targets are rejected. Candidate domains do not become official websites without exact-company proof.
 
-## 7. Claim boundaries
+## 9. Claim boundaries
 
-- A declared social URL means only that the exact verified company page declared that URL; the platform itself was not fetched. It does not establish current ownership, activity, followers, engagement or platform verification.
-- A contact email means the address was found in retained first-party company-page evidence and matched the verified website registered domain. Mailbox deliverability is not claimed.
-- Missing website/job/review/activity/sentiment values are not converted to zero or inferred from absence.
-- Annual-report workforce extraction abstains on missing or conflicting company-scope phrases.
+- A social-profile fact means the exact verified company page declared the URL. The social platform itself was not fetched; current ownership, activity, followers, engagement and platform verification are not claimed.
+- A contact email means it appeared in bounded first-party company-page evidence and matched the verified website registered domain. Mailbox deliverability is not claimed.
+- A generic careers page, careers keyword or navigation link is not a job. A future hiring claim requires a concrete role card, job-feed item or apply action with evidence.
+- Missing website/job/review/news/activity/sentiment values are not converted to zero or inferred from absence.
+- Workforce extraction abstains on missing or conflicting company-scope phrases.
 
-## 8. Evidence workspace
+## 10. Data-linked product surface
 
-```bash
-uv run python scripts/build_submission_prototype.py \
-  --input out/final-output.jsonl \
-  --output out/signalpost-workspace.html
-```
+`--product-output out/signalpost-v2.html` builds the static workspace directly from the final V2 output generated in the same invocation. The UI is therefore linked to the submitted data rather than a separate mockup.
 
-The static workspace shows period-aware financials, workforce/effective-year evidence, verified website/contact/social declarations, leadership, locations, explicit unknowns, change history and source provenance. It is deterministic over published output-contract claims.
+It exposes company identity, period-aware financials, workforce, people, locations, verified first-party external facts, explicit gaps, changes and source provenance.
 
-## 9. Refresh proof
+## 11. Refresh proof
 
 ```bash
 uv run python scripts/run_refresh_replay.py \
@@ -171,35 +208,31 @@ uv run python scripts/run_refresh_replay.py \
   --output out/refresh-demo.json
 ```
 
-Expected result: two material changes, no false changes and no extra changes on an idempotent rerun.
+Expected result: exactly two material changes, zero false positives/negatives and no additional changes on an idempotent rerun.
 
-## 10. Final verification
+## 12. Verification
 
-Run from the exact checkout that will be submitted:
+Before pinning the V2 revision:
 
 ```bash
 uv run python scripts/verify_submission_bundle.py
+uv run python scripts/audit_canonical_v2.py
 uv run --with pytest pytest -q
 ```
 
-Optional cross-check against the original certified Actions ZIP:
+The submission verifier checks the immutable V1 certified corpus plus the current V2 entrypoint/declaration. CI also runs the canonical audit over the committed certified 1,000.
 
-```bash
-uv run python scripts/verify_submission_bundle.py \
-  --aggregate-zip /path/to/final-release-1000-aggregate.zip
-```
+## 13. Remaining scoring uncertainty
 
-## 11. Known scoring risk
+The V2 mapping audit demonstrates that substantially more official information is exposed in explicit evaluator-friendly facts than V1 did. Builderr still owns the reference collection, matching logic, availability denominator and official score. No local count is presented as proof of an official score or qualification result.
 
-The largest unresolved issue is **hidden-evaluator coverage**, not a known correctness failure. Website/contact/social/public-activity breadth is intentionally conservative, and Builderr owns the checked external union and field weights. Do not weaken exact-company identity gates merely to increase local coverage.
+Identity precision remains the priority: do not weaken exact-company gates merely to increase breadth.
 
-The current challenge permits later revised commit hashes. The safest strategy is to submit this clean version, use Builderr's concrete admission/daily report to identify the actually missing weighted field family, and only then spend a revision on a measured connector improvement.
+## 14. Revision submission
 
-## 12. Submission email
+Use `submission/EMAIL_TEMPLATE.md` after V2 is merged. Replace:
 
-Use `submission/EMAIL_TEMPLATE.md`. Before sending, replace:
-
-- `<FINAL_MAIN_SHA>` with `git rev-parse HEAD`;
+- `<FINAL_MAIN_SHA>` with the final merged V2 SHA;
 - `<CONTACT_NAME>` with the submitter/contact name;
 - `<CONTACT_EMAIL>` with the contact email;
 - `<CONTACT_PHONE_OR_OTHER>` if desired.
