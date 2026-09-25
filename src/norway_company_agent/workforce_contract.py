@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .canonical_contract import project_canonical_contract, validate_canonical_contract
 from .external_footprint import publishable_observation
+from .registry_live_contract import project_registry_live_claims
 
 
 def _evidence_id(org: str, observation: dict[str, Any]) -> str:
@@ -41,9 +43,28 @@ def _validated_workforce(profile: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (str(row.get("platform") or ""), str(row.get("id") or "")))
 
 
-def project_workforce_observations(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Project qualified workforce observations as narrow external claims, idempotently."""
+def _with_canonical(contract: dict[str, Any], claims: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    final = {
+        **contract,
+        "claims": claims,
+        "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
+    }
+    final = project_canonical_contract(final)
+    errors = validate_canonical_contract(final)
+    if errors:
+        raise ValueError("Invalid V2 canonical projection: " + "; ".join(errors[:10]))
+    return final
 
+
+def project_workforce_observations(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+    """Project final zero-network enrichments and build the canonical view.
+
+    This is the last projection in the evaluator runner. V2 first exposes
+    already-fetched live BRREG entity facts, then adds workforce observations,
+    then builds and validates the canonical scorer/product view.
+    """
+
+    contract = project_registry_live_claims(contract, profile)
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
@@ -65,11 +86,7 @@ def project_workforce_observations(contract: dict[str, Any], profile: dict[str, 
 
     observations = _validated_workforce(profile)
     if not observations:
-        return {
-            **contract,
-            "claims": claims,
-            "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
-        }
+        return _with_canonical(contract, claims, evidence)
 
     evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
     for observation in observations:
@@ -102,8 +119,4 @@ def project_workforce_observations(contract: dict[str, Any], profile: dict[str, 
             }
         )
 
-    return {
-        **contract,
-        "claims": claims,
-        "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
-    }
+    return _with_canonical(contract, claims, list(evidence_by_id.values()))

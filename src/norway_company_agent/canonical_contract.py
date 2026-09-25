@@ -1,0 +1,266 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Any
+
+CANONICAL_SCHEMA_VERSION = "signalpost.canonical.v1"
+
+# These aliases deliberately describe evaluator-facing concepts rather than
+# collector modules. The original claims[] envelope remains the source of truth.
+FIELD_ALIASES = {
+    "legal_name": "company.legal_name",
+    "legal_form": "company.legal_form",
+    "municipality": "company.municipality",
+    "industry": "company.industry",
+    "employee_count": "company.employee_count",
+    "business_address": "company.business_address",
+    "postal_address": "company.postal_address",
+    "bankrupt": "company.bankrupt",
+    "liquidating": "company.liquidating",
+    "latest_submitted_accounts": "accounts.latest_submitted",
+    "accounting_obligation": "accounts.accounting_obligation",
+    "official_website": "web.official_website",
+    "company_description": "web.company_description",
+    "external.contact_email": "web.contact_email",
+    "external.profile_handle": "web.social_profile",
+    "external.workforce_snapshot": "workforce.snapshot",
+    "group_structure": "company.group_structure",
+    "roles": "people.role",
+    "locations": "locations.location",
+    "financial.revenue": "accounts.revenue",
+    "financial.operating_result": "accounts.operating_result",
+    "financial.profit_before_tax": "accounts.profit_before_tax",
+    "financial.annual_result": "accounts.annual_result",
+    "financial.assets": "accounts.assets",
+    "financial.equity": "accounts.equity",
+    "financial.debt": "accounts.debt",
+}
+
+
+def _fact_from_claim(claim: dict[str, Any], *, canonical_field: str, value: Any | None = None) -> dict[str, Any]:
+    fact = {
+        "field": canonical_field,
+        "value": claim.get("value") if value is None else value,
+        "availability": claim.get("availability"),
+        "confidence": claim.get("confidence"),
+        "evidence_ids": list(claim.get("evidence_ids") or []),
+    }
+    for key in ("currency", "reporting_period", "platform", "signal_type", "claim_scope"):
+        if claim.get(key) is not None:
+            fact[key] = claim[key]
+    return fact
+
+
+def _split_values(claim: dict[str, Any]) -> list[Any]:
+    """Split list-valued canonical families without inventing new information."""
+    if claim.get("availability") != "available":
+        return [None]
+    value = claim.get("value")
+    if isinstance(value, list):
+        return value or [None]
+    if isinstance(value, dict):
+        for key in ("roles", "locations", "items", "records"):
+            nested = value.get(key)
+            if isinstance(nested, list):
+                return nested or [None]
+    return [value]
+
+
+def _canonical_facts(item: dict[str, Any]) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
+    for claim in item.get("claims") or []:
+        field = str(claim.get("field") or "")
+        canonical_field = FIELD_ALIASES.get(field)
+        if not canonical_field:
+            continue
+        if field in {"roles", "locations"}:
+            for value in _split_values(claim):
+                facts.append(_fact_from_claim(claim, canonical_field=canonical_field, value=value))
+        else:
+            facts.append(_fact_from_claim(claim, canonical_field=canonical_field))
+    return facts
+
+
+def _available_values(facts: list[dict[str, Any]], field: str) -> list[dict[str, Any]]:
+    return [fact for fact in facts if fact.get("field") == field and fact.get("availability") == "available"]
+
+
+def _available_prefix(facts: list[dict[str, Any]], *prefixes: str) -> list[dict[str, Any]]:
+    return [
+        fact
+        for fact in facts
+        if fact.get("availability") == "available"
+        and any(str(fact.get("field") or "").startswith(prefix) for prefix in prefixes)
+    ]
+
+
+def _first(facts: list[dict[str, Any]], field: str) -> dict[str, Any] | None:
+    matches = [fact for fact in facts if fact.get("field") == field]
+    return matches[0] if matches else None
+
+
+def _data_area(facts: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "available": bool(facts),
+        "fact_count": len(facts),
+        "facts": facts,
+    }
+
+
+def project_canonical_contract(item: dict[str, Any]) -> dict[str, Any]:
+    """Add a scorer/product-friendly view over final evidence-backed claims.
+
+    This is intentionally a projection, not a second truth store: no value is
+    generated unless it already exists in claims[], and evidence ids are copied
+    verbatim so provenance remains one hop away.
+    """
+    facts = _canonical_facts(item)
+    financial_fields = (
+        "accounts.revenue",
+        "accounts.operating_result",
+        "accounts.profit_before_tax",
+        "accounts.annual_result",
+        "accounts.assets",
+        "accounts.equity",
+        "accounts.debt",
+    )
+    financials: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for field in financial_fields:
+        financials[field.removeprefix("accounts.")] = [fact for fact in facts if fact.get("field") == field]
+
+    people = _available_values(facts, "people.role")
+    locations = _available_values(facts, "locations.location")
+    workforce = _available_values(facts, "workforce.snapshot")
+    contact_emails = _available_values(facts, "web.contact_email")
+    social_profiles = _available_values(facts, "web.social_profile")
+    hiring: list[dict[str, Any]] = []
+    public_activity: list[dict[str, Any]] = []
+
+    company_record_area = _available_prefix(facts, "company.") + workforce
+    financial_area = [
+        fact
+        for fact in facts
+        if fact.get("availability") == "available" and str(fact.get("field") or "").startswith("accounts.")
+    ]
+    people_locations_area = [*people, *locations]
+    website_area = [
+        fact
+        for fact in facts
+        if fact.get("availability") == "available"
+        and fact.get("field") in {"web.official_website", "web.company_description", "web.contact_email"}
+    ]
+    # Builderr's reference product groups verified external profiles together
+    # with hiring/public activity. A declared profile is still only a profile:
+    # it does not imply posts, followers, current ownership, or activity.
+    hiring_public_activity_area = [*social_profiles, *hiring, *public_activity]
+
+    canonical = {
+        "schema_version": CANONICAL_SCHEMA_VERSION,
+        "organisation_number": str(item.get("organisation_number") or ""),
+        "company": {
+            "legal_name": _first(facts, "company.legal_name"),
+            "legal_form": _first(facts, "company.legal_form"),
+            "municipality": _first(facts, "company.municipality"),
+            "industry": _first(facts, "company.industry"),
+            "employee_count": _first(facts, "company.employee_count"),
+            "business_address": _first(facts, "company.business_address"),
+            "postal_address": _first(facts, "company.postal_address"),
+            "bankrupt": _first(facts, "company.bankrupt"),
+            "liquidating": _first(facts, "company.liquidating"),
+            "group_structure": _first(facts, "company.group_structure"),
+        },
+        "accounts": {
+            "latest_submitted": _first(facts, "accounts.latest_submitted"),
+            "accounting_obligation": _first(facts, "accounts.accounting_obligation"),
+            "financials": dict(financials),
+        },
+        "people": people,
+        "locations": locations,
+        "workforce": workforce,
+        "web": {
+            "official_website": _first(facts, "web.official_website"),
+            "company_description": _first(facts, "web.company_description"),
+            "contact_emails": contact_emails,
+            "social_profiles": social_profiles,
+        },
+        "social_profiles": social_profiles,
+        # These stay empty until the pipeline has a concrete dated activity item
+        # or a real role/job-feed/apply fact. Generic careers pages never qualify.
+        "public_activity": public_activity,
+        "hiring": hiring,
+        "data_areas": {
+            "company_record": _data_area(company_record_area),
+            "financials": _data_area(financial_area),
+            "people_and_locations": _data_area(people_locations_area),
+            "company_website": _data_area(website_area),
+            "hiring_and_public_activity": _data_area(hiring_public_activity_area),
+        },
+        "facts": facts,
+    }
+    canonical["available_data_area_count"] = sum(
+        1 for area in canonical["data_areas"].values() if area["available"]
+    )
+    item["canonical"] = canonical
+    return item
+
+
+def validate_canonical_contract(item: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    canonical = item.get("canonical")
+    if not isinstance(canonical, dict):
+        return ["missing canonical projection"]
+    if canonical.get("schema_version") != CANONICAL_SCHEMA_VERSION:
+        errors.append("canonical schema version mismatch")
+    if str(canonical.get("organisation_number") or "") != str(item.get("organisation_number") or ""):
+        errors.append("canonical organisation number mismatch")
+
+    evidence_ids = {str(entry.get("id")) for entry in item.get("evidence") or [] if entry.get("id")}
+    source_claim_fingerprints = {
+        (
+            FIELD_ALIASES.get(str(claim.get("field") or "")),
+            str(claim.get("availability")),
+            tuple(str(eid) for eid in claim.get("evidence_ids") or []),
+        )
+        for claim in item.get("claims") or []
+        if FIELD_ALIASES.get(str(claim.get("field") or ""))
+    }
+    for fact in canonical.get("facts") or []:
+        field = str(fact.get("field") or "")
+        refs = tuple(str(eid) for eid in fact.get("evidence_ids") or [])
+        if not field:
+            errors.append("canonical fact missing field")
+        if fact.get("availability") == "available" and not refs:
+            errors.append(f"canonical fact {field} lacks evidence ids")
+        for evidence_id in refs:
+            if evidence_id not in evidence_ids:
+                errors.append(f"canonical fact {field} references missing evidence {evidence_id}")
+        fingerprint = (field, str(fact.get("availability")), refs)
+        if fingerprint not in source_claim_fingerprints:
+            errors.append(f"canonical fact {field} has no source claim")
+
+    areas = canonical.get("data_areas") or {}
+    if set(areas) != {
+        "company_record",
+        "financials",
+        "people_and_locations",
+        "company_website",
+        "hiring_and_public_activity",
+    }:
+        errors.append("canonical data-area set mismatch")
+    else:
+        count = sum(1 for area in areas.values() if isinstance(area, dict) and area.get("available"))
+        if canonical.get("available_data_area_count") != count:
+            errors.append("canonical available data-area count mismatch")
+        for name, area in areas.items():
+            if not isinstance(area, dict):
+                errors.append(f"canonical data area {name} is not an object")
+                continue
+            area_facts = area.get("facts") or []
+            if area.get("fact_count") != len(area_facts):
+                errors.append(f"canonical data area {name} fact count mismatch")
+            if bool(area_facts) != bool(area.get("available")):
+                errors.append(f"canonical data area {name} availability mismatch")
+
+    if canonical.get("hiring"):
+        errors.append("canonical hiring must remain empty until concrete job facts are projected")
+    return errors

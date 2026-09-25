@@ -26,6 +26,11 @@ def normalize_row(row: dict[str, str]) -> dict[str, Any]:
         employees = int(employees_raw) if employees_raw else None
     except ValueError:
         employees = None
+    industry_code = _first(row, "naeringskode1.kode", "Næringskode1.kode")
+    industry_label = _first(row, "naeringskode1.beskrivelse", "Næringskode1.beskrivelse")
+    industry = None
+    if industry_code or industry_label:
+        industry = {"code": industry_code or None, "label": industry_label or None}
     return {
         "organisation_number": org,
         "name": _first(row, "navn", "Navn"),
@@ -35,8 +40,9 @@ def normalize_row(row: dict[str, str]) -> dict[str, Any]:
         "liquidating": _first(row, "underAvvikling", "Under avvikling").lower() == "true",
         "municipality": _first(row, "forretningsadresse.kommune", "Forretningsadresse.kommune"),
         "municipality_number": _first(row, "forretningsadresse.kommunenummer", "Forretningsadresse.kommunenummer"),
-        "industry_code": _first(row, "naeringskode1.kode", "Næringskode1.kode"),
-        "industry_label": _first(row, "naeringskode1.beskrivelse", "Næringskode1.beskrivelse"),
+        "industry_code": industry_code,
+        "industry_label": industry_label,
+        "industry": industry,
         "website": _first(row, "hjemmeside", "Hjemmeside"),
         "latest_submitted_accounts": _first(row, "sisteInnsendteAarsregnskap", "Siste innsendte årsregnskap"),
         "raw": row,
