@@ -1,85 +1,97 @@
-# Signalpost final requirements matrix
+# Signalpost V2 requirements matrix
 
-Updated: 2026-09-17
+Updated: 2026-09-25
 
-This file separates directly verified submission properties from Builderr's hidden-evaluator requirements. The live Builderr Signalpost challenge is authoritative for scoring, qualification and resource limits. Historical local/proxy scorers are diagnostic only and are not converted into an official score.
+This file separates directly reproduced properties from Builderr-owned evaluation outcomes. The certified V1 1,000-company corpus remains immutable; V2 changes mapping/product exposure rather than reselecting that evidence baseline.
 
-Status meanings: **PASS** = directly reproduced/verified for the final submission path; **PARTIAL** = strong measured evidence but not proof of the hidden requirement; **OPEN** = evaluator-owned result.
+Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = strong measured evidence but not proof of Builderr's evaluator result; **OPEN** = evaluator-owned.
 
 ## Qualification and execution requirements
 
-| Requirement | Final implementation/evidence | Status |
+| Requirement | V2 implementation/evidence | Status |
 |---|---|---|
-| Organisation number is the entity anchor | BRREG bulk/live and every promoted discovery path resolve back to exact org number | PASS |
-| Frozen eligible universe | deterministic selector uses Builderr's 411,160-company universe | PASS |
-| At least 1,000 completed profiles | certified final release has 1,000 / 1,000 terminal completed | PASS |
-| Generalize beyond development companies | final release excludes 5,900 prior companies and has zero overlap | PASS observed |
-| Exactly one terminal result/company | certified 1,000 has 1,000 unique orgs and 1,000 terminal outputs | PASS |
-| Claims/evidence/changes/operations envelope | final runner emits and validates `OUTPUT_CONTRACT.md` objects | PASS |
-| Claim-level provenance/time/hash/period | official, website and workforce claims preserve provenance metadata | PASS |
-| Distinct missing/blocked/not-applicable states | contract preserves explicit availability states | PASS |
-| No fabricated financials | deterministic BRREG financial path; unavailable values remain unavailable | PASS |
-| External precision >=95% | strict exact-entity gates, wrong-company regressions and manual promotion audits provide strong evidence | PARTIAL; hidden evaluator authoritative |
-| Weighted external company recall >=60% | 990/1000 workforce plus narrower website/contact/social families on certified replay | OPEN; hidden denominator authoritative |
-| Coverage >=21/35 | field availability/external union scored by Builderr | OPEN |
-| Overall >=65/100 | Builderr hidden judge | OPEN |
-| Idempotent refresh/history | saved refresh replay detects two expected changes and zero extra changes on rerun | PASS |
-| <=45-minute wall time / 100 | all ten final chunks passed; slowest was 458.803 s | PASS |
-| <=2,000 outbound requests / 100 | structural conservative ceiling is exactly 2,000; observed max final chunk was 1,404 | PASS |
-| <=$10 external API spend / 100 | stricter final policy is $0 third-party API spend | PASS |
-| One evaluator command | `scripts/run_signalpost_final.py` documented in `SUBMISSION.md` | PASS |
-| Source rights documented | `docs/SUBMISSION_SOURCE_RIGHTS.md` + machine-readable submission manifest | PASS |
-| Safe URL/SSRF/redirect handling | hardened site stack remains in production | PASS |
-| Pinned dependencies and tests | `uv.lock`; Baseline CI and submission regressions | PASS |
-| Snapshot drift safe | release included two companies absent from current BRREG bulk and still completed 1,000/1,000 | PASS |
-| Candidate discovery independently verified | H1 candidate paths nominate only; exact company page proof is required for publication | PASS |
-| UI exposes evidence/gaps/changes | F4 static workspace builds directly from final output-contract claims/evidence | PASS implementation; official UX score hidden |
-| Research answers are evidence-bounded | F4 deterministic brief uses only published claims and labels unknowns explicitly | PASS implementation; official synthesis score hidden |
-| Models/APIs/licences/caches/hosting declared | `submission/manifest.json` and `docs/SUBMISSION_SOURCE_RIGHTS.md` | PASS |
+| Organisation number is the entity anchor | BRREG bulk/live and every promoted discovery path resolve to exact org number | PASS |
+| 1,000+ completed profiles | immutable certified V1 release has 1,000 / 1,000 terminal completed | PASS |
+| Generalization beyond development companies | certified release excludes 5,900 prior companies and has zero overlap | PASS observed |
+| Exactly one terminal result/company | 1,000 unique orgs / 1,000 terminal V1 outputs | PASS |
+| Source claims/evidence/changes/operations | base collector emits and validates `OUTPUT_CONTRACT.md` envelope | PASS |
+| Evaluator-friendly canonical mapping | V2 adds evidence-linked `canonical_facts[]` and `canonical_profile` | PASS implementation |
+| Registry/accounts mapped into explicit fields | 20,003 canonical facts over immutable certified 1,000; 0 mapping errors | PASS implementation |
+| People flattened | 3,984 individual `people.role` facts in V2 audit | PASS implementation |
+| Locations flattened | 971 individual `locations.registered_workplace` facts in V2 audit | PASS implementation |
+| Financial period/currency retained | V2 canonical financial facts preserve source claim period/currency | PASS |
+| Claim-level provenance/time/hash | canonical facts reuse original evidence IDs; source envelope remains authoritative | PASS |
+| Explicit availability states | unavailable values remain unavailable and are never converted to zero | PASS |
+| No fabricated financials | deterministic BRREG financial path; V2 only projects existing claims | PASS |
+| External identity precision | exact-company website/handle/contact guards unchanged from V1 | PARTIAL; Builderr authoritative |
+| External/overall coverage | V2 exposes more existing facts but Builderr owns reference matching | OPEN |
+| Idempotent refresh/history | saved replay detects exactly two expected changes and none on rerun | PASS |
+| <=45-minute wall time / 100 | V1 collector slowest certified chunk 458.803 s; V2 projection is local | PASS baseline + negligible projection |
+| <=2,000 outbound requests / 100 | V2 projection adds zero network requests; V1 structural ceiling remains 2,000 | PASS |
+| <=$10 external API spend / 100 | policy remains $0 | PASS |
+| One evaluator command | `scripts/run_signalpost_v2.py` documented in `SUBMISSION.md` | PASS |
+| Data-linked product surface | same V2 command can emit `--product-output out/signalpost-v2.html` from final JSONL | PASS implementation |
+| Generic careers page not treated as hiring | V2 reserves hiring facts for concrete role/job/apply evidence only | PASS |
+| Social claim boundary | social fact means verified company page declared URL; platform itself not fetched | PASS |
+| Source rights documented | `docs/SUBMISSION_SOURCE_RIGHTS.md` + `submission/manifest.json` | PASS |
+| Safe URL/SSRF/redirect handling | hardened V1 site stack remains base collector | PASS |
+| Pinned dependencies/tests | `uv.lock`; full CI + canonical audit + refresh replay | PASS |
+| Models/APIs/secrets declared | no LLM/paid/search/social scraper; no server-side secrets | PASS |
 
-## Certified final release identity
+## V2 mapping diagnostic
 
-- Production application behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
-- Certified release harness SHA: `550bba0cce64a0a26d878c3b7f41eb20a55dc10e`
-- Certified GitHub Actions replay: `35246833190`
-- Release seed: `20261002`
-- Prior exclusions: 5,900
-- Final companies: 1,000
-- Overlap with prior cohorts: 0
-- Frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`
-- Aggregate output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
-- Aggregate artifact digest: `sha256:8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e`
+Reproducible command:
 
-## Certified final release metrics
+```bash
+uv run python scripts/audit_canonical_v2.py
+```
 
-- terminal completed: 1,000 / 1,000
-- claims: 17,098
-- deduplicated evidence records: 17,050
-- canonical contract-validation errors: 0
-- runner contract errors: 0
-- change errors: 0
-- observed conservative request charge: 13,628 total / 1,362.8 average per 100
-- structural request ceiling: 20,000 total / 2,000 per 100
-- slowest 100-company chunk: 458.803 seconds
+Measured over the immutable certified V1 1,000-company output:
+
+- companies: 1,000
+- unique organisation numbers: 1,000
+- canonical facts: 20,003
+- canonical validation errors: 0
+- company record area: 998 / 1,000
+- financials area: 998 / 1,000
+- people / locations area: 999 / 1,000
+- verified company-website area: 107 / 1,000
+- hiring / public-activity area: 48 / 1,000 (validated company-declared social profiles; not job inference)
+- individual role facts: 3,984
+- registered-location facts: 971
+- revenue facts: 792
+- operating-result facts: 976
+- workforce facts: 990
+- social-profile facts: 82
+
+This diagnostic demonstrates mapping exposure only. It is **not** an official Builderr score and does not prove hidden/reference-set recall.
+
+## Immutable V1 evidence identity
+
+- V1 pinned submission SHA: `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa`
+- base collector behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
+- certified replay: `35246833190`
+- final companies: 1,000
+- overlap with prior cohorts: 0
+- frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`
+- aggregate output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
+- aggregate artifact digest: `sha256:8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e`
+- observed conservative requests: 13,628 total / 1,362.8 average per 100
+- structural ceiling: 2,000 per 100
 - third-party API cost: $0.00
-- search API requests: 0
-- workforce: 990 / 1,000
-- verified websites: 107 / 1,000
-- companies with declared social handles: 48 / 1,000
-- companies with qualifying contact email: 53 / 1,000
 
-Full evidence: `docs/FINAL_RELEASE_1000_AUDIT.md`.
+## V2 production declaration
 
-## Final production declaration
+`scripts/run_signalpost_v2.py` invokes the existing final collector, then performs a zero-network canonical projection and optional data-linked product build. It does not change V1 identity thresholds, request policy, source connectors or the certified corpus.
 
-The production runner uses official BRREG sources, bounded Wikidata candidate discovery and independently verified company-owned public pages. It invokes no LLM, paid API, search API, sentiment model or social-platform scraper. Social-handle claims represent URLs declared by verified company pages; contact-email claims are bounded same-domain first-party evidence; neither expands into unsupported platform/mailbox assertions.
+The V2 evaluator path uses official BRREG sources, bounded Wikidata candidate nomination and independently verified company-owned public pages. It invokes no LLM, paid API, search API, sentiment model or social-platform scraper.
 
 ## Remaining action
 
-No further tuning should be performed against the frozen release corpus. Submission preparation consists only of:
+1. keep PR #33 draft until V2 packaging and CI are complete;
+2. verify the final diff contains only intended canonical/product/submission changes;
+3. run the full test suite, canonical 1,000 audit, repository verifier and refresh replay;
+4. merge only from a green exact head SHA;
+5. send Builderr the new pinned V2 commit as a revision while preserving V1 history.
 
-1. merge the F5 documentation/verifier bundle after CI;
-2. record the resulting exact `main` commit SHA externally in the Builderr submission email;
-3. send the repository URL, exact SHA, evaluator command, model/API declaration and expected $0 third-party API cost per 100-company run.
-
-The submission must not claim Builderr's hidden recall, coverage or overall score before the evaluator reports them.
+Do not claim an official Builderr score before Builderr evaluates the pinned revision.
