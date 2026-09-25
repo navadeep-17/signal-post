@@ -98,6 +98,11 @@ def _flatten_roles(claim: dict[str, Any]) -> list[dict[str, Any]]:
     for ordinal, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
+        # BRREG marks departed appointments with ``inactive``. Keep those rows in the
+        # original source claim for audit/history, but never publish them as a current
+        # ``people.role`` fact.
+        if row.get("inactive") is True:
+            continue
         facts.append(_fact("person_role", claim, value=dict(row), ordinal=ordinal))
     return facts
 
@@ -119,9 +124,10 @@ def _flatten_locations(claim: dict[str, Any]) -> list[dict[str, Any]]:
 def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
     """Project existing source-backed claims into explicit evaluator-facing facts.
 
-    This is zero-network and lossless. It never relaxes company identity checks, invents
-    missing values, or replaces the original claims/evidence envelope. It only makes the
-    already-published official and first-party facts explicit enough for canonical mapping.
+    This is zero-network and lossless with respect to published current facts: it never
+    relaxes company identity checks, invents missing values, or replaces the original
+    claims/evidence envelope. Historical/inactive role rows remain in the source claim
+    but are not mislabeled as current people facts.
     """
 
     index = _claim_index(contract)
@@ -268,6 +274,8 @@ def validate_canonical_projection(contract: dict[str, Any]) -> list[str]:
                 errors.append(f"canonical fact {position} references missing evidence {ref}")
         if fact.get("availability") != "available" and fact.get("value") is not None:
             errors.append(f"canonical fact {position} has value while unavailable")
+        if fact_type == "person_role" and isinstance(fact.get("value"), dict) and fact["value"].get("inactive") is True:
+            errors.append(f"canonical fact {position} publishes an inactive person role as current")
 
     flattened: list[dict[str, Any]] = []
     for key in ("company_record", "financials", "people", "locations", "company_website", "jobs", "public_activity"):
