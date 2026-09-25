@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 JOB_PATH_MARKERS = (
@@ -52,6 +52,20 @@ GENERIC_JOB_TITLES = {
     "jobb hos oss",
     "jobb",
 }
+GENERIC_JOB_PATH_SEGMENTS = {
+    "job",
+    "jobs",
+    "career",
+    "careers",
+    "jobb",
+    "jobber",
+    "stilling",
+    "stillinger",
+    "ledige-stillinger",
+    "vacancy",
+    "vacancies",
+}
+JOB_DETAIL_QUERY_KEYS = {"job", "jobid", "job_id", "position", "positionid", "vacancy", "opening", "gh_jid"}
 UPDATE_PATH_MARKERS = (
     "/news",
     "/nyheter",
@@ -68,6 +82,7 @@ GENERIC_UPDATE_TITLES = {
     "press",
     "presse",
 }
+GENERIC_UPDATE_PATH_SEGMENTS = {"news", "nyheter", "aktuelt", "blog", "press", "presse"}
 DATE_PATTERNS = (
     re.compile(r"\b(20\d{2}-[01]\d-[0-3]\d)\b"),
     re.compile(r"\b([0-3]?\d[./-][01]?\d[./-]20\d{2})\b"),
@@ -113,6 +128,31 @@ def _specific_title(title: str, *, generic: set[str]) -> bool:
     return len(words) >= 2
 
 
+def _detail_page_url(url: str, *, generic_segments: set[str], allow_query_keys: set[str] | None = None) -> bool:
+    """Reject section roots such as /careers and /news even when their text looks rich."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    segments = [segment.casefold() for segment in parsed.path.split("/") if segment]
+    if not segments:
+        return False
+
+    # Locate the right-most section marker. A real detail URL needs a later path segment,
+    # e.g. /careers/software-engineer or /news/product-launch. Locale prefixes are fine.
+    generic_positions = [index for index, segment in enumerate(segments) if segment in generic_segments]
+    if generic_positions and generic_positions[-1] < len(segments) - 1:
+        return True
+
+    # Some ATS detail pages use /jobs?jobid=123. Only explicit role-id style query keys are
+    # accepted; generic language/year/filter parameters do not turn an index into a fact.
+    if allow_query_keys:
+        query_keys = {key.casefold() for key in parse_qs(parsed.query, keep_blank_values=False)}
+        if query_keys & allow_query_keys:
+            return True
+    return False
+
+
 def _first_date(text: str) -> str | None:
     for pattern in DATE_PATTERNS:
         match = pattern.search(text)
@@ -135,7 +175,7 @@ def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, li
 
 
 def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    """Extract only explicit job cards/apply pages and dated company updates.
+    """Extract only explicit job detail/apply pages and dated company update details.
 
     This function performs no network access. It operates only on pages retained by the
     already-qualified company-site crawl and only when the website identity assessment is
@@ -167,10 +207,16 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
         content_hash = str(page.get("content_sha256") or "").strip()
 
         has_job_path = any(marker in folded_url for marker in JOB_PATH_MARKERS)
+        has_job_detail_url = _detail_page_url(
+            url,
+            generic_segments=GENERIC_JOB_PATH_SEGMENTS,
+            allow_query_keys=JOB_DETAIL_QUERY_KEYS,
+        )
         has_apply_action = any(marker in folded_text for marker in JOB_ACTION_MARKERS)
         has_job_detail = any(marker in folded_text for marker in JOB_DETAIL_MARKERS)
         if (
             has_job_path
+            and has_job_detail_url
             and has_apply_action
             and has_job_detail
             and _specific_title(title, generic=GENERIC_JOB_TITLES)
@@ -183,14 +229,16 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
                         "title": title,
                         "url": url,
                         "content_sha256": content_hash,
-                        "evidence_span": f"{title}; explicit apply action present on verified company-owned role page"[:1000],
+                        "evidence_span": f"{title}; explicit apply action present on verified company-owned role detail page"[:1000],
                     }
                 )
 
         has_update_path = any(marker in folded_url for marker in UPDATE_PATH_MARKERS)
+        has_update_detail_url = _detail_page_url(url, generic_segments=GENERIC_UPDATE_PATH_SEGMENTS)
         published_date = _first_date(text)
         if (
             has_update_path
+            and has_update_detail_url
             and published_date
             and _specific_title(title, generic=GENERIC_UPDATE_TITLES)
         ):
@@ -277,7 +325,7 @@ def project_first_party_activity_claims(
                 "evidence_ids": [evidence_id],
                 "platform": "company_site",
                 "signal_type": "job_posting",
-                "claim_scope": "Verified company-owned role page with a specific title, job detail marker and explicit apply action; generic careers pages excluded.",
+                "claim_scope": "Verified company-owned role detail page with a specific title, job detail marker and explicit apply action; generic careers pages excluded.",
             }
         )
 
@@ -305,7 +353,7 @@ def project_first_party_activity_claims(
                 "evidence_ids": [evidence_id],
                 "platform": "company_site",
                 "signal_type": "company_update",
-                "claim_scope": "Dated article/update page retained from the exact verified company-owned website; undated index pages excluded.",
+                "claim_scope": "Dated article/update detail page retained from the exact verified company-owned website; section indexes and undated pages excluded.",
             }
         )
 
