@@ -16,6 +16,7 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
     project_canonical_profile,
     validate_canonical_projection,
 )
+from norway_company_agent.first_party_activity import project_first_party_activity_claims  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 from build_submission_prototype import build_html, read_jsonl  # noqa: E402
 
@@ -85,10 +86,26 @@ def _canonical_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _profile_index(work_dir: Path) -> dict[str, dict[str, Any]]:
+    path = work_dir / "profiles.jsonl"
+    if not path.is_file():
+        raise SystemExit(f"V2 runner expected retained internal profiles at {path}")
+    profiles = read_jsonl(path)
+    index = {
+        str(profile.get("organisation_number") or ""): profile
+        for profile in profiles
+        if profile.get("organisation_number")
+    }
+    if len(index) != len(profiles):
+        raise SystemExit("V2 retained profiles contain missing or duplicate organisation numbers")
+    return index
+
+
 def main() -> None:
     forwarded, product_output = _pop_optional_flag(sys.argv[1:], "--product-output")
     output_path = Path(_flag_value(forwarded, "--output"))
     report_path = Path(_flag_value(forwarded, "--report"))
+    work_dir = Path(_flag_value(forwarded, "--work-dir"))
 
     base_output = output_path.with_name(output_path.stem + ".v1-base" + output_path.suffix)
     base_report = report_path.with_name(report_path.stem + ".v1-base" + report_path.suffix)
@@ -104,7 +121,15 @@ def main() -> None:
         raise SystemExit(completed.returncode)
 
     base_rows = read_jsonl(base_output)
-    projected = [project_canonical_profile(row) for row in base_rows]
+    profiles_by_org = _profile_index(work_dir)
+    projected: list[dict[str, Any]] = []
+    for row in base_rows:
+        org = str(row.get("organisation_number") or "")
+        profile = profiles_by_org.get(org)
+        if profile is None:
+            raise SystemExit(f"V2 retained profile missing for {org}")
+        with_activity = project_first_party_activity_claims(row, profile)
+        projected.append(project_canonical_profile(with_activity))
 
     errors: list[dict[str, Any]] = []
     for row in projected:
@@ -119,6 +144,12 @@ def main() -> None:
     report = json.loads(base_report.read_text(encoding="utf-8"))
     report["canonical_projection"] = _canonical_metrics(projected)
     report["canonical_projection"]["validation_errors"] = errors
+    report["canonical_projection"]["first_party_activity_projection"] = {
+        "network_requests_added": 0,
+        "generic_careers_page_counts_as_hiring": False,
+        "job_requirement": "specific retained company-owned role page + job detail marker + explicit apply action",
+        "company_update_requirement": "specific retained company-owned news/update page + explicit publication date",
+    }
     report.setdefault("checks", {})["canonical_projection_valid"] = not errors
     report["passed"] = bool(report.get("passed")) and not errors
 
