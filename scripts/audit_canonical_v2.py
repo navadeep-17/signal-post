@@ -32,13 +32,31 @@ def read_gzip_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _role_row_counts(row: dict[str, Any]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for claim in row.get("claims") or []:
+        if not isinstance(claim, dict) or claim.get("field") != "roles" or claim.get("availability") != "available":
+            continue
+        value = claim.get("value") or {}
+        roles = value.get("roles") if isinstance(value, dict) else None
+        if not isinstance(roles, list):
+            continue
+        for role in roles:
+            if not isinstance(role, dict):
+                continue
+            counts["inactive" if role.get("inactive") is True else "active"] += 1
+    return counts
+
+
 def audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
     projected = [project_canonical_profile(row) for row in rows]
     validation_errors: list[dict[str, str]] = []
     fact_counts: Counter[str] = Counter()
     area_counts: Counter[str] = Counter()
+    source_role_counts: Counter[str] = Counter()
 
-    for row in projected:
+    for source, row in zip(rows, projected, strict=True):
+        source_role_counts.update(_role_row_counts(source))
         org = str(row.get("organisation_number") or "")
         for error in validate_contract_object(row):
             validation_errors.append({"organisation_number": org, "layer": "output_contract", "error": error})
@@ -56,6 +74,11 @@ def audit(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "canonical_facts": sum(fact_counts.values()),
         "fact_type_counts": dict(sorted(fact_counts.items())),
         "companies_by_data_area": dict(sorted(area_counts.items())),
+        "source_role_rows": {
+            "active": source_role_counts["active"],
+            "inactive": source_role_counts["inactive"],
+            "total": source_role_counts["active"] + source_role_counts["inactive"],
+        },
         "validation_errors": validation_errors,
         "passed": len(projected) == len({str(row.get("organisation_number") or "") for row in projected}) and not validation_errors,
     }
