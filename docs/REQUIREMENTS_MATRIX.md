@@ -2,7 +2,7 @@
 
 Updated: 2026-09-25
 
-This file separates directly reproduced properties from Builderr-owned evaluation outcomes. The certified V1 1,000-company corpus remains immutable; V2 changes mapping/product exposure rather than reselecting that evidence baseline.
+This file separates directly reproduced properties from Builderr-owned evaluation outcomes. The certified V1 1,000-company corpus remains immutable; V2 changes mapping/product exposure and adds zero-network strict first-party activity projection rather than reselecting that evidence baseline.
 
 Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = strong measured evidence but not proof of Builderr's evaluator result; **OPEN** = evaluator-owned.
 
@@ -16,8 +16,8 @@ Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = strong m
 | Exactly one terminal result/company | 1,000 unique orgs / 1,000 terminal V1 outputs | PASS |
 | Source claims/evidence/changes/operations | base collector emits and validates `OUTPUT_CONTRACT.md` envelope | PASS |
 | Evaluator-friendly canonical mapping | V2 adds evidence-linked `canonical_facts[]` and `canonical_profile` | PASS implementation |
-| Registry/accounts mapped into explicit fields | 20,003 canonical facts over immutable certified 1,000; 0 mapping errors | PASS implementation |
-| People flattened | 3,984 individual `people.role` facts in V2 audit | PASS implementation |
+| Registry/accounts mapped into explicit fields | 19,951 canonical facts over immutable certified 1,000; 0 mapping errors | PASS implementation |
+| Current people flattened safely | 3,932 current `people.role` facts; inactive/departed appointments excluded from current canonical facts | PASS implementation |
 | Locations flattened | 971 individual `locations.registered_workplace` facts in V2 audit | PASS implementation |
 | Financial period/currency retained | V2 canonical financial facts preserve source claim period/currency | PASS |
 | Claim-level provenance/time/hash | canonical facts reuse original evidence IDs; source envelope remains authoritative | PASS |
@@ -26,16 +26,18 @@ Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = strong m
 | External identity precision | exact-company website/handle/contact guards unchanged from V1 | PARTIAL; Builderr authoritative |
 | External/overall coverage | V2 exposes more existing facts but Builderr owns reference matching | OPEN |
 | Idempotent refresh/history | saved replay detects exactly two expected changes and none on rerun | PASS |
-| <=45-minute wall time / 100 | V1 collector slowest certified chunk 458.803 s; V2 projection is local | PASS baseline + negligible projection |
-| <=2,000 outbound requests / 100 | V2 projection adds zero network requests; V1 structural ceiling remains 2,000 | PASS |
+| <=45-minute wall time / 100 | V1 collector slowest certified chunk 458.803 s; V2 projections are local | PASS baseline + negligible projection |
+| <=2,000 outbound requests / 100 | V2 canonical/activity/product projections add zero network requests; V1 structural ceiling remains 2,000 | PASS |
 | <=$10 external API spend / 100 | policy remains $0 | PASS |
 | One evaluator command | `scripts/run_signalpost_v2.py` documented in `SUBMISSION.md` | PASS |
-| Data-linked product surface | same V2 command can emit `--product-output out/signalpost-v2.html` from final JSONL | PASS implementation |
-| Generic careers page not treated as hiring | V2 reserves hiring facts for concrete role/job/apply evidence only | PASS |
+| Data-linked product surface | same V2 command emits a five-area evidence-linked HTML product from final JSONL | PASS implementation |
+| Generic careers page not treated as hiring | job fact requires verified same-site page + specific title + job detail + explicit apply/application action | PASS implementation/tests |
+| Generic/undated news not treated as activity | company-update fact requires verified same-site specific article/update + explicit date | PASS implementation/tests |
+| Cross-domain activity rejected | strict first-party projector requires the retained page to remain on the exact verified company-owned site | PASS implementation/tests |
 | Social claim boundary | social fact means verified company page declared URL; platform itself not fetched | PASS |
 | Source rights documented | `docs/SUBMISSION_SOURCE_RIGHTS.md` + `submission/manifest.json` | PASS |
 | Safe URL/SSRF/redirect handling | hardened V1 site stack remains base collector | PASS |
-| Pinned dependencies/tests | `uv.lock`; full CI + canonical audit + refresh replay | PASS |
+| Pinned dependencies/tests | `uv.lock`; full CI + canonical audit + product regression + refresh replay | PASS |
 | Models/APIs/secrets declared | no LLM/paid/search/social scraper; no server-side secrets | PASS |
 
 ## V2 mapping diagnostic
@@ -50,21 +52,30 @@ Measured over the immutable certified V1 1,000-company output:
 
 - companies: 1,000
 - unique organisation numbers: 1,000
-- canonical facts: 20,003
+- canonical facts: **19,951**
 - canonical validation errors: 0
 - company record area: 998 / 1,000
 - financials area: 998 / 1,000
 - people / locations area: 999 / 1,000
 - verified company-website area: 107 / 1,000
 - hiring / public-activity area: 48 / 1,000 (validated company-declared social profiles; not job inference)
-- individual role facts: 3,984
+- current individual role facts: **3,932**
 - registered-location facts: 971
 - revenue facts: 792
 - operating-result facts: 976
 - workforce facts: 990
 - social-profile facts: 82
+- contact-email observations: 57
 
 This diagnostic demonstrates mapping exposure only. It is **not** an official Builderr score and does not prove hidden/reference-set recall.
+
+## Strict first-party activity boundary
+
+`src/norway_company_agent/first_party_activity.py` is a zero-network projection over already retained pages from an exact verified company website.
+
+It does not broaden website discovery or fetch job/social/news platforms. A generic careers page, generic news index, cross-domain page, missing apply action or undated update produces no job/update fact. This directly preserves the Builderr feedback boundary that a generic careers page must not count as hiring.
+
+Any measured job/update yield from a fresh cohort is reported separately as a validation diagnostic and is not treated as an official Builderr score.
 
 ## Immutable V1 evidence identity
 
@@ -82,16 +93,18 @@ This diagnostic demonstrates mapping exposure only. It is **not** an official Bu
 
 ## V2 production declaration
 
-`scripts/run_signalpost_v2.py` invokes the existing final collector, then performs a zero-network canonical projection and optional data-linked product build. It does not change V1 identity thresholds, request policy, source connectors or the certified corpus.
+`scripts/run_signalpost_v2.py` invokes the existing final collector, then performs zero-network strict first-party activity and canonical projections and an optional data-linked product build. It does not change V1 identity thresholds, request policy, source connectors or the certified corpus.
 
 The V2 evaluator path uses official BRREG sources, bounded Wikidata candidate nomination and independently verified company-owned public pages. It invokes no LLM, paid API, search API, sentiment model or social-platform scraper.
 
 ## Remaining action
 
-1. keep PR #33 draft until V2 packaging and CI are complete;
-2. verify the final diff contains only intended canonical/product/submission changes;
-3. run the full test suite, canonical 1,000 audit, repository verifier and refresh replay;
-4. merge only from a green exact head SHA;
-5. send Builderr the new pinned V2 commit as a revision while preserving V1 history.
+1. complete and inspect the fresh zero-overlap V2 validation;
+2. remove the temporary validation workflow after preserving its report/artifact identity;
+3. finish V2 submission verifier/manifest packaging;
+4. verify the final diff contains only intended canonical/product/submission changes;
+5. run the full test suite, canonical 1,000 audit, repository verifier and refresh replay;
+6. merge only from a green exact head SHA;
+7. send Builderr the new pinned V2 commit as a revision while preserving V1 history.
 
 Do not claim an official Builderr score before Builderr evaluates the pinned revision.
