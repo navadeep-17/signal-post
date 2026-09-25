@@ -3,7 +3,7 @@
 Signalpost resolves Norwegian companies by organisation number, gathers official and carefully qualified public evidence, and emits one terminal, auditable output object per company.
 
 **Evaluator entry point:** read `SUBMISSION.md` first.  
-**Current revision:** V2 canonical mapping + data-linked product surface.  
+**Current revision:** V2 canonical mapping + evidence-linked product surface.  
 **V1 pinned submission:** `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa` remains immutable.
 
 ## What changed in V2
@@ -13,14 +13,17 @@ Builderr diagnostic feedback indicated that the first submission returned comple
 V2 addresses that without weakening identity controls:
 
 - the certified V1 collector remains the base collection path;
-- a zero-network canonical projection exposes explicit `company.*`, `financial.*`, `people.*`, `locations.*`, `website.*`, `public.*` and reserved `hiring.*` facts;
+- a zero-network canonical projection exposes explicit `company.*`, `financial.*`, `people.*`, `locations.*`, `website.*`, `public.*` and `hiring.*` facts;
 - aggregate role and location payloads are flattened into individual evidence-linked facts;
+- departed/inactive BRREG appointments stay in the source claim for audit history but are excluded from current `people.role` facts;
 - financial values retain reporting period and currency;
 - verified first-party social/contact/workforce observations become explicit canonical facts;
-- the same evaluator command can emit a data-linked static HTML product;
-- generic careers pages are **not** treated as hiring.
+- a strict zero-network first-party activity projector may publish a job only from a retained verified-company role page with a specific title, job detail marker and explicit apply action;
+- a company update requires a retained verified-company article/update page with a specific title and explicit date;
+- generic careers/news indexes, cross-domain pages and undated activity are rejected;
+- the same evaluator command can emit a data-linked static HTML product organized around Builderr's five canonical areas.
 
-The original `claims[]` and `evidence[]` remain the source of truth. V2 only projects already-published evidence into an evaluator-friendly shape.
+The original `claims[]` and `evidence[]` remain the source of truth. V2 does not invent missing facts or replace provenance.
 
 ## Production guarantees
 
@@ -29,7 +32,7 @@ The original `claims[]` and `evidence[]` remain the source of truth. V2 only pro
 - Official Brønnøysund sources are preferred for registry facts, financials, roles, locations, group structure and workforce evidence.
 - Website/domain discovery nominates candidates; publication requires exact-company page evidence.
 - Social platforms are not fetched. A social-profile fact only means an exact verified company page declared that URL.
-- No generic careers keyword/page is published as a hiring fact.
+- A generic careers keyword/page is **not** a hiring fact.
 - No LLM, paid API, search API, sentiment model or social-platform scraper is invoked by the evaluator path.
 - Third-party API spend policy is **$0 per 100-company run**.
 - Production requires **no server-side secrets or API keys**.
@@ -77,30 +80,31 @@ uv run python scripts/run_signalpost_v2.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-The V2 output keeps the original `OUTPUT_CONTRACT.md` envelope and adds `canonical_facts[]` plus `canonical_profile`. The HTML file is generated from the same final JSONL, so the product surface is data-linked rather than a separate mockup.
+The V2 output keeps the original `OUTPUT_CONTRACT.md` envelope and adds `canonical_facts[]` plus `canonical_profile`. After the unchanged base collector completes, V2 projects strict first-party activity from retained verified-company pages, canonicalizes the source-backed claims, validates the result and optionally builds the HTML product. These V2 projection steps add **zero network requests**.
 
 ## Measured V2 canonical recovery on the immutable certified corpus
 
 `uv run python scripts/audit_canonical_v2.py` projects the already-certified V1 1,000-company output without making any network request. This is a mapping diagnostic, not a new qualification run.
 
-Latest CI measurement:
+Current repository-derived result:
 
 - 1,000 companies / 1,000 unique organisation numbers;
-- **20,003 canonical facts**;
+- **19,951 canonical facts**;
 - 0 canonical validation errors;
 - company record available on 998 / 1,000;
 - financials on 998 / 1,000;
 - people or registered locations on 999 / 1,000;
 - verified company-website area on 107 / 1,000;
 - hiring/public-activity area on 48 / 1,000 through validated company-declared social profiles;
-- 3,984 individual role facts;
+- **3,932 current individual role facts** after excluding inactive/departed appointments;
 - 971 registered-location facts;
 - 792 revenue facts;
 - 976 operating-result facts;
 - 990 workforce facts;
-- 82 validated social-profile facts.
+- 82 validated social-profile facts;
+- 57 first-party contact-email observations.
 
-These counts show what V2 can expose from existing evidence. They do **not** predict or claim an official Builderr score.
+These counts show what V2 exposes from the immutable certified V1 evidence. They do **not** predict or claim an official Builderr score.
 
 ## Certified V1 1,000-company evidence baseline
 
@@ -122,6 +126,20 @@ Certified identities:
 
 V2 does not rewrite or reselect this corpus.
 
+## Product surface
+
+`--product-output out/signalpost-v2.html` builds an evaluator-facing workspace directly from the final V2 JSONL. The checked-in `submission/signalpost-v2.html` is deterministically rebuilt from the immutable certified corpus and regression-tested byte-for-byte against `scripts/build_v2_product.py`.
+
+The product is organized around:
+
+1. Company record
+2. Financials
+3. People & locations
+4. Company website
+5. Hiring & public activity
+
+Every displayed fact links back to its evidence record. The UI does not infer reviews, sentiment, follower metrics, mailbox deliverability or hiring from absence/generic navigation.
+
 ## Verify this revision
 
 ```bash
@@ -129,12 +147,6 @@ uv run python scripts/verify_submission_bundle.py
 uv run python scripts/audit_canonical_v2.py
 uv run --with pytest pytest -q
 ```
-
-## Product surface
-
-A V2 evaluator run produces `out/signalpost-v2.html` when `--product-output` is supplied. The workspace is deterministic over the same JSONL and exposes financials, workforce, leadership, locations, verified website/contact/social facts, explicit unknowns, changes and provenance.
-
-The product must not imply social-platform activity, followers, mailbox deliverability, reviews, sentiment or hiring unless a source-backed fact explicitly establishes it.
 
 ## Refresh proof
 
@@ -151,9 +163,11 @@ Expected result: two material changes, no false changes and no additional change
 - `SUBMISSION.md` — V2 evaluator guide and revision boundary
 - `OUTPUT_CONTRACT.md` — source envelope + V2 canonical projection
 - `submission/manifest.json` — machine-readable submission declaration
+- `submission/signalpost-v2.html` — checked-in evidence-linked V2 product artifact
 - `submission/EMAIL_TEMPLATE.md` — revision email template
 - `docs/SUBMISSION_SOURCE_RIGHTS.md` — source/licence/acquisition policy
 - `docs/FINAL_RELEASE_1000_AUDIT.md` — certified V1 evidence baseline
 - `scripts/audit_canonical_v2.py` — reproducible V2 mapping audit
+- `src/norway_company_agent/first_party_activity.py` — strict zero-network job/update projection
 
 Historical experiment scripts/documents remain for auditability. They are not enabled by the V2 evaluator entry point unless the current submission documentation explicitly says otherwise.
