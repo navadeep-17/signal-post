@@ -1,19 +1,59 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "project": "Signalpost",
   "repository": "https://github.com/navadeep-17/signal-post",
   "submission_identity": {
+    "revision": "v2",
+    "v1_pinned_submission_sha": "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa",
+    "base_collector_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
     "production_application_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
     "certified_release_harness_sha": "550bba0cce64a0a26d878c3b7f41eb20a55dc10e",
     "f4_submission_workspace_merge_sha": "13e0503be4208a36e7ff34a90bf89b87caf68e3d",
-    "repository_head_rule": "Submit the exact final main commit SHA externally. The verifier prints the current checkout SHA."
+    "repository_head_rule": "Submit the exact final merged V2 main commit SHA externally. V1 remains immutable."
   },
   "entrypoints": {
-    "production_runner": "scripts/run_signalpost_final.py",
+    "evaluator_runner": "scripts/run_signalpost_v2.py",
+    "base_collector": "scripts/run_signalpost_final.py",
+    "canonical_projection": "src/norway_company_agent/canonical_projection.py",
+    "canonical_audit": "scripts/audit_canonical_v2.py",
     "output_contract": "OUTPUT_CONTRACT.md",
     "refresh_replay": "scripts/run_refresh_replay.py",
     "submission_workspace_builder": "scripts/build_submission_prototype.py",
     "submission_verifier": "scripts/verify_submission_bundle.py"
+  },
+  "revision_v2": {
+    "canonical_schema_version": "signalpost-canonical-v2",
+    "zero_network_projection": true,
+    "changes_collection_request_budget": false,
+    "changes_identity_thresholds": false,
+    "changes_v1_certified_corpus": false,
+    "product_surface_generated_from_final_output": true,
+    "generic_careers_page_counts_as_hiring": false,
+    "canonical_audit": {
+      "source": "immutable certified V1 1000-company output",
+      "ci_run_id": 36129375959,
+      "companies": 1000,
+      "unique_organisation_numbers": 1000,
+      "canonical_facts": 20003,
+      "validation_errors": 0,
+      "companies_by_data_area": {
+        "company_record": 998,
+        "financials": 998,
+        "people_and_locations": 999,
+        "company_website": 107,
+        "hiring_and_public_activity": 48
+      },
+      "selected_fact_counts": {
+        "person_role": 3984,
+        "registered_location": 971,
+        "financial_revenue": 792,
+        "financial_operating_result": 976,
+        "workforce_snapshot": 990,
+        "social_profile": 82,
+        "contact_email": 57
+      },
+      "official_score_claimed": false
+    }
   },
   "runtime": {
     "python": ">=3.12",
@@ -119,13 +159,15 @@
     "No paid search API",
     "No public-review corpus",
     "No independent sentiment model in the production runner",
-    "No inferred hiring activity, follower counts, engagement or platform verification"
+    "No generic careers-page inference as hiring",
+    "No inferred follower counts, engagement or platform verification"
   ],
   "known_limitations": [
-    "Builderr owns the hidden availability denominator, external union and official score; this repository does not claim that hidden recall, coverage or total-score gates are proven.",
+    "Builderr owns the reference collection, matching logic, availability denominator and official score; this repository does not claim that hidden recall, coverage or total-score gates are proven.",
     "Verified company websites, social declarations and contact emails are intentionally conservative because publication requires exact-entity evidence.",
     "Annual-report workforce extraction abstains on missing or conflicting company-scope employee/FTE phrases.",
     "A company-declared social URL means only that the exact verified company page declared that URL; the platform page itself is not fetched.",
-    "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; deliverability is not claimed."
+    "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; mailbox deliverability is not claimed.",
+    "V2 canonical-audit counts are diagnostics over the immutable certified V1 corpus, not an official Builderr evaluation."
   ]
 }
