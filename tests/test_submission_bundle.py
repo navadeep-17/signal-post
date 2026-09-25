@@ -29,17 +29,42 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     assert body["submission_identity"]["base_collector_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
     assert body["entrypoints"]["evaluator_runner"] == "scripts/run_signalpost_v2.py"
     assert body["entrypoints"]["base_collector"] == "scripts/run_signalpost_final.py"
+    assert body["entrypoints"]["v2_registry_projection"] == "src/norway_company_agent/v2_registry_projection.py"
+    assert body["entrypoints"]["first_party_activity_projection"] == "src/norway_company_agent/first_party_activity.py"
+    assert body["entrypoints"]["v2_product_builder"] == "scripts/build_v2_product.py"
     assert body["runtime"]["server_side_secrets_required"] == []
     assert revision["canonical_schema_version"] == "signalpost-canonical-v2"
     assert revision["zero_network_projection"] is True
+    assert revision["v2_registry_projection_zero_network"] is True
+    assert revision["strict_first_party_activity_projection_zero_network"] is True
     assert revision["changes_identity_thresholds"] is False
     assert revision["changes_v1_certified_corpus"] is False
+    assert revision["changes_v1_base_runner_or_output_adapter"] is False
     assert revision["product_surface_generated_from_final_output"] is True
     assert revision["generic_careers_page_counts_as_hiring"] is False
+    assert revision["generic_news_index_counts_as_activity"] is False
+    assert revision["cross_domain_activity_pages_allowed"] is False
     assert revision["canonical_audit"]["canonical_facts"] == 19951
     assert revision["canonical_audit"]["selected_fact_counts"]["person_role"] == 3932
     assert revision["canonical_audit"]["validation_errors"] == 0
     assert revision["canonical_audit"]["official_score_claimed"] is False
+
+    fresh = revision["fresh_validation"]
+    replay = fresh["final_projection_replay"]
+    assert fresh["companies"] == 300
+    assert fresh["known_internal_exclusions"] == 6900
+    assert fresh["known_internal_overlap_count"] == 0
+    assert fresh["observed_conservative_challenge_requests"] == 4052
+    assert fresh["theoretical_challenge_request_ceiling"] == 6000
+    assert fresh["third_party_cost_usd"] == 0.0
+    assert fresh["search_api_requests"] == 0
+    assert replay["companies"] == 300
+    assert replay["canonical_facts"] == 7165
+    assert replay["selected_fact_counts"]["job_posting"] == 0
+    assert replay["selected_fact_counts"]["company_update"] == 0
+    assert replay["activity_audit_file_empty"] is True
+    assert replay["contract_validation_errors"] == 0
+    assert replay["canonical_validation_errors"] == 0
 
     assert release["release_companies"] == 1000
     assert release["overlap_count"] == 0
@@ -59,9 +84,11 @@ def test_v2_submission_components_are_present() -> None:
         "scripts/build_v2_product.py",
         "scripts/build_certified_v2_product.py",
         "src/norway_company_agent/canonical_projection.py",
+        "src/norway_company_agent/v2_registry_projection.py",
         "src/norway_company_agent/first_party_activity.py",
         "submission/signalpost-v2.html",
         "tests/test_canonical_projection.py",
+        "tests/test_v2_registry_mapping.py",
         "tests/test_first_party_activity.py",
         "tests/test_v2_product_artifact.py",
     )
@@ -98,15 +125,17 @@ def test_submission_docs_preserve_v2_and_claim_boundaries() -> None:
     assert "canonical_facts" in contract
     assert "19,951" in submission
     assert "3,932" in submission
-    assert "specific role page" in submission_folded
-    assert "explicit apply" in submission_folded
-    assert "specific dated article" in submission_folded
+    assert "detail url" in submission_folded
+    assert "explicit apply/application action" in submission_folded
+    assert "explicit publication date" in submission_folded
+    assert "strict job-posting facts | **0**" in submission_folded
+    assert "strict dated company-update facts | **0**" in submission_folded
     assert "server-side secrets required: **none**" in submission_folded
     assert "contact name: `<contact_name>`" in email.casefold()
     assert "contact email: `<contact_email>`" in email.casefold()
     assert "mailbox deliverability" in submission_folded
     assert "follower" in submission_folded
-    assert "generic careers page" in submission_folded
+    assert "generic careers" in submission_folded
 
 
 def test_repository_only_submission_verifier_passes() -> None:
@@ -122,6 +151,8 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert report["passed"] is True
     assert report["revision"] == "v2"
     assert report["repository_bundle_errors"] == []
+    assert report["v1_base_blobs"]["scripts/run_signalpost_final.py"] == "9be89b9827135b1ed703318e1d189d5d3b8ca604"
+    assert report["v1_base_blobs"]["src/norway_company_agent/output_contract.py"] == "c163f493017e39252ef200e68d53bcebc12930b4"
     assert report["repository_artifacts"]["manifest_rows"] == 1000
     assert report["repository_artifacts"]["aggregate_output_rows"] == 1000
     assert report["repository_artifacts"]["terminal_completed"] == 1000
@@ -129,3 +160,4 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert report["repository_artifacts"]["manifest_output_order_match"] is True
     assert report["repository_artifacts"]["v2_canonical_facts"] == 19951
     assert report["repository_artifacts"]["v2_canonical_failures"] == []
+    assert report["repository_artifacts"]["v2_product"]["canonical_area_labels_present"] is True
