@@ -73,6 +73,8 @@ jobs:
             --annual-workforce-ocr-dpi 110
 
       - name: Verify canonical recovery and product linkage
+        env:
+          PYTHONPATH: src
         run: |
           uv run python - <<'PY'
           import json
