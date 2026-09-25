@@ -5,6 +5,7 @@ from typing import Any
 
 from .canonical_contract import project_canonical_contract, validate_canonical_contract
 from .external_footprint import publishable_observation
+from .registry_live_contract import project_registry_live_claims
 
 
 def _evidence_id(org: str, observation: dict[str, Any]) -> str:
@@ -56,13 +57,14 @@ def _with_canonical(contract: dict[str, Any], claims: list[dict[str, Any]], evid
 
 
 def project_workforce_observations(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Project qualified workforce observations, then build the final canonical view.
+    """Project final zero-network enrichments and build the canonical view.
 
-    This function is the last projection in the evaluator runner. Building the
-    canonical view here guarantees that it sees base registry/accounts claims as
-    well as H2 social/contact/workforce claims.
+    This is the last projection in the evaluator runner. V2 first exposes
+    already-fetched live BRREG entity facts, then adds workforce observations,
+    then builds and validates the canonical scorer/product view.
     """
 
+    contract = project_registry_live_claims(contract, profile)
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
