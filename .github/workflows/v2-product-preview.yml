@@ -18,10 +18,11 @@ jobs:
   build-preview:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout V2 branch
+      - name: Checkout exact triggering commit
         uses: actions/checkout@v4
-        with:
-          ref: feature/v2-canonical-product-surface
+
+      - name: Record projected commit
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -59,11 +60,12 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import hashlib, json, pathlib
+          import hashlib, json, os, pathlib
           output = pathlib.Path('/tmp/final-release-1000-v2.jsonl')
           preview = pathlib.Path('submission/v2-product-preview.html')
           rows = sum(1 for line in output.open(encoding='utf-8') if line.strip())
           meta = {
+              'projected_commit_sha': os.environ['GITHUB_SHA'],
               'source_output_sha256': '00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2',
               'canonical_rows': rows,
               'canonical_output_sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
