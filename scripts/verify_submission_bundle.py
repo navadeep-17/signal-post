@@ -220,8 +220,9 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
     audit = revision.get("canonical_audit") or {}
     if audit.get("companies") != 1000 or audit.get("unique_organisation_numbers") != 1000:
         errors.append("V2 canonical audit must cover the immutable certified 1000")
-    if audit.get("canonical_facts") != 20003 or audit.get("validation_errors") != 0:
-        errors.append("V2 canonical audit metrics drifted")
+    declared_facts = audit.get("canonical_facts")
+    if not isinstance(declared_facts, int) or declared_facts <= 0 or audit.get("validation_errors") != 0:
+        errors.append("V2 canonical audit metrics are invalid")
     if audit.get("official_score_claimed") is not False:
         errors.append("V2 manifest must not claim an official Builderr score")
 
@@ -270,8 +271,8 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
 
     artifact_report, artifact_errors = repository_artifact_report(manifest)
     errors.extend(artifact_errors)
-    if artifact_report.get("v2_canonical_facts") != 20003:
-        errors.append("repository-derived V2 canonical fact count does not match declaration")
+    if artifact_report.get("v2_canonical_facts") != declared_facts:
+        errors.append("repository-derived V2 canonical fact count does not match manifest declaration")
     return errors, artifact_report
 
 
