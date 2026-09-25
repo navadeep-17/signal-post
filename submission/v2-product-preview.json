@@ -2,6 +2,7 @@
   "source_output_sha256": "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2",
   "canonical_rows": 1000,
   "canonical_output_sha256": "8e5f0cff455f7eb0397a36966308a4f7ce59a2ce8a2711a9249ac235c3540f96",
-  "preview_sha256": "75dda278afc93609b45c6867b3556f259f5195e01c7171df2855a3bb72d2bc53",
-  "network_requests_for_projection": 0
+  "preview_sha256": "d8f6584d7c7e9558527ad65fcf6a5b1a1625957164c4581da5f7ca278fe3bf7c",
+  "network_requests_for_projection": 0,
+  "product_builder": "scripts/build_v2_product.py"
 }
