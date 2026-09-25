@@ -1,6 +1,6 @@
 # Signalpost V2 submission guide
 
-This is the evaluator-facing source of truth for the current revision. V2 keeps the qualified V1 collector as the base collection path and adds an evidence-linked canonical projection plus a data-linked product surface. The original V1 submission remains immutable.
+This is the evaluator-facing source of truth for the current revision. V2 keeps the qualified V1 collector as the base collection path and adds evidence-linked canonical mapping, a strict zero-network first-party activity projection, and a data-linked product surface. The original V1 submission remains immutable.
 
 ## 1. Revision identity
 
@@ -29,11 +29,12 @@ V2 therefore prioritizes **mapping before new crawling**:
 
 1. preserve the original `claims[]` and `evidence[]` envelope;
 2. add flat typed `canonical_facts[]` that reuse the same evidence IDs;
-3. group those facts in `canonical_profile` under company record, financials, people, locations, company website, jobs and public activity;
-4. emit a static HTML product from the exact same final JSONL;
-5. keep identity thresholds, request budgets and source-rights boundaries unchanged.
+3. group those facts into Builderr-facing company record, financials, people & locations, company website, and hiring & public activity areas;
+4. project only strict first-party job/update facts from pages already retained by the exact verified-company crawl;
+5. emit a static HTML product from the exact same final JSONL;
+6. keep identity thresholds, source connectors and collection request budgets unchanged.
 
-A generic careers page is never a hiring fact. V2 only reserves `hiring.job_posting` for a future source-backed real job card/feed/apply fact.
+A generic careers page is never a hiring fact.
 
 ## 3. Reproducible setup
 
@@ -85,7 +86,7 @@ uv run python scripts/run_signalpost_v2.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-The wrapper runs the existing final collector first, then performs a zero-network canonical projection, validates it, writes the V2 JSONL/report and builds the HTML product. `--product-output` is a V2-only flag and is not forwarded to the base collector.
+The wrapper runs the existing final collector first. It then reads the retained verified-company page snapshots from the work directory, projects strict first-party activity with **zero additional network requests**, canonicalizes the resulting source-backed claims, validates the result, writes the V2 JSONL/report and optionally builds the HTML product. `--product-output` is a V2-only flag and is not forwarded to the base collector.
 
 ## 5. V2 output mapping
 
@@ -102,13 +103,36 @@ Canonical namespaces:
 - `locations.*`
 - `website.*`
 - `public.*`
-- reserved `hiring.*`
+- `hiring.*`
 
-Examples include `company.industry`, `financial.revenue`, `people.role`, `locations.registered_workplace`, `website.official`, `website.contact_email`, `public.social_profile` and `company.workforce_snapshot`.
+Examples include `company.industry`, `financial.revenue`, `people.role`, `locations.registered_workplace`, `website.official`, `website.contact_email`, `public.social_profile`, `hiring.job_posting`, `public.company_update` and `company.workforce_snapshot`.
 
-Every canonical fact records its `source_field` and reuses the original claim's `evidence_ids`. The projection performs no network access and cannot introduce a fact unsupported by the source envelope.
+Every canonical fact records its `source_field` and reuses the original claim's `evidence_ids`. The canonical projection itself performs no network access and cannot introduce a fact unsupported by the source envelope.
 
-## 6. Measured canonical recovery on the immutable certified 1,000
+Inactive/departed BRREG role rows remain available in the original source claim for audit/history, but are intentionally excluded from current `people.role` canonical facts.
+
+## 6. Strict first-party hiring and public activity
+
+`src/norway_company_agent/first_party_activity.py` operates only on pages already retained from a website whose exact-company identity assessment is publishable. It performs no network request.
+
+A job can be published only when all of the following hold:
+
+- the page is on the same verified company-owned site;
+- the URL is job/career/stilling/vacancy-like;
+- the page has a specific non-generic title;
+- a job-detail marker is present;
+- an explicit apply/application action is present.
+
+A company update can be published only when:
+
+- the page is on the same verified company-owned site;
+- the URL is news/blog/press/aktuelt-like;
+- the page has a specific non-generic title;
+- an explicit publication date is present.
+
+Generic careers pages, generic news indexes, cross-domain pages and undated updates are rejected. No platform activity, current social ownership, sentiment, follower count or generic "hiring" inference is created.
+
+## 7. Measured canonical recovery on the immutable certified 1,000
 
 The command below projects the committed certified V1 output without crawling:
 
@@ -116,29 +140,32 @@ The command below projects the committed certified V1 output without crawling:
 uv run python scripts/audit_canonical_v2.py
 ```
 
-Current reproducible result:
+Current reproducible repository-derived result:
 
 | V2 mapping property | Result |
 |---|---:|
 | Companies | 1,000 |
 | Unique organisation numbers | 1,000 |
-| Canonical facts | 20,003 |
+| Canonical facts | 19,951 |
 | Canonical validation errors | 0 |
 | Company record area | 998 / 1,000 |
 | Financials area | 998 / 1,000 |
 | People / locations area | 999 / 1,000 |
 | Verified company-website area | 107 / 1,000 |
 | Hiring / public-activity area | 48 / 1,000 |
-| Individual role facts | 3,984 |
+| Current individual role facts | 3,932 |
 | Registered-location facts | 971 |
 | Revenue facts | 792 |
 | Operating-result facts | 976 |
 | Workforce facts | 990 |
 | Validated social-profile facts | 82 |
+| First-party contact-email observations | 57 |
 
-These are **mapping diagnostics over the immutable certified V1 corpus**, not an official Builderr score and not proof of hidden recall/coverage thresholds.
+The 48-company hiring/public-activity area in this immutable V1 projection is driven by already-certified social-profile facts; it is **not** a claim that those companies have jobs or dated updates.
 
-## 7. Certified V1 evidence baseline remains unchanged
+These are mapping diagnostics over the immutable certified V1 corpus, not an official Builderr score and not proof of hidden recall/coverage thresholds.
+
+## 8. Certified V1 evidence baseline remains unchanged
 
 The exact certified manifest and completed V1 profiles remain in the repository:
 
@@ -166,7 +193,7 @@ Certified baseline:
 
 See `docs/FINAL_RELEASE_1000_AUDIT.md` for full V1 certification evidence.
 
-## 8. Models, APIs, rights, secrets and safety
+## 9. Models, APIs, rights, secrets and safety
 
 The V2 evaluator path invokes:
 
@@ -182,25 +209,35 @@ Sources remain:
 
 1. Brønnøysundregistrene official bulk/API/account-copy services.
 2. Wikidata only as a bounded exact-org-number website-candidate nominator.
-3. Exact verified company-owned public pages for bounded website/contact/social declaration evidence.
+3. Exact verified company-owned public pages for bounded website/contact/social/job/update evidence.
 
 Source rights and retention boundaries are documented in `docs/SUBMISSION_SOURCE_RIGHTS.md`. Unsafe/private network targets are rejected. Candidate domains do not become official websites without exact-company proof.
 
-## 9. Claim boundaries
+## 10. Claim boundaries
 
 - A social-profile fact means the exact verified company page declared the URL. The social platform itself was not fetched; current ownership, activity, followers, engagement and platform verification are not claimed.
 - A contact email means it appeared in bounded first-party company-page evidence and matched the verified website registered domain. Mailbox deliverability is not claimed.
-- A generic careers page, careers keyword or navigation link is not a job. A future hiring claim requires a concrete role card, job-feed item or apply action with evidence.
+- A generic careers page, careers keyword or navigation link is not a job.
+- A strict job fact requires a specific role page plus job detail and explicit apply/application evidence on the verified company-owned site.
+- A strict company-update fact requires a specific dated article/update page on the verified company-owned site.
 - Missing website/job/review/news/activity/sentiment values are not converted to zero or inferred from absence.
 - Workforce extraction abstains on missing or conflicting company-scope phrases.
 
-## 10. Data-linked product surface
+## 11. Data-linked product surface
 
 `--product-output out/signalpost-v2.html` builds the static workspace directly from the final V2 output generated in the same invocation. The UI is therefore linked to the submitted data rather than a separate mockup.
 
-It exposes company identity, period-aware financials, workforce, people, locations, verified first-party external facts, explicit gaps, changes and source provenance.
+The V2 renderer is `scripts/build_v2_product.py`. It is organized around Builderr's five evaluator-facing areas:
 
-## 11. Refresh proof
+1. Company record
+2. Financials
+3. People & locations
+4. Company website
+5. Hiring & public activity
+
+The checked-in `submission/signalpost-v2.html` is deterministically rebuilt from the immutable certified corpus and regression-tested byte-for-byte against that renderer. Every rendered fact links to evidence/provenance.
+
+## 12. Refresh proof
 
 ```bash
 uv run python scripts/run_refresh_replay.py \
@@ -210,7 +247,7 @@ uv run python scripts/run_refresh_replay.py \
 
 Expected result: exactly two material changes, zero false positives/negatives and no additional changes on an idempotent rerun.
 
-## 12. Verification
+## 13. Verification
 
 Before pinning the V2 revision:
 
@@ -220,15 +257,15 @@ uv run python scripts/audit_canonical_v2.py
 uv run --with pytest pytest -q
 ```
 
-The submission verifier checks the immutable V1 certified corpus plus the current V2 entrypoint/declaration. CI also runs the canonical audit over the committed certified 1,000.
+The submission verifier checks the immutable V1 certified corpus plus the current V2 entrypoints/declarations. CI also runs the canonical audit over the committed certified 1,000 and verifies the checked-in product artifact.
 
-## 13. Remaining scoring uncertainty
+## 14. Remaining scoring uncertainty
 
 The V2 mapping audit demonstrates that substantially more official information is exposed in explicit evaluator-friendly facts than V1 did. Builderr still owns the reference collection, matching logic, availability denominator and official score. No local count is presented as proof of an official score or qualification result.
 
 Identity precision remains the priority: do not weaken exact-company gates merely to increase breadth.
 
-## 14. Revision submission
+## 15. Revision submission
 
 Use `submission/EMAIL_TEMPLATE.md` after V2 is merged. Replace:
 
