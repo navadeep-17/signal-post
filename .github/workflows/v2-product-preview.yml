@@ -77,7 +77,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- submission/v2-product-preview.html submission/v2-product-preview.json; then
+          if [ -z "$(git status --porcelain -- submission/v2-product-preview.html submission/v2-product-preview.json)" ]; then
             echo "Preview already current"
             exit 0
           fi
