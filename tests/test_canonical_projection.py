@@ -116,15 +116,19 @@ def facts_of_type(item: dict, fact_type: str) -> list[dict]:
 def test_projection_flattens_official_people_locations_and_financials():
     projected = project_canonical_profile(contract())
     assert projected["canonical_profile"]["schema_version"] == CANONICAL_SCHEMA_VERSION
-    assert facts_of_type(projected, "company_name")[0]["value"] == "ACME AS"
-    assert facts_of_type(projected, "industry")[0]["value"] == {
-        "code": "62.100",
-        "description": "Programmeringstjenester",
-    }
+    name = facts_of_type(projected, "company_name")[0]
+    assert name["value"] == "ACME AS"
+    assert name["canonical_field"] == "company.name"
+    industry = facts_of_type(projected, "industry")[0]
+    assert industry["canonical_field"] == "company.industry"
+    assert industry["value"] == {"code": "62.100", "description": "Programmeringstjenester"}
     assert len(facts_of_type(projected, "person_role")) == 2
+    assert facts_of_type(projected, "person_role")[0]["canonical_field"] == "people.role"
     assert facts_of_type(projected, "person_role")[0]["value"]["role_code"] == "DAGL"
     assert len(facts_of_type(projected, "registered_location")) == 1
+    assert facts_of_type(projected, "registered_location")[0]["canonical_field"] == "locations.registered_workplace"
     revenue = facts_of_type(projected, "financial_revenue")[0]
+    assert revenue["canonical_field"] == "financial.revenue"
     assert revenue["value"] == 1000000
     assert revenue["currency"] == "NOK"
     assert revenue["reporting_period"]["tilDato"] == "2025-12-31"
@@ -133,14 +137,17 @@ def test_projection_flattens_official_people_locations_and_financials():
 def test_projection_exposes_first_party_external_facts_without_platform_inference():
     projected = project_canonical_profile(contract())
     social = facts_of_type(projected, "social_profile")[0]
+    assert social["canonical_field"] == "public.social_profile"
     assert social["platform"] == "linkedin"
     assert social["value"] == "https://www.linkedin.com/company/acme"
+    assert facts_of_type(projected, "contact_email")[0]["canonical_field"] == "website.contact_email"
     assert facts_of_type(projected, "contact_email")[0]["value"] == "hello@acme.no"
+    assert facts_of_type(projected, "workforce_snapshot")[0]["canonical_field"] == "company.workforce_snapshot"
     assert facts_of_type(projected, "workforce_snapshot")[0]["value"]["value"] == 11
     assert projected["canonical_profile"]["jobs"] == []
-    assert projected["canonical_profile"]["public_activity"] == []
+    assert len(projected["canonical_profile"]["public_activity"]) == 1
     assert projected["canonical_profile"]["data_areas"]["company_website"] is True
-    assert projected["canonical_profile"]["data_areas"]["hiring_and_public_activity"] is False
+    assert projected["canonical_profile"]["data_areas"]["hiring_and_public_activity"] is True
 
 
 def test_projection_reuses_existing_evidence_and_validates():
@@ -151,6 +158,8 @@ def test_projection_reuses_existing_evidence_and_validates():
     assert validate_canonical_projection(projected) == []
     existing = {row["id"] for row in projected["evidence"]}
     for fact in projected["canonical_facts"]:
+        assert fact["source_field"]
+        assert fact["canonical_field"]
         assert fact["evidence_ids"]
         assert set(fact["evidence_ids"]).issubset(existing)
 
