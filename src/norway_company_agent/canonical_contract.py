@@ -13,6 +13,10 @@ FIELD_ALIASES = {
     "municipality": "company.municipality",
     "industry": "company.industry",
     "employee_count": "company.employee_count",
+    "business_address": "company.business_address",
+    "postal_address": "company.postal_address",
+    "bankrupt": "company.bankrupt",
+    "liquidating": "company.liquidating",
     "latest_submitted_accounts": "accounts.latest_submitted",
     "accounting_obligation": "accounts.accounting_obligation",
     "official_website": "web.official_website",
@@ -54,8 +58,6 @@ def _split_values(claim: dict[str, Any]) -> list[Any]:
     value = claim.get("value")
     if isinstance(value, list):
         return value or [None]
-    # Some structured modules wrap records under a conventional key. Preserve
-    # unknown dict shapes as a single fact instead of guessing their semantics.
     if isinstance(value, dict):
         for key in ("roles", "locations", "items", "records"):
             nested = value.get(key)
@@ -118,6 +120,10 @@ def project_canonical_contract(item: dict[str, Any]) -> dict[str, Any]:
             "municipality": _first(facts, "company.municipality"),
             "industry": _first(facts, "company.industry"),
             "employee_count": _first(facts, "company.employee_count"),
+            "business_address": _first(facts, "company.business_address"),
+            "postal_address": _first(facts, "company.postal_address"),
+            "bankrupt": _first(facts, "company.bankrupt"),
+            "liquidating": _first(facts, "company.liquidating"),
             "group_structure": _first(facts, "company.group_structure"),
         },
         "accounts": {
