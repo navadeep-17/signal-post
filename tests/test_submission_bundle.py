@@ -21,10 +21,25 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     release = body["certified_release"]
     metrics = release["metrics"]
     artifacts = release["repository_artifacts"]
+    revision = body["revision_v2"]
 
-    assert body["schema_version"] == 2
+    assert body["schema_version"] == 3
+    assert body["submission_identity"]["revision"] == "v2"
+    assert body["submission_identity"]["v1_pinned_submission_sha"] == "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa"
+    assert body["submission_identity"]["base_collector_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
+    assert body["entrypoints"]["evaluator_runner"] == "scripts/run_signalpost_v2.py"
+    assert body["entrypoints"]["base_collector"] == "scripts/run_signalpost_final.py"
     assert body["runtime"]["server_side_secrets_required"] == []
-    assert body["submission_identity"]["production_application_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
+    assert revision["canonical_schema_version"] == "signalpost-canonical-v2"
+    assert revision["zero_network_projection"] is True
+    assert revision["changes_identity_thresholds"] is False
+    assert revision["changes_v1_certified_corpus"] is False
+    assert revision["product_surface_generated_from_final_output"] is True
+    assert revision["generic_careers_page_counts_as_hiring"] is False
+    assert revision["canonical_audit"]["canonical_facts"] == 20003
+    assert revision["canonical_audit"]["validation_errors"] == 0
+    assert revision["canonical_audit"]["official_score_claimed"] is False
+
     assert release["release_companies"] == 1000
     assert release["overlap_count"] == 0
     assert release["release_manifest_sha256"] == "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26"
@@ -53,17 +68,23 @@ def test_committed_certified_manifest_and_output_hashes_match() -> None:
     assert hashlib.sha256(gzip.decompress(output_gz.read_bytes())).hexdigest() == release["aggregate_output_sha256"]
 
 
-def test_submission_docs_preserve_claim_and_secret_boundaries() -> None:
+def test_submission_docs_preserve_v2_and_claim_boundaries() -> None:
     submission = (ROOT / "SUBMISSION.md").read_text(encoding="utf-8")
     email = (SUBMISSION / "EMAIL_TEMPLATE.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    contract = (ROOT / "OUTPUT_CONTRACT.md").read_text(encoding="utf-8")
     submission_folded = submission.casefold()
 
-    assert "hidden weighted external company recall" in submission_folded
+    assert "scripts/run_signalpost_v2.py" in submission
+    assert "--product-output" in submission
+    assert "scripts/run_signalpost_v2.py" in readme
+    assert "canonical_facts" in contract
     assert "server-side secrets required: **none**" in submission_folded
     assert "contact name: `<contact_name>`" in email.casefold()
     assert "contact email: `<contact_email>`" in email.casefold()
     assert "mailbox deliverability" in submission_folded
     assert "follower" in submission_folded
+    assert "generic careers page" in submission_folded
 
 
 def test_repository_only_submission_verifier_passes() -> None:
@@ -77,9 +98,12 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     report = json.loads(completed.stdout)
     assert report["passed"] is True
+    assert report["revision"] == "v2"
     assert report["repository_bundle_errors"] == []
     assert report["repository_artifacts"]["manifest_rows"] == 1000
     assert report["repository_artifacts"]["aggregate_output_rows"] == 1000
     assert report["repository_artifacts"]["terminal_completed"] == 1000
     assert report["repository_artifacts"]["contract_failures"] == []
     assert report["repository_artifacts"]["manifest_output_order_match"] is True
+    assert report["repository_artifacts"]["v2_canonical_facts"] == 20003
+    assert report["repository_artifacts"]["v2_canonical_failures"] == []
