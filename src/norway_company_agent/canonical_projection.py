@@ -147,7 +147,6 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
     for claim in index.get("external.workforce_snapshot") or []:
         facts.append(_fact("workforce_snapshot", claim))
 
-    # Stable, explicit category projection for the product surface and evaluator mapping.
     company_keys = {
         "company_name",
         "legal_form",
@@ -168,8 +167,8 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "people": [item for item in facts if item["type"] == "person_role"],
         "locations": [item for item in facts if item["type"] == "registered_location"],
         "company_website": [item for item in facts if item["type"] in external_keys],
-        # Jobs and dated public activity are intentionally empty until a strict real-role /
-        # dated-activity extractor qualifies them. A generic careers page is never hiring.
+        # Jobs and dated public activity remain intentionally empty until a strict real-role
+        # or dated-activity extractor qualifies them. A generic careers page is never hiring.
         "jobs": [],
         "public_activity": [],
     }
@@ -186,6 +185,10 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "canonical_facts": facts,
         "canonical_profile": canonical,
     }
+
+
+def _stable_fact_key(item: dict[str, Any]) -> str:
+    return json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def validate_canonical_projection(contract: dict[str, Any]) -> list[str]:
@@ -218,13 +221,13 @@ def validate_canonical_projection(contract: dict[str, Any]) -> list[str]:
         if fact.get("availability") != "available" and fact.get("value") is not None:
             errors.append(f"canonical fact {position} has value while unavailable")
 
-    flattened = []
+    flattened: list[dict[str, Any]] = []
     for key in ("company_record", "financials", "people", "locations", "company_website", "jobs", "public_activity"):
         rows = canonical.get(key)
         if not isinstance(rows, list):
             errors.append(f"canonical_profile.{key} must be a list")
             continue
         flattened.extend(rows)
-    if json.dumps(flattened, sort_keys=True, ensure_ascii=False) != json.dumps(facts, sort_keys=True, ensure_ascii=False):
+    if sorted(_stable_fact_key(item) for item in flattened) != sorted(_stable_fact_key(item) for item in facts):
         errors.append("canonical profile categories do not losslessly partition canonical_facts")
     return errors
