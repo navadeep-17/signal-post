@@ -85,9 +85,26 @@ def _available_values(facts: list[dict[str, Any]], field: str) -> list[dict[str,
     return [fact for fact in facts if fact.get("field") == field and fact.get("availability") == "available"]
 
 
+def _available_prefix(facts: list[dict[str, Any]], *prefixes: str) -> list[dict[str, Any]]:
+    return [
+        fact
+        for fact in facts
+        if fact.get("availability") == "available"
+        and any(str(fact.get("field") or "").startswith(prefix) for prefix in prefixes)
+    ]
+
+
 def _first(facts: list[dict[str, Any]], field: str) -> dict[str, Any] | None:
     matches = [fact for fact in facts if fact.get("field") == field]
     return matches[0] if matches else None
+
+
+def _data_area(facts: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "available": bool(facts),
+        "fact_count": len(facts),
+        "facts": facts,
+    }
 
 
 def project_canonical_contract(item: dict[str, Any]) -> dict[str, Any]:
@@ -111,6 +128,32 @@ def project_canonical_contract(item: dict[str, Any]) -> dict[str, Any]:
     for field in financial_fields:
         financials[field.removeprefix("accounts.")] = [fact for fact in facts if fact.get("field") == field]
 
+    people = _available_values(facts, "people.role")
+    locations = _available_values(facts, "locations.location")
+    workforce = _available_values(facts, "workforce.snapshot")
+    contact_emails = _available_values(facts, "web.contact_email")
+    social_profiles = _available_values(facts, "web.social_profile")
+    hiring: list[dict[str, Any]] = []
+    public_activity: list[dict[str, Any]] = []
+
+    company_record_area = _available_prefix(facts, "company.") + workforce
+    financial_area = [
+        fact
+        for fact in facts
+        if fact.get("availability") == "available" and str(fact.get("field") or "").startswith("accounts.")
+    ]
+    people_locations_area = [*people, *locations]
+    website_area = [
+        fact
+        for fact in facts
+        if fact.get("availability") == "available"
+        and fact.get("field") in {"web.official_website", "web.company_description", "web.contact_email"}
+    ]
+    # Builderr's reference product groups verified external profiles together
+    # with hiring/public activity. A declared profile is still only a profile:
+    # it does not imply posts, followers, current ownership, or activity.
+    hiring_public_activity_area = [*social_profiles, *hiring, *public_activity]
+
     canonical = {
         "schema_version": CANONICAL_SCHEMA_VERSION,
         "organisation_number": str(item.get("organisation_number") or ""),
@@ -131,22 +174,32 @@ def project_canonical_contract(item: dict[str, Any]) -> dict[str, Any]:
             "accounting_obligation": _first(facts, "accounts.accounting_obligation"),
             "financials": dict(financials),
         },
-        "people": _available_values(facts, "people.role"),
-        "locations": _available_values(facts, "locations.location"),
-        "workforce": _available_values(facts, "workforce.snapshot"),
+        "people": people,
+        "locations": locations,
+        "workforce": workforce,
         "web": {
             "official_website": _first(facts, "web.official_website"),
             "company_description": _first(facts, "web.company_description"),
-            "contact_emails": _available_values(facts, "web.contact_email"),
-            "social_profiles": _available_values(facts, "web.social_profile"),
+            "contact_emails": contact_emails,
+            "social_profiles": social_profiles,
         },
-        # Reserved explicit families. They stay empty until the pipeline has a
-        # concrete dated activity item or role/apply action. A generic careers
-        # page is never promoted to hiring.
-        "public_activity": [],
-        "hiring": [],
+        "social_profiles": social_profiles,
+        # These stay empty until the pipeline has a concrete dated activity item
+        # or a real role/job-feed/apply fact. Generic careers pages never qualify.
+        "public_activity": public_activity,
+        "hiring": hiring,
+        "data_areas": {
+            "company_record": _data_area(company_record_area),
+            "financials": _data_area(financial_area),
+            "people_and_locations": _data_area(people_locations_area),
+            "company_website": _data_area(website_area),
+            "hiring_and_public_activity": _data_area(hiring_public_activity_area),
+        },
         "facts": facts,
     }
+    canonical["available_data_area_count"] = sum(
+        1 for area in canonical["data_areas"].values() if area["available"]
+    )
     item["canonical"] = canonical
     return item
 
@@ -184,6 +237,29 @@ def validate_canonical_contract(item: dict[str, Any]) -> list[str]:
         fingerprint = (field, str(fact.get("availability")), refs)
         if fingerprint not in source_claim_fingerprints:
             errors.append(f"canonical fact {field} has no source claim")
+
+    areas = canonical.get("data_areas") or {}
+    if set(areas) != {
+        "company_record",
+        "financials",
+        "people_and_locations",
+        "company_website",
+        "hiring_and_public_activity",
+    }:
+        errors.append("canonical data-area set mismatch")
+    else:
+        count = sum(1 for area in areas.values() if isinstance(area, dict) and area.get("available"))
+        if canonical.get("available_data_area_count") != count:
+            errors.append("canonical available data-area count mismatch")
+        for name, area in areas.items():
+            if not isinstance(area, dict):
+                errors.append(f"canonical data area {name} is not an object")
+                continue
+            area_facts = area.get("facts") or []
+            if area.get("fact_count") != len(area_facts):
+                errors.append(f"canonical data area {name} fact count mismatch")
+            if bool(area_facts) != bool(area.get("available")):
+                errors.append(f"canonical data area {name} availability mismatch")
 
     if canonical.get("hiring"):
         errors.append("canonical hiring must remain empty until concrete job facts are projected")
