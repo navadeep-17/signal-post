@@ -47,6 +47,8 @@ def _value(record: dict[str, Any], key: str) -> Any:
             return None
         code = raw.get("kode") or raw.get("code")
         label = raw.get("beskrivelse") or raw.get("description") or raw.get("label")
+        if not code and not label:
+            return None
         return {"code": code, "label": label}
     if key == "business_address":
         return value.get("business_address")
@@ -79,10 +81,16 @@ def project_registry_live_claims(contract: dict[str, Any], profile: dict[str, An
     published bulk-registry value or weakens website identity validation.
     """
     record = (profile.get("evidence") or {}).get("registry_live") or {}
-    if record.get("status") != "available" or not isinstance(record.get("value"), dict):
+    record_value = record.get("value")
+    if record.get("status") != "available" or not isinstance(record_value, dict):
         return contract
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
+    if len(org) != 9 or not org.isdigit():
+        return contract
+    if str(record_value.get("organisation_number") or "") != org:
+        return contract
+
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
     existing_available = {
