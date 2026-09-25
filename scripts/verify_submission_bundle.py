@@ -20,6 +20,14 @@ OUTPUT_GZ_PATH = SUBMISSION / "final-release-1000-output.jsonl.gz"
 OUTPUT_SHA_PATH = SUBMISSION / "final-release-1000-output.sha256"
 OUTPUT_GZ_SHA_PATH = SUBMISSION / "final-release-1000-output.jsonl.gz.sha256"
 SUMMARY_PATH = SUBMISSION / "final-release-1000-summary.json"
+PRODUCT_PATH = SUBMISSION / "signalpost-v2.html"
+
+# These are Git blob identities from the immutable V1 submitted commit. V2 is allowed to
+# wrap/project their outputs, but these shared base files must not silently drift.
+V1_BASE_BLOBS = {
+    "scripts/run_signalpost_final.py": "9be89b9827135b1ed703318e1d189d5d3b8ca604",
+    "src/norway_company_agent/output_contract.py": "c163f493017e39252ef200e68d53bcebc12930b4",
+}
 
 REQUIRED_FILES = (
     ".gitignore",
@@ -31,9 +39,12 @@ REQUIRED_FILES = (
     "scripts/run_signalpost_v2.py",
     "scripts/audit_canonical_v2.py",
     "scripts/run_refresh_replay.py",
-    "scripts/build_submission_prototype.py",
+    "scripts/build_v2_product.py",
+    "scripts/build_certified_v2_product.py",
     "scripts/verify_submission_bundle.py",
     "src/norway_company_agent/canonical_projection.py",
+    "src/norway_company_agent/v2_registry_projection.py",
+    "src/norway_company_agent/first_party_activity.py",
     "docs/SUBMISSION_SOURCE_RIGHTS.md",
     "docs/FINAL_RELEASE_1000_AUDIT.md",
     "docs/REQUIREMENTS_MATRIX.md",
@@ -45,6 +56,7 @@ REQUIRED_FILES = (
     "submission/final-release-1000-output.jsonl.gz",
     "submission/final-release-1000-output.sha256",
     "submission/final-release-1000-output.jsonl.gz.sha256",
+    "submission/signalpost-v2.html",
     "submission/EMAIL_TEMPLATE.md",
 )
 
@@ -77,6 +89,18 @@ def repository_head() -> str | None:
     return value if len(value) == 40 else None
 
 
+def git_blob_sha(path: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "hash-object", path], cwd=ROOT, check=True,
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = completed.stdout.strip()
+    return value if len(value) == 40 else None
+
+
 def read_manifest() -> dict[str, Any]:
     body = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     if not isinstance(body, dict):
@@ -94,6 +118,31 @@ def read_jsonl_bytes(body: bytes) -> list[dict[str, Any]]:
             raise ValueError(f"line {line_no} is not an object")
         rows.append(row)
     return rows
+
+
+def product_report() -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    body = PRODUCT_PATH.read_text(encoding="utf-8")
+    required_labels = (
+        "Company record",
+        "Financials",
+        "People & locations",
+        "Company website",
+        "Hiring & public activity",
+    )
+    missing_labels = [label for label in required_labels if label not in body]
+    if missing_labels:
+        errors.append(f"V2 product missing canonical areas: {missing_labels}")
+    if len(body.encode("utf-8")) < 1_000_000:
+        errors.append("V2 product artifact is unexpectedly small")
+    if "Evidence" not in body or "evidence" not in body.casefold():
+        errors.append("V2 product does not expose evidence/provenance")
+    return {
+        "path": str(PRODUCT_PATH.relative_to(ROOT)),
+        "bytes": len(body.encode("utf-8")),
+        "sha256": sha256_bytes(body.encode("utf-8")),
+        "canonical_area_labels_present": not missing_labels,
+    }, errors
 
 
 def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -160,6 +209,8 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
     if canonical_failures:
         errors.append(f"V2 canonical projection has {len(canonical_failures)} invalid rows")
 
+    product, product_errors = product_report()
+    errors.extend(product_errors)
     return {
         "manifest_sha256": manifest_digest,
         "manifest_rows": len(manifest_rows),
@@ -172,6 +223,7 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
         "manifest_output_order_match": output_orgs == manifest_orgs,
         "v2_canonical_facts": canonical_fact_count,
         "v2_canonical_failures": canonical_failures,
+        "v2_product": product,
     }, errors
 
 
@@ -192,6 +244,11 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         errors.append("unexpected immutable V1 submission SHA")
     if identity.get("base_collector_behavior_sha") != "b14ef3c277d8f1512064f865d4028e23dcd8bacf":
         errors.append("unexpected V1 base collector behavior SHA")
+
+    for path, expected_blob in V1_BASE_BLOBS.items():
+        actual_blob = git_blob_sha(path)
+        if actual_blob != expected_blob:
+            errors.append(f"V1 base file drifted: {path} blob {actual_blob!r} != {expected_blob}")
 
     entrypoints = manifest.get("entrypoints") or {}
     expected_entrypoints = {
@@ -288,6 +345,7 @@ def main() -> None:
         "revision": manifest["submission_identity"]["revision"],
         "v1_pinned_submission_sha": manifest["submission_identity"]["v1_pinned_submission_sha"],
         "base_collector_behavior_sha": manifest["submission_identity"]["base_collector_behavior_sha"],
+        "v1_base_blobs": {path: git_blob_sha(path) for path in V1_BASE_BLOBS},
         "repository_artifacts": artifacts,
         "repository_bundle_errors": errors,
     }
