@@ -18,7 +18,7 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
 )
 from norway_company_agent.first_party_activity import project_first_party_activity_claims  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
-from build_submission_prototype import build_html, read_jsonl  # noqa: E402
+from build_v2_product import build_v2_html, read_jsonl  # noqa: E402
 
 
 def _flag_value(argv: list[str], flag: str) -> str:
@@ -157,7 +157,7 @@ def main() -> None:
         product_path = Path(product_output)
         product_path.parent.mkdir(parents=True, exist_ok=True)
         product_path.write_text(
-            build_html(projected, title="Signalpost company intelligence"),
+            build_v2_html(projected, title="Signalpost V2 — evidence-backed company intelligence"),
             encoding="utf-8",
         )
         report["product_surface"] = {
@@ -165,6 +165,13 @@ def main() -> None:
             "data_linked": True,
             "source_output": str(output_path),
             "companies": len(projected),
+            "canonical_areas": [
+                "company_record",
+                "financials",
+                "people_and_locations",
+                "company_website",
+                "hiring_and_public_activity",
+            ],
         }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
