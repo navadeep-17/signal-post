@@ -1,0 +1,7 @@
+{
+  "source_output_sha256": "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2",
+  "canonical_rows": 1000,
+  "canonical_output_sha256": "c050a4da35d15d9f415b712c63957dc1bbf0f9abe6a62466af24d2cb514ef828",
+  "preview_sha256": "75dda278afc93609b45c6867b3556f259f5195e01c7171df2855a3bb72d2bc53",
+  "network_requests_for_projection": 0
+}
