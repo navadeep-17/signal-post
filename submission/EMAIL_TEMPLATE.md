@@ -16,7 +16,7 @@ Contact name: `<CONTACT_NAME>`
 Contact email: `<CONTACT_EMAIL>`  
 Contact phone/other: `<CONTACT_PHONE_OR_OTHER>`
 
-V2 keeps the V1 collector, output adapter and identity gates unchanged, and adds zero-network evaluator-facing registry/canonical projections plus a data-linked five-area product surface. It does not reselect or rewrite the certified V1 1,000-company corpus.
+V2 keeps the V1 collector, output adapter and identity gates unchanged, and adds zero-network evaluator-facing registry/canonical projections, deterministic evidence-linked synthesis, and a data-linked five-area product surface. It does not reselect or rewrite the certified V1 1,000-company corpus.
 
 Evaluator command:
 
@@ -43,7 +43,9 @@ uv run python scripts/run_signalpost_v2.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-V2 output preserves the original `claims[]` / `evidence[]` contract and adds evidence-linked `canonical_facts[]` and `canonical_profile`. The same command can emit the data-linked HTML product from the final V2 JSONL.
+V2 output preserves the original `claims[]` / `evidence[]` contract and adds evidence-linked `canonical_facts[]`, `canonical_profile`, and `synthesis`. The synthesis layer is deterministic and zero-network: it creates no new facts and uses no LLM. Positive summary statements reuse already-published evidence, `what_changed` is derived only from validated `changes[]`, and missing areas are surfaced explicitly as unknown rather than inferred.
+
+The same command can emit the data-linked HTML product from the final V2 JSONL. The product includes a company brief, latest financials, current leadership/locations, website/public activity, explicit "what changed" and "what remains unknown" sections, and source links back to the underlying evidence.
 
 The reproducible zero-network mapping audit over the immutable certified V1 1,000-company output yields **19,951 canonical facts with zero canonical validation errors**. This is an engineering mapping diagnostic, not a claimed official score.
 

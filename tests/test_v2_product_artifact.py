@@ -49,5 +49,13 @@ def test_embedded_v2_product_is_exactly_rebuilt_from_certified_evidence() -> Non
     assert "Company website" in actual
     assert "Hiring & public activity" in actual
     assert "A generic careers page is not a hiring fact." in actual
-    assert "Evidence-bounded brief" in actual
+    assert "What the company does" in actual
+    assert "Financial snapshot" in actual
+    assert "People & footprint" in actual
+    assert "Website & public activity" in actual
+    assert "What changed" in actual
+    assert "What remains unknown" in actual
+    assert "Deterministic zero-network synthesis" in actual
+    assert "Latest financials" in actual
+    assert "Who runs it?" in actual
     assert "const DATA=" in actual
