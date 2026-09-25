@@ -1,0 +1,114 @@
+name: V2 Final Projection Replay
+
+on:
+  push:
+    branches:
+      - revision/v2-canonical-product
+    paths:
+      - .github/workflows/v2-final-replay.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Download fresh-300 captured artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p captured
+          gh run download 36148292559 --repo navadeep-17/signal-post --name v2-fresh-300-validation --dir captured
+          test -s captured/out/fresh-v2-300-output.jsonl
+          test -s captured/out/work/profiles.jsonl
+      - name: Replay final V2 projections with zero network
+        run: |
+          mkdir -p replay
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          from norway_company_agent.output_contract import validate_contract_object
+          from norway_company_agent.v2_registry_projection import project_v2_registry_claims
+          from norway_company_agent.first_party_activity import project_first_party_activity_claims
+          from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
+
+          def read_jsonl(path):
+              return [json.loads(x) for x in Path(path).read_text(encoding='utf-8').splitlines() if x.strip()]
+
+          source = read_jsonl('captured/out/fresh-v2-300-output.jsonl')
+          profiles = read_jsonl('captured/out/work/profiles.jsonl')
+          by_org = {str(p['organisation_number']): p for p in profiles}
+          assert len(source) == 300 and len(by_org) == 300
+
+          final=[]; contract_failures=[]; canonical_failures=[]; activity=[]
+          fact_counts=Counter(); area_counts=Counter()
+          for row in source:
+              org=str(row['organisation_number'])
+              profile=by_org[org]
+              item=project_v2_registry_claims(row, profile)
+              item=project_first_party_activity_claims(item, profile)
+              item=project_canonical_profile(item)
+              errs=validate_contract_object(item)
+              if errs: contract_failures.append({'organisation_number':org,'errors':errs})
+              errs=validate_canonical_projection(item)
+              if errs: canonical_failures.append({'organisation_number':org,'errors':errs})
+              for area,present in (item['canonical_profile'].get('data_areas') or {}).items():
+                  if present: area_counts[area]+=1
+              evidence={str(e.get('id')):e for e in item.get('evidence') or [] if e.get('id')}
+              for fact in item.get('canonical_facts') or []:
+                  t=str(fact.get('type') or 'unknown'); fact_counts[t]+=1
+                  if t in {'job_posting','company_update'}:
+                      activity.append({
+                          'organisation_number':org,
+                          'type':t,
+                          'value':fact.get('value'),
+                          'confidence':fact.get('confidence'),
+                          'evidence':[evidence[x] for x in fact.get('evidence_ids') or [] if x in evidence],
+                      })
+              final.append(item)
+
+          assert not contract_failures, contract_failures[:5]
+          assert not canonical_failures, canonical_failures[:5]
+          assert len(final)==300 and len({x['organisation_number'] for x in final})==300
+
+          Path('replay/final-v2-300-output.jsonl').write_text(
+              ''.join(json.dumps(x,ensure_ascii=False,separators=(',',':'))+'\n' for x in final), encoding='utf-8')
+          Path('replay/final-v2-activity-facts.jsonl').write_text(
+              ''.join(json.dumps(x,ensure_ascii=False,separators=(',',':'))+'\n' for x in activity), encoding='utf-8')
+          summary={
+              'source_capture_run_id':36148292559,
+              'source_capture_head_sha':'7be47b5577c70f34a0891408c3a5cc5f0991c751',
+              'replay_head_sha':'${{ github.sha }}',
+              'network_requests_added':0,
+              'companies':300,
+              'canonical_facts':sum(fact_counts.values()),
+              'companies_by_data_area':dict(sorted(area_counts.items())),
+              'fact_type_counts':dict(sorted(fact_counts.items())),
+              'job_posting_facts':fact_counts.get('job_posting',0),
+              'company_update_facts':fact_counts.get('company_update',0),
+              'activity_companies':len({x['organisation_number'] for x in activity}),
+              'contract_validation_errors':len(contract_failures),
+              'canonical_validation_errors':len(canonical_failures),
+          }
+          Path('replay/final-v2-300-replay-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v2-final-projection-replay
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            replay/final-v2-300-replay-summary.json
+            replay/final-v2-activity-facts.jsonl
+            replay/final-v2-300-output.jsonl
