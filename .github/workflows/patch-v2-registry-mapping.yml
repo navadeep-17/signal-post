@@ -1,0 +1,144 @@
+name: Patch V2 registry mapping
+
+on:
+  push:
+    branches:
+      - revision/v2-canonical-product
+    paths:
+      - '.github/workflows/patch-v2-registry-mapping.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: revision/v2-canonical-product
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Patch output adapter and canonical vocabulary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          output = Path('src/norway_company_agent/output_contract.py')
+          text = output.read_text(encoding='utf-8')
+          old = '''CORE_PROFILE_FIELDS = (
+              ("legal_name", "name"),
+              ("legal_form", "legal_form"),
+              ("employee_count", "employees"),
+              ("municipality", "municipality"),
+              ("industry", "industry"),
+              ("latest_submitted_accounts", "latest_submitted_accounts"),
+          )'''
+          new = '''CORE_PROFILE_FIELDS = (
+              ("legal_name", "name"),
+              ("legal_form", "legal_form"),
+              ("employee_count", "employees"),
+              ("municipality", "municipality"),
+              ("municipality_number", "municipality_number"),
+              ("bankrupt", "bankrupt"),
+              ("liquidating", "liquidating"),
+              ("latest_submitted_accounts", "latest_submitted_accounts"),
+          )'''
+          if old not in text:
+              raise SystemExit('CORE_PROFILE_FIELDS anchor not found')
+          text = text.replace(old, new, 1)
+
+          anchor = '''                claim_span=f"{field}={profile.get(profile_key)}",
+                      )
+
+              _website_claims(profile, (profile.get("evidence") or {}).get("website"), claims, evidence_entries)'''
+          replacement = '''                claim_span=f"{field}={profile.get(profile_key)}",
+                      )
+
+              industry_code = profile.get("industry_code")
+              industry_label = profile.get("industry_label")
+              if industry_code not in (None, "") or industry_label not in (None, ""):
+                  industry = {
+                      "code": industry_code or None,
+                      "description": industry_label or None,
+                  }
+                  _add_claim(
+                      claims,
+                      evidence_entries,
+                      org=org,
+                      evidence_key="registry",
+                      record=registry,
+                      field="industry",
+                      value=industry,
+                      availability="available",
+                      claim_span=(
+                          f"industry.code={industry['code']}; "
+                          f"industry.description={industry['description']}"
+                      ),
+                  )
+
+              _website_claims(profile, (profile.get("evidence") or {}).get("website"), claims, evidence_entries)'''
+          if anchor not in text:
+              raise SystemExit('registry projection anchor not found')
+          text = text.replace(anchor, replacement, 1)
+          output.write_text(text, encoding='utf-8')
+
+          canonical = Path('src/norway_company_agent/canonical_projection.py')
+          text = canonical.read_text(encoding='utf-8')
+          old = '''    "municipality": "company.municipality",
+              "industry": "company.industry",
+              "registered_employee_count": "company.employee_count",'''
+          new = '''    "municipality": "company.municipality",
+              "municipality_number": "company.municipality_number",
+              "industry": "company.industry",
+              "bankrupt": "company.bankrupt",
+              "liquidating": "company.liquidating",
+              "registered_employee_count": "company.employee_count",'''
+          if old not in text:
+              raise SystemExit('canonical field map anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        ("municipality", "municipality"),
+                  ("employee_count", "registered_employee_count"),'''
+          new = '''        ("municipality", "municipality"),
+                  ("municipality_number", "municipality_number"),
+                  ("bankrupt", "bankrupt"),
+                  ("liquidating", "liquidating"),
+                  ("employee_count", "registered_employee_count"),'''
+          if old not in text:
+              raise SystemExit('canonical scalar mapping anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        "municipality",
+                  "industry",
+                  "registered_employee_count",'''
+          new = '''        "municipality",
+                  "municipality_number",
+                  "industry",
+                  "bankrupt",
+                  "liquidating",
+                  "registered_employee_count",'''
+          if old not in text:
+              raise SystemExit('canonical company key anchor not found')
+          text = text.replace(old, new, 1)
+          canonical.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Run targeted mapping tests
+        run: |
+          python -m pip install pytest
+          PYTHONPATH=src pytest -q tests/test_v2_registry_mapping.py tests/test_canonical_projection.py tests/test_output_contract.py
+
+      - name: Commit patch and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/norway_company_agent/output_contract.py src/norway_company_agent/canonical_projection.py
+          git rm .github/workflows/patch-v2-registry-mapping.yml
+          git commit -m "fix(v2): expose official registry fields canonically"
+          git push origin HEAD:revision/v2-canonical-product
