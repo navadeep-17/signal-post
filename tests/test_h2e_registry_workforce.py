@@ -79,4 +79,10 @@ def test_workforce_projection_is_idempotent():
     claims = [claim for claim in second["claims"] if claim.get("field") == "external.workforce_snapshot"]
     assert len(claims) == 1
     assert claims[0]["value"] == {"measure": "employees", "value": 23, "scope": "registry_entity"}
-    assert len(second["evidence"]) == 1
+
+    first_ids = [entry["id"] for entry in first["evidence"]]
+    second_ids = [entry["id"] for entry in second["evidence"]]
+    assert second_ids == first_ids
+    assert len(second_ids) == len(set(second_ids))
+    assert len([value for value in second_ids if value.startswith("ev-workforce-")]) == 1
+    assert len([value for value in second_ids if value.startswith("ev-registry-live-")]) == 1
