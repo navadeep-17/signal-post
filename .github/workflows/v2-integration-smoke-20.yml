@@ -15,9 +15,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/v2-canonical-product-surface
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+
+      - name: Record tested commit
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s\n' "$GITHUB_SHA" > /tmp/v2-smoke-head.sha
 
       - uses: actions/setup-python@v5
         with:
@@ -72,6 +76,7 @@ jobs:
         run: |
           uv run python - <<'PY'
           import json
+          import os
           from collections import Counter
           from pathlib import Path
           from norway_company_agent.canonical_contract import validate_canonical_contract
@@ -109,6 +114,7 @@ jobs:
           assert availability['company.industry'] == 20
           assert availability['company.municipality'] == 20
           summary = {
+              'tested_commit_sha': os.environ['GITHUB_SHA'],
               'companies': len(rows),
               'available_canonical_fields': dict(sorted(availability.items())),
               'registry_live_recovered_claims': dict(sorted(registry_live_claims.items())),
@@ -128,6 +134,7 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
           path: |
+            /tmp/v2-smoke-head.sha
             out/v2-smoke-20.jsonl
             out/v2-smoke-20-report.json
             out/v2-smoke-20-summary.json
