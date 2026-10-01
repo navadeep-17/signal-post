@@ -53,11 +53,36 @@ Implementation sequence:
 7. [x] preserve the existing H2g eligibility and request class, so V3 does not create a second annual-report fetch path;
 8. [x] chain annual-report description projection through the existing final-runner workforce projection path without changing the runner call site;
 9. [x] add a machine-readable V3 audit for observed description reach, stronger-source suppression, shared-report reuse and evidence completeness;
-10. [ ] run a fresh zero-overlap qualification and measure company-description reach, precision and runtime.
+10. [x] run fresh zero-overlap qualification, harden observed false positives, then transfer to a second untouched confirmation cohort.
 
-Baseline CI #442 is green after the production-path integration: full tests, V2 canonical audit, submission-bundle verification and deterministic refresh replay all pass.
+### Milestone 1 qualification evidence
 
-Promotion gate: no wrong-entity descriptions in manual audit and meaningful net-new company coverage.
+The first 100-company confirmation cohort exposed two useful false-positive classes rather than being promoted blindly:
+
+- an OCR-flattened `Utvikling i resultat og stilling` section was swallowed after a valid activity sentence;
+- an investor/financing narrative was incorrectly treated as business activity.
+
+Both cases were converted into deterministic guards and exact regression tests. The consumed cohort was then rerun only as a regression check: **9/9 published annual descriptions were manually acceptable**, with all nine reusing the same annual report as workforce evidence.
+
+A separate untouched final confirmation cohort was then frozen with seed `20261005` after excluding **7,100** previously touched companies. Results:
+
+- 100 companies, 100 unique organisations, **0 overlap**;
+- 11 annual-report company-description observations;
+- 11 published company-description claims;
+- **11/11 manually audited descriptions were company-scope business/activity descriptions**;
+- all 11 reused the same BRREG annual report already used for workforce extraction;
+- 0 duplicate observations, 0 orphan published descriptions, 0 evidence errors;
+- production and V3 audit both passed;
+- observed conservative challenge-request charge: **1,370 / 2,000**;
+- wall runtime: **442.952 s / 2,400 s**;
+- third-party cost: **$0**;
+- search API requests: **0**;
+- contract errors: **0**;
+- change errors: **0**.
+
+Latest branch Baseline CI is green after the hardening and qualification-workflow changes.
+
+**Promotion gate: satisfied for Milestone 1.** The new fact type transferred to an untouched zero-overlap cohort with useful net-new reach and no wrong-entity/non-activity descriptions in manual audit.
 
 ## Milestone 2 — Broad official public-activity sources
 
