@@ -58,7 +58,7 @@ def _profile(
 
 def _site(
     *,
-    url: str = "https://example-systems.no/",
+    url: str = "https://examplesystems.com/",
     title: str = "EXAMPLE SYSTEMS AS",
     text: str = "EXAMPLE SYSTEMS AS Organisasjonsnummer 912 345 678",
     identity_text: str | None = None,
@@ -68,7 +68,7 @@ def _site(
     return evidence(
         "website",
         "available",
-        "deterministic_legal_name_hyphenated_no_fallback",
+        h1g.V6_SOURCE_TYPE,
         url,
         value={
             "requested_url": url,
@@ -104,7 +104,7 @@ def _general_assessment() -> dict:
     }
 
 
-def test_hyphenated_no_candidate_is_second_legal_name_form():
+def test_historical_hyphenated_no_candidate_remains_available_for_regression():
     candidate = h1g.hyphenated_no_candidate(_profile(name="MASTER SURGERY SYSTEMS AS"))
     assert candidate == {
         "domain": "master-surgery-systems.no",
@@ -113,16 +113,47 @@ def test_hyphenated_no_candidate_is_second_legal_name_form():
     }
 
 
-def test_single_distinctive_token_has_no_distinct_hyphenated_candidate():
+def test_v6_ranked_fallback_prefers_compact_com_over_hyphenated_no():
+    candidate = h1g.ranked_fallback_candidate(_profile(name="MASTER SURGERY SYSTEMS AS"))
+    assert candidate == {
+        "domain": "mastersurgerysystems.com",
+        "url": "https://mastersurgerysystems.com/",
+        "strategy": "legal_name_compact_com",
+    }
+
+
+def test_single_distinctive_token_gets_only_safe_compact_com_nomination():
+    candidate = h1g.ranked_fallback_candidate(_profile(name="MESCO AS"))
+    assert candidate == {
+        "domain": "mesco.com",
+        "url": "https://mesco.com/",
+        "strategy": "legal_name_compact_com",
+    }
     assert h1g.hyphenated_no_candidate(_profile(name="MESCO AS")) is None
 
 
-def test_exact_org_number_is_sufficient_h1g_homepage_proof():
+def test_ranked_fallback_skips_domain_already_tried_by_registry_email():
+    profile = _profile(name="MASTER SURGERY SYSTEMS AS")
+    profile["evidence"]["website_email_discovery"] = evidence(
+        "website_email_discovery",
+        "not_found",
+        "official_registry_email_domain_discovery",
+        h1g.BRREG_BULK_URL,
+        value={"candidate_domain": "mastersurgerysystems.com"},
+        retrieved_at="2026-09-15T00:00:00Z",
+    )
+    candidate = h1g.ranked_fallback_candidate(profile)
+    assert candidate is not None
+    assert candidate["domain"] == "master-surgery-systems.com"
+    assert candidate["strategy"] == "legal_name_hyphenated_com"
+
+
+def test_exact_org_number_is_sufficient_v6_fallback_proof():
     assessment = h1g.qualify_hyphenated_no_identity(_profile(), _site(), _general_assessment())
     assert assessment is not None
     assert assessment["publishable"] is True
     assert assessment["score"] == 1.0
-    assert assessment["method"] == "h1g_hyphenated_no_homepage_identity_v1"
+    assert assessment["method"] == "v6_ranked_fallback_exact_entity_guard_v1"
 
 
 def test_full_legal_name_plus_registry_location_can_publish_without_org_number():
@@ -136,7 +167,7 @@ def test_full_legal_name_plus_registry_location_can_publish_without_org_number()
     assert assessment["score"] >= 0.98
 
 
-def test_title_and_hyphenated_domain_alone_do_not_publish():
+def test_title_and_com_domain_alone_do_not_publish():
     site = _site(
         title="EXAMPLE SYSTEMS AS",
         text="Example Systems builds software.",
@@ -161,7 +192,8 @@ def test_fallback_uses_only_remaining_two_site_requests_and_can_promote(monkeypa
     site = _site()
 
     def fake_fetch(url, *, source_type, timeout=6.0, max_bytes=750_000):
-        assert url == "https://example-systems.no/"
+        assert url == "https://examplesystems.com/"
+        assert source_type == h1g.V6_SOURCE_TYPE
         return site, {"requests": 2, "bytes": 123, "latencies_ms": [7]}
 
     monkeypatch.setattr(h1g, "fetch_bounded_homepage", fake_fetch)
@@ -174,11 +206,13 @@ def test_fallback_uses_only_remaining_two_site_requests_and_can_promote(monkeypa
 
     row, metrics = h1g.evaluate_hyphenated_no_fallback(profile)
     assert metrics["attempted"] is True
+    assert metrics["candidate_strategy"] == "legal_name_compact_com"
     assert metrics["verified"] is True
     assert metrics["base_site_logical_requests"] == 2
     assert metrics["requests_added"] == 2
     assert metrics["post_site_logical_requests"] == h1g.MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE == 4
-    assert row["website"] == "https://example-systems.no/"
+    assert row["website"] == "https://examplesystems.com/"
+    assert "website_v6_ranked_domain_discovery" in row["evidence"]
 
 
 def test_existing_verified_website_is_never_replaced(monkeypatch):
@@ -188,7 +222,7 @@ def test_existing_verified_website_is_never_replaced(monkeypatch):
     profile["evidence"]["website"] = verified
 
     def should_not_fetch(*args, **kwargs):
-        raise AssertionError("H1g must not fetch when a verified website already exists")
+        raise AssertionError("V6 fallback must not fetch when a verified website already exists")
 
     monkeypatch.setattr(h1g, "fetch_bounded_homepage", should_not_fetch)
     row, metrics = h1g.evaluate_hyphenated_no_fallback(profile)
@@ -201,7 +235,7 @@ def test_site_budget_consumed_prevents_attempt(monkeypatch):
     profile = _profile(logical_requests=9)
 
     def should_not_fetch(*args, **kwargs):
-        raise AssertionError("H1g must not exceed the existing site request ceiling")
+        raise AssertionError("V6 fallback must not exceed the existing site request ceiling")
 
     monkeypatch.setattr(h1g, "fetch_bounded_homepage", should_not_fetch)
     _, metrics = h1g.evaluate_hyphenated_no_fallback(profile)
