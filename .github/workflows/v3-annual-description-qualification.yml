@@ -106,7 +106,7 @@ jobs:
           UNIQUE_COUNT="$(python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('exclude-7000.jsonl').read_text().splitlines() if x.strip()]; print(len({str(r['organisation_number']) for r in rows}))")"
           test "$UNIQUE_COUNT" -eq 7000
 
-      - name: Freeze fresh zero-overlap V3 confirmation 100
+      - name: Recreate consumed V3 confirmation cohort and extend exclusion chain
         run: |
           uv run python scripts/select_disjoint_validation_batch.py \
             --universe signalpost-universe.jsonl.gz \
@@ -115,13 +115,30 @@ jobs:
             --seed 20261004 \
             --evaluation-split v3_annual_description_confirmation \
             --sample-slice fresh_annual_report_intelligence_transfer \
+            --output v3-confirmation-consumed-100.jsonl \
+            --report v3-confirmation-consumed-100-selection.json
+          echo '9571c54439db6d1cc1f79e03e48bc4f6c400be4899fdfbf37b1be97ee3b86d1f  v3-confirmation-consumed-100.jsonl' | sha256sum -c -
+          cat exclude-7000.jsonl v3-confirmation-consumed-100.jsonl > exclude-7100.jsonl
+          test "$(wc -l < exclude-7100.jsonl)" -eq 7100
+          UNIQUE_COUNT="$(python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('exclude-7100.jsonl').read_text().splitlines() if x.strip()]; print(len({str(r['organisation_number']) for r in rows}))")"
+          test "$UNIQUE_COUNT" -eq 7100
+
+      - name: Freeze untouched final V3 confirmation 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7100.jsonl \
+            --count 100 \
+            --seed 20261005 \
+            --evaluation-split v3_annual_description_final_confirmation \
+            --sample-slice fresh_annual_report_intelligence_final_transfer \
             --output v3-fresh-100.jsonl \
             --report v3-fresh-100-selection.json
           test "$(wc -l < v3-fresh-100.jsonl)" -eq 100
-          python -c "import json,pathlib; r=json.loads(pathlib.Path('v3-fresh-100-selection.json').read_text()); assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==7000, r; print(json.dumps(r, indent=2))"
+          python -c "import json,pathlib; r=json.loads(pathlib.Path('v3-fresh-100-selection.json').read_text()); assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==7100, r; print(json.dumps(r, indent=2))"
           sha256sum v3-fresh-100.jsonl > v3-fresh-100.sha256
 
-      - name: Run production stack on fresh V3 cohort
+      - name: Run production stack on untouched final V3 cohort
         run: |
           uv run python scripts/run_signalpost_final.py \
             --organisations v3-fresh-100.jsonl \
@@ -129,7 +146,7 @@ jobs:
             --output out/v3-fresh-100-output.jsonl \
             --report out/v3-fresh-100-run-report.json \
             --work-dir out/v3-fresh-work \
-            --run-id v3-annual-description-confirmation-100 \
+            --run-id v3-annual-description-final-confirmation-100 \
             --expected-count 100 \
             --workers 8 \
             --site-timeout 6 \
@@ -172,6 +189,8 @@ jobs:
           path: |
             v3-tuning-100.jsonl
             v3-tuning-100-selection.json
+            v3-confirmation-consumed-100.jsonl
+            v3-confirmation-consumed-100-selection.json
             v3-fresh-100.jsonl
             v3-fresh-100.sha256
             v3-fresh-100-selection.json
