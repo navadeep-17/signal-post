@@ -5,10 +5,12 @@ This directory contains the engineering evidence behind the current Signalpost s
 ## Start here
 
 - `../SUBMISSION.md` — current evaluator guide, run command, production boundaries and qualification evidence.
-- `REQUIREMENTS_MATRIX.md` — challenge requirements mapped to implementation and evidence.
+- `../submission/manifest.json` — machine-readable current V5 submission declaration and pinned production lineage.
+- `../submission/v5-smoke-100-run-report.json` — concise current 100-company smoke-test result required for evaluator handoff.
+- `REQUIREMENTS_MATRIX.md` — current challenge requirements mapped to implementation and evidence.
 - `SUBMISSION_SOURCE_RIGHTS.md` — source, licence, acquisition and retention boundaries.
 - `V5_BRREG_CHANGE_PRODUCTION.md` — current BRREG registry-change production qualification.
-- `FINAL_RELEASE_1000_AUDIT.md` — certified 1,000-company evidence baseline.
+- `FINAL_RELEASE_1000_AUDIT.md` — certified 1,000-company historical evidence baseline.
 
 ## Current production lineage
 
@@ -35,19 +37,20 @@ Key historical records include:
 
 ## Workflow cleanup policy
 
-The active `.github/workflows/` directory is intentionally limited to current CI, evaluator/release validation, refresh/snapshot regressions and the qualified V3–V5 production checks. Early H1/H2 experiment and source-screen workflow definitions were retired from the default branch after their conclusions were captured in these documents and in immutable Git history.
+The active `.github/workflows/` directory is intentionally limited to current CI, evaluator/release validation, refresh/snapshot regressions and the qualified V3–V5 production checks. Early H1/H2 experiment and source-screen workflow definitions were retired from the default branch after their conclusions were captured in these documents and immutable Git history.
 
-Past GitHub Actions run IDs cited in the qualification documents remain part of the repository's audit trail even when the original experimental workflow file is no longer active on `main`.
+Past GitHub Actions run IDs cited in qualification documents remain part of the repository's audit trail even when the original experimental workflow file is no longer active on `main`.
 
 ## Source-of-truth order
 
 When documents differ because the project evolved, use this order:
 
-1. `../SUBMISSION.md`
-2. `../README.md`
-3. `REQUIREMENTS_MATRIX.md`
-4. current V5 qualification documents
-5. certified release audits
-6. historical experiment/design notes
+1. the current Builderr challenge page for official rules and scoring;
+2. `../SUBMISSION.md` for this repository's evaluator instructions;
+3. `../submission/manifest.json` and `../submission/v5-smoke-100-run-report.json` for machine-readable revision/run evidence;
+4. `REQUIREMENTS_MATRIX.md`;
+5. current V5 qualification documents;
+6. certified historical release audits;
+7. historical experiment/design notes.
 
-The Builderr challenge page and private evaluator remain authoritative for the official score and hidden reference set.
+Builderr's checked collection and evaluator remain authoritative for the official score.
