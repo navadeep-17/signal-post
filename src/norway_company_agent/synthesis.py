@@ -296,22 +296,31 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
             all_evidence.append(evidence_id)
 
     effective_change_count = len(changes) if changes else len(registry_change_values)
+    what_changed: dict[str, Any] = {
+        "text": change_text,
+        "change_count": effective_change_count,
+        "changes": changes,
+    }
+    # Preserve the exact pre-V5 synthesis shape for historical/certified contracts that do
+    # not contain registry-change facts. This keeps the committed certified product artifact
+    # byte-for-byte reproducible while exposing the richer provenance only on new V5 output.
+    if registry_change_values:
+        what_changed.update(
+            {
+                "registry_changes": registry_change_values,
+                "evidence_ids": change_evidence_ids,
+                "source_boundary": (
+                    "registry_changes are official BRREG registry events, not company-authored news or social activity"
+                ),
+            }
+        )
+
     return {
         "schema_version": SYNTHESIS_SCHEMA_VERSION,
         "organisation_number": str(contract.get("organisation_number") or ""),
         "company_name": (name or {}).get("value"),
         "sections": sections,
-        "what_changed": {
-            "text": change_text,
-            "change_count": effective_change_count,
-            "changes": changes,
-            "registry_changes": registry_change_values,
-            "evidence_ids": change_evidence_ids,
-            "source_boundary": (
-                "registry_changes are official BRREG registry events, not company-authored news or social activity"
-                if registry_change_values else None
-            ),
-        },
+        "what_changed": what_changed,
         "unknowns": unknowns,
         "evidence_ids": all_evidence,
         "generation": {
