@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .annual_report_description_contract import project_annual_report_company_description
 from .external_footprint import publishable_observation
 
 
@@ -42,7 +43,12 @@ def _validated_workforce(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def project_workforce_observations(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Project qualified workforce observations as narrow external claims, idempotently."""
+    """Project qualified workforce observations and V3 annual-report profile evidence.
+
+    V3 deliberately keeps the final runner call site unchanged: the annual-report
+    description projector is chained here after workforce projection so the same
+    report fetch/OCR can contribute both fact families without a second request.
+    """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     claims = [dict(item) for item in (contract.get("claims") or [])]
@@ -64,46 +70,47 @@ def project_workforce_observations(contract: dict[str, Any], profile: dict[str, 
     evidence = [item for item in evidence if item.get("id") not in (removed_ids - still_referenced)]
 
     observations = _validated_workforce(profile)
-    if not observations:
-        return {
+    if observations:
+        evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
+        for observation in observations:
+            metrics = observation.get("metrics") or {}
+            evidence_id = _evidence_id(org, observation)
+            evidence_by_id[evidence_id] = {
+                "id": evidence_id,
+                "source_url": observation.get("source_url"),
+                "source_class": "official",
+                "retrieved_at": observation.get("retrieved_at"),
+                "content_sha256": observation.get("content_sha256"),
+                "claim_span": observation.get("evidence_span"),
+                "effective_at": observation.get("effective_at"),
+            }
+            claims.append(
+                {
+                    "field": managed_field,
+                    "value": {
+                        "measure": metrics.get("measure"),
+                        "value": metrics.get("workforce_value"),
+                        "scope": metrics.get("scope"),
+                    },
+                    "availability": "available",
+                    "confidence": 1.0,
+                    "evidence_ids": [evidence_id],
+                    "platform": observation.get("platform"),
+                    "signal_type": "workforce_snapshot",
+                    "observation_id": observation.get("id"),
+                    "claim_scope": metrics.get("claim_scope"),
+                }
+            )
+        projected = {
+            **contract,
+            "claims": claims,
+            "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
+        }
+    else:
+        projected = {
             **contract,
             "claims": claims,
             "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
         }
 
-    evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
-    for observation in observations:
-        metrics = observation.get("metrics") or {}
-        evidence_id = _evidence_id(org, observation)
-        evidence_by_id[evidence_id] = {
-            "id": evidence_id,
-            "source_url": observation.get("source_url"),
-            "source_class": "official",
-            "retrieved_at": observation.get("retrieved_at"),
-            "content_sha256": observation.get("content_sha256"),
-            "claim_span": observation.get("evidence_span"),
-            "effective_at": observation.get("effective_at"),
-        }
-        claims.append(
-            {
-                "field": managed_field,
-                "value": {
-                    "measure": metrics.get("measure"),
-                    "value": metrics.get("workforce_value"),
-                    "scope": metrics.get("scope"),
-                },
-                "availability": "available",
-                "confidence": 1.0,
-                "evidence_ids": [evidence_id],
-                "platform": observation.get("platform"),
-                "signal_type": "workforce_snapshot",
-                "observation_id": observation.get("id"),
-                "claim_scope": metrics.get("claim_scope"),
-            }
-        )
-
-    return {
-        **contract,
-        "claims": claims,
-        "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
-    }
+    return project_annual_report_company_description(projected, profile)

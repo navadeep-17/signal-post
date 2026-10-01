@@ -18,6 +18,7 @@ from typing import Any
 
 from pypdf import PdfReader
 
+from .annual_report_description import build_annual_report_description_observation
 from .external_footprint import validate_observation
 from .official import BRREG_ACCOUNT_PDF
 
@@ -170,6 +171,30 @@ def _ocr_pdf(raw: bytes, *, pages: int, dpi: int) -> str:
         return "\n".join(chunks)
 
 
+def _attach_description_from_report(
+    profile: dict[str, Any],
+    *,
+    text: str,
+    source_url: str,
+    content_sha256: str,
+    retrieved_at: str,
+    effective_at: str,
+) -> dict[str, Any]:
+    observation, audit = build_annual_report_description_observation(
+        profile,
+        text=text,
+        source_url=source_url,
+        content_sha256=content_sha256,
+        retrieved_at=retrieved_at,
+        effective_at=effective_at,
+    )
+    if observation:
+        rows = profile.setdefault("external_observations", [])
+        if not any(isinstance(row, dict) and row.get("id") == observation.get("id") for row in rows):
+            rows.append(observation)
+    return audit
+
+
 def collect_annual_report_workforce(
     profile: dict[str, Any],
     *,
@@ -232,11 +257,26 @@ def collect_annual_report_workforce(
         if not org_in_text:
             return None, {**result, **diagnostics, "status": "organisation_number_not_in_ocr_text"}
 
+        digest = hashlib.sha256(raw).hexdigest()
+        retrieved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        description_audit = _attach_description_from_report(
+            profile,
+            text=text,
+            source_url=url,
+            content_sha256=digest,
+            retrieved_at=retrieved_at,
+            effective_at=year,
+        )
+
         count, span, status, measure = extract_candidate(text)
         if count is None:
-            return None, {**result, **diagnostics, "status": status}
+            return None, {
+                **result,
+                **diagnostics,
+                "status": status,
+                "description_status": description_audit.get("status"),
+            }
 
-        digest = hashlib.sha256(raw).hexdigest()
         metrics = {
             "workforce_value": count,
             "measure": measure,
@@ -251,7 +291,7 @@ def collect_annual_report_workforce(
             "platform": "brreg",
             "signal_type": "workforce_snapshot",
             "source_url": url,
-            "retrieved_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "retrieved_at": retrieved_at,
             "content_sha256": digest,
             "exact_entity": True,
             "identity_proof": [
@@ -269,7 +309,13 @@ def collect_annual_report_workforce(
         }
         errors = validate_observation(observation)
         if errors:
-            return None, {**result, **diagnostics, "status": "validation_error", "validation_errors": errors}
+            return None, {
+                **result,
+                **diagnostics,
+                "status": "validation_error",
+                "validation_errors": errors,
+                "description_status": description_audit.get("status"),
+            }
         return observation, {
             **result,
             **diagnostics,
@@ -277,6 +323,7 @@ def collect_annual_report_workforce(
             "workforce_value": count,
             "measure": measure,
             "evidence_span": span,
+            "description_status": description_audit.get("status"),
         }
     except urllib.error.HTTPError as exc:
         return None, {
@@ -322,8 +369,10 @@ def attach_annual_report_workforce_batch(
             "selected": 0 if not runtime_available else len(selected),
             "requests": 0,
             "accepted": 0,
+            "description_accepted": 0,
             "added_conservative_challenge_request_charge": 0,
             "status_counts": {"ocr_runtime_unavailable": len(selected)} if not runtime_available and selected else {},
+            "description_status_counts": {},
             "runtime_seconds": 0.0,
             "execution_errors": [],
             "audit": [],
@@ -389,6 +438,18 @@ def attach_annual_report_workforce_batch(
             accepted += 1
 
     statuses = Counter(str(row.get("status") or "unknown") for row in audit)
+    description_statuses = Counter(str(row.get("description_status") or "not_attempted") for row in audit)
+    description_accepted = sum(
+        1
+        for profile in selected
+        if any(
+            isinstance(row, dict)
+            and row.get("signal_type") == "company_profile"
+            and row.get("platform") == "brreg"
+            and row.get("company_description")
+            for row in (profile.get("external_observations") or [])
+        )
+    )
     requests = sum(int(row.get("request_count") or 0) for row in audit)
     execution_errors = [
         {
@@ -405,8 +466,10 @@ def attach_annual_report_workforce_batch(
         "selected": len(selected),
         "requests": requests,
         "accepted": accepted,
+        "description_accepted": description_accepted,
         "added_conservative_challenge_request_charge": requests * request_charge_multiplier,
         "status_counts": dict(statuses),
+        "description_status_counts": dict(description_statuses),
         "runtime_seconds": round(time.monotonic() - started, 3),
         "execution_errors": execution_errors,
         "audit": audit,
