@@ -4,13 +4,15 @@ This directory contains the engineering evidence behind the current Signalpost s
 
 ## Start here
 
-- `../SUBMISSION.md` — current evaluator guide, run command, production boundaries and qualification evidence.
-- `../submission/manifest.json` — machine-readable current V5 submission declaration and pinned production lineage.
+- `../SUBMISSION.md` — current evaluator guide, run command, production boundaries, current explorer/compare UX and qualification evidence.
+- `../submission/manifest.json` — machine-readable current V5 submission declaration, pinned evaluator/product identities and product boundaries.
 - `../submission/v5-smoke-100-run-report.json` — concise current 100-company smoke-test result required for evaluator handoff.
-- `REQUIREMENTS_MATRIX.md` — current challenge requirements mapped to implementation and evidence.
+- `REQUIREMENTS_MATRIX.md` — current challenge requirements mapped to implementation and evidence, including the evidence-linked company comparison surface.
 - `SUBMISSION_SOURCE_RIGHTS.md` — source, licence, acquisition and retention boundaries.
 - `V5_BRREG_CHANGE_PRODUCTION.md` — current BRREG registry-change production qualification.
 - `FINAL_RELEASE_1000_AUDIT.md` — certified 1,000-company historical evidence baseline.
+
+The current evaluator generates its HTML product through `../scripts/build_current_product.py`. Explore and Compare companies share one payload derived from the final JSONL; compare adds no source requests or new facts and does not rank companies. The historical `../submission/signalpost-v2.html` remains the preserved certified V2 artifact.
 
 ## Current production lineage
 
@@ -39,7 +41,7 @@ Key historical records include:
 
 The active `.github/workflows/` directory is intentionally limited to current CI, evaluator/release validation, refresh/snapshot regressions and the qualified V3–V5 production checks. Early H1/H2 experiment and source-screen workflow definitions were retired from the default branch after their conclusions were captured in these documents and immutable Git history.
 
-Past GitHub Actions run IDs cited in qualification documents remain part of the repository's audit trail even when the original experimental workflow file is no longer active on `main`.
+Past GitHub Actions run IDs cited in the qualification documents remain part of the repository's audit trail even when the original experimental workflow file is no longer active on `main`.
 
 ## Source-of-truth order
 
