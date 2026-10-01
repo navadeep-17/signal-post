@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 
-MANAGED_FIELDS = ("registered_activity", "registered_purpose")
+OWN_SIGNAL_TYPE = "official_registry_narrative_projection"
 REGISTRY_ACTIVITY_KEY = "aktivitet"
 REGISTRY_PURPOSE_KEY = "vedtektsfestetFormaal"
 
@@ -41,19 +41,69 @@ def _registry_values(profile: dict[str, Any]) -> tuple[dict[str, Any], str, str]
     return registry, activity, purpose
 
 
+def _own_claim(claim: dict[str, Any]) -> bool:
+    return claim.get("signal_type") == OWN_SIGNAL_TYPE and claim.get("field") in {
+        "company_description",
+        "registered_purpose",
+    }
+
+
+def _append_claim(
+    *,
+    claims: list[dict[str, Any]],
+    evidence_by_id: dict[str, dict[str, Any]],
+    org: str,
+    field: str,
+    value: str,
+    source_key: str,
+    registry: dict[str, Any],
+) -> None:
+    evidence_id = _evidence_id(org, field, registry, value)
+    evidence_by_id[evidence_id] = {
+        "id": evidence_id,
+        "source_url": registry.get("source_url"),
+        "source_class": "official",
+        "retrieved_at": registry.get("retrieved_at"),
+        "content_sha256": registry.get("content_sha256"),
+        "claim_span": f"{source_key}={value}"[:4000],
+        **(
+            {"source_row_key": registry.get("source_row_key")}
+            if registry.get("source_row_key") is not None
+            else {}
+        ),
+    }
+    claims.append(
+        {
+            "field": field,
+            "value": value,
+            "availability": "available",
+            "confidence": 1.0,
+            "evidence_ids": [evidence_id],
+            "signal_type": OWN_SIGNAL_TYPE,
+            "claim_scope": (
+                "Literal exact-organisation-number BRREG registry text retained by the "
+                "base collector; zero-network projection with no semantic inference."
+            ),
+        }
+    )
+
+
 def project_registry_narrative_claims(
     contract: dict[str, Any],
     profile: dict[str, Any],
 ) -> dict[str, Any]:
     """Expose exact-org BRREG activity/purpose text already retained by the collector.
 
-    This projector is deliberately zero-network and does not infer a description from an
-    industry code. It publishes only the literal ``aktivitet`` and
-    ``vedtektsfestetFormaal`` values from the exact organisation-number registry row.
+    ``aktivitet`` is used only as a fallback ``company_description`` when no stronger
+    published description already exists. That preserves first-party website / filed
+    annual-report descriptions while giving synthesis an official exact-entity description
+    for companies where those richer sources are absent.
 
-    The facts are labelled as registered activity/purpose rather than website content, so
-    they cannot make an unverified company website appear available. Existing claims from
-    every other source remain untouched.
+    ``vedtektsfestetFormaal`` is emitted as the explicitly labelled
+    ``registered_purpose`` claim. It is never substituted for actual activity.
+
+    The projector is zero-network, deterministic and idempotent. It removes only claims it
+    created on a previous pass and never rewrites another source's claim.
     """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
@@ -63,27 +113,19 @@ def project_registry_narrative_claims(
     registry, activity, purpose = _registry_values(profile)
     if registry.get("status") != "available":
         return contract
-    source_url = str(registry.get("source_url") or "").strip()
-    retrieved_at = str(registry.get("retrieved_at") or "").strip()
-    if not source_url or not retrieved_at:
+    if not str(registry.get("source_url") or "").strip() or not str(registry.get("retrieved_at") or "").strip():
         return contract
 
-    values = {
-        "registered_activity": activity,
-        "registered_purpose": purpose,
-    }
+    original_claims = [dict(item) for item in (contract.get("claims") or [])]
+    original_evidence = [dict(item) for item in (contract.get("evidence") or [])]
 
-    claims = [dict(item) for item in (contract.get("claims") or [])]
-    evidence = [dict(item) for item in (contract.get("evidence") or [])]
-
-    # Own only our two explicit field names so rerunning the projection is idempotent.
     removed_ids = {
         evidence_id
-        for claim in claims
-        if claim.get("field") in MANAGED_FIELDS
+        for claim in original_claims
+        if _own_claim(claim)
         for evidence_id in (claim.get("evidence_ids") or [])
     }
-    claims = [claim for claim in claims if claim.get("field") not in MANAGED_FIELDS]
+    claims = [claim for claim in original_claims if not _own_claim(claim)]
     still_referenced = {
         evidence_id
         for claim in claims
@@ -91,42 +133,37 @@ def project_registry_narrative_claims(
     }
     evidence_by_id = {
         str(item.get("id")): item
-        for item in evidence
+        for item in original_evidence
         if item.get("id") and item.get("id") not in (removed_ids - still_referenced)
     }
 
-    for field in MANAGED_FIELDS:
-        value = values[field]
-        if not value:
-            continue
-        evidence_id = _evidence_id(org, field, registry, value)
-        source_key = REGISTRY_ACTIVITY_KEY if field == "registered_activity" else REGISTRY_PURPOSE_KEY
-        evidence_by_id[evidence_id] = {
-            "id": evidence_id,
-            "source_url": source_url,
-            "source_class": "official",
-            "retrieved_at": retrieved_at,
-            "content_sha256": registry.get("content_sha256"),
-            "claim_span": f"{source_key}={value}"[:4000],
-            **(
-                {"source_row_key": registry.get("source_row_key")}
-                if registry.get("source_row_key") is not None
-                else {}
-            ),
-        }
-        claims.append(
-            {
-                "field": field,
-                "value": value,
-                "availability": "available",
-                "confidence": 1.0,
-                "evidence_ids": [evidence_id],
-                "signal_type": "official_registry_narrative_projection",
-                "claim_scope": (
-                    "Literal exact-organisation-number BRREG registry text retained by the "
-                    "base collector; zero-network projection with no semantic inference."
-                ),
-            }
+    stronger_description_exists = any(
+        claim.get("field") == "company_description"
+        and claim.get("availability") == "available"
+        and str(claim.get("value") or "").strip()
+        for claim in claims
+    )
+
+    if activity and not stronger_description_exists:
+        _append_claim(
+            claims=claims,
+            evidence_by_id=evidence_by_id,
+            org=org,
+            field="company_description",
+            value=activity,
+            source_key=REGISTRY_ACTIVITY_KEY,
+            registry=registry,
+        )
+
+    if purpose:
+        _append_claim(
+            claims=claims,
+            evidence_by_id=evidence_by_id,
+            org=org,
+            field="registered_purpose",
+            value=purpose,
+            source_key=REGISTRY_PURPOSE_KEY,
+            registry=registry,
         )
 
     return {
