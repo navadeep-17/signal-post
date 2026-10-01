@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
+from build_v2_product import compact_company  # noqa: E402
 from build_v6_ui import V6_UI_SCHEMA, build_v6_html  # noqa: E402
 from norway_company_agent.canonical_projection import project_canonical_profile  # noqa: E402
 
@@ -27,6 +28,34 @@ def _two_companies() -> list[dict]:
                 break
     assert len(rows) == 2
     return rows
+
+
+def _company_with_industry() -> dict:
+    with gzip.open(SOURCE, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = project_canonical_profile(json.loads(line))
+            compact = compact_company(row)
+            if any(
+                fact.get("type") == "industry" and fact.get("availability") == "available"
+                for fact in compact["areas"]["company_record"]
+            ):
+                return row
+    raise AssertionError("certified corpus contains no compact available industry fact")
+
+
+def _company_with_unavailable_canonical_fact() -> tuple[dict, str]:
+    with gzip.open(SOURCE, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = project_canonical_profile(json.loads(line))
+            for fact in row.get("canonical_facts") or []:
+                state = fact.get("availability")
+                if state in {"not_available", "blocked", "not_applicable", "ambiguous", "failed"}:
+                    return row, str(state)
+    raise AssertionError("certified corpus contains no unavailable canonical fact")
 
 
 def test_v6_ui_exposes_scoring_surfaces() -> None:
@@ -62,6 +91,36 @@ def test_v6_ui_keeps_views_on_one_canonical_payload() -> None:
     assert "renderCompare()" in body
     assert "renderTimeline()" in body
     assert "answerQuestion(q)" in body
+
+
+def test_v6_ui_search_indexes_existing_compact_industry_fact() -> None:
+    row = _company_with_industry()
+    compact = compact_company(row)
+    industry = next(
+        fact
+        for fact in compact["areas"]["company_record"]
+        if fact.get("type") == "industry" and fact.get("availability") == "available"
+    )
+    body = build_v6_html([row])
+
+    assert industry.get("value") is not None
+    assert "function industrySearchText(x)" in body
+    assert "firstFact(x,'industry')" in body
+    assert "norm(searchText(x)).includes(q)" in body
+    assert 'placeholder="Search name, org no., municipality, industry"' in body
+
+
+def test_v6_ui_compare_preserves_existing_canonical_availability_state() -> None:
+    row, state = _company_with_unavailable_canonical_fact()
+    body = build_v6_html([row])
+
+    assert f'"availability":"{state}"' in body
+    assert "function availabilityLabel(state)" in body
+    assert "function availabilityCompareCell(rows)" in body
+    assert "Canonical availability state" in body
+    assert "No value is substituted." in body
+    assert "No canonical fact exists for this comparison field." in body
+    assert "never substitutes zero or a generic missing value" in body
 
 
 def test_v6_ui_has_responsive_and_accessible_controls() -> None:
