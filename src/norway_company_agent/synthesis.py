@@ -119,12 +119,20 @@ def _section(key: str, title: str, text: str, facts: list[dict[str, Any]]) -> di
     }
 
 
+def _registry_change_sort_key(fact: dict[str, Any]) -> tuple[str, str]:
+    value = fact.get("value") or {}
+    if not isinstance(value, dict):
+        return ("", "")
+    return (str(value.get("effective_at") or ""), str(value.get("event_id") or ""))
+
+
 def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     """Build a deterministic, zero-network brief from already-published canonical facts.
 
     The synthesis never adds a new fact. Each positive statement is derived from canonical
     facts that already carry evidence. Missing/unknown statements are explicit boundaries,
-    not inferences about the company.
+    not inferences about the company. Official registry changes remain explicitly labelled
+    as registry events rather than being presented as company-authored public activity.
     """
 
     name = _first(contract, "company_name")
@@ -140,6 +148,11 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     jobs = _facts_by_type(contract, "job_posting")
     updates = _facts_by_type(contract, "company_update")
     social = _facts_by_type(contract, "social_profile")
+    registry_changes = sorted(
+        _facts_by_type(contract, "registry_change"),
+        key=_registry_change_sort_key,
+        reverse=True,
+    )
 
     identity_bits: list[str] = []
     identity_facts: list[dict[str, Any]] = []
@@ -216,6 +229,8 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         external_facts.extend(social)
 
     changes = [item for item in (contract.get("changes") or []) if isinstance(item, dict)]
+    change_evidence_ids: list[str] = []
+    registry_change_values: list[dict[str, Any]] = []
     if changes:
         change_text = "; ".join(
             f"{item.get('field')}: {item.get('previous_value')} → {item.get('current_value')}"
@@ -224,6 +239,26 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         if len(changes) > 5:
             change_text += f"; plus {len(changes) - 5} more material change(s)"
         change_text += "."
+    elif registry_changes:
+        parts: list[str] = []
+        for fact in registry_changes[:3]:
+            value = fact.get("value") or {}
+            if not isinstance(value, dict):
+                continue
+            effective_at = str(value.get("effective_at") or "")
+            date = effective_at[:10] if effective_at else "date unknown"
+            summary = str(value.get("summary") or "").strip()
+            if not summary:
+                continue
+            parts.append(f"{date}: official BRREG registry change — {summary}")
+            registry_change_values.append(dict(value))
+            for evidence_id in fact.get("evidence_ids") or []:
+                text = str(evidence_id)
+                if text and text not in change_evidence_ids:
+                    change_evidence_ids.append(text)
+        change_text = "; ".join(parts) + "." if parts else (
+            "No material change is published for this run; this does not imply that nothing changed outside checked sources."
+        )
     else:
         change_text = "No material change is published for this run; this does not imply that nothing changed outside checked sources."
 
@@ -256,17 +291,36 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         for evidence_id in section["evidence_ids"]:
             if evidence_id not in all_evidence:
                 all_evidence.append(evidence_id)
+    for evidence_id in change_evidence_ids:
+        if evidence_id not in all_evidence:
+            all_evidence.append(evidence_id)
+
+    effective_change_count = len(changes) if changes else len(registry_change_values)
+    what_changed: dict[str, Any] = {
+        "text": change_text,
+        "change_count": effective_change_count,
+        "changes": changes,
+    }
+    # Preserve the exact pre-V5 synthesis shape for historical/certified contracts that do
+    # not contain registry-change facts. This keeps the committed certified product artifact
+    # byte-for-byte reproducible while exposing the richer provenance only on new V5 output.
+    if registry_change_values:
+        what_changed.update(
+            {
+                "registry_changes": registry_change_values,
+                "evidence_ids": change_evidence_ids,
+                "source_boundary": (
+                    "registry_changes are official BRREG registry events, not company-authored news or social activity"
+                ),
+            }
+        )
 
     return {
         "schema_version": SYNTHESIS_SCHEMA_VERSION,
         "organisation_number": str(contract.get("organisation_number") or ""),
         "company_name": (name or {}).get("value"),
         "sections": sections,
-        "what_changed": {
-            "text": change_text,
-            "change_count": len(changes),
-            "changes": changes,
-        },
+        "what_changed": what_changed,
         "unknowns": unknowns,
         "evidence_ids": all_evidence,
         "generation": {
@@ -304,6 +358,10 @@ def validate_company_synthesis(contract: dict[str, Any]) -> list[str]:
         for evidence_id in section.get("evidence_ids") or []:
             if str(evidence_id) not in available_evidence:
                 errors.append(f"synthesis references missing evidence {evidence_id}")
+    what_changed = synthesis.get("what_changed") or {}
+    for evidence_id in what_changed.get("evidence_ids") or []:
+        if str(evidence_id) not in available_evidence:
+            errors.append(f"synthesis what_changed references missing evidence {evidence_id}")
     for evidence_id in synthesis.get("evidence_ids") or []:
         if str(evidence_id) not in available_evidence:
             errors.append(f"synthesis evidence list references missing evidence {evidence_id}")
