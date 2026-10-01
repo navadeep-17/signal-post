@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import gzip
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -61,3 +63,22 @@ def test_current_product_keeps_compare_and_explorer_on_same_payload() -> None:
     assert "renderProfile()" in body
     assert "renderCompare()" in body
     assert "comparison_is_descriptive_only" not in body  # manifest metadata, not user-facing synthetic fact
+
+
+def test_current_product_generated_javascript_parses_with_node(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    body = build_current_html(_two_companies())
+    script = body.split("<script>", 1)[1].split("</script>", 1)[0]
+    script_path = tmp_path / "signalpost-current-product.js"
+    script_path.write_text(script, encoding="utf-8")
+    completed = subprocess.run(
+        [node, "--check", str(script_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
