@@ -49,12 +49,13 @@ Implementation sequence:
 3. [x] project it only when no stronger verified-company-site description already exists;
 4. [x] require exact organisation number in the report text;
 5. [x] add false-positive guards for group-only / boilerplate passages;
-6. [x] implement a single-fetch annual-report intelligence collector that derives workforce + description from the same PDF/OCR text;
-7. [x] prove in focused tests that one annual-report request can produce both observations and that the V3 batch retains the exact H2g eligibility/request class;
-8. [ ] wire the validated collector into `run_signalpost_final.py` and project the description in the final contract;
-9. [ ] run a fresh qualification and measure company-description reach, precision and runtime.
+6. [x] reuse the existing H2g annual-report fetch/OCR so one report request can derive workforce + description;
+7. [x] preserve the existing H2g eligibility and request class, so V3 does not create a second annual-report fetch path;
+8. [x] chain annual-report description projection through the existing final-runner workforce projection path without changing the runner call site;
+9. [x] add a machine-readable V3 audit for observed description reach, stronger-source suppression, shared-report reuse and evidence completeness;
+10. [ ] run a fresh zero-overlap qualification and measure company-description reach, precision and runtime.
 
-Offline Baseline CI is green through step 7. The production runner remains unchanged until the runner-integration gate is tested.
+Baseline CI #442 is green after the production-path integration: full tests, V2 canonical audit, submission-bundle verification and deterministic refresh replay all pass.
 
 Promotion gate: no wrong-entity descriptions in manual audit and meaningful net-new company coverage.
 
