@@ -145,6 +145,26 @@ Important current facts include:
 
 Every canonical fact retains its source field and source evidence IDs.
 
+### Preserved V2 compatibility baseline
+
+The V2 canonical/product layer remains part of the current evaluator path and its historical certified-corpus diagnostics are intentionally preserved for regression and audit continuity. The zero-network canonical audit over the immutable certified 1,000 produced **19,951 canonical facts** with zero canonical validation errors, including **3,932** current individual role facts.
+
+The final fresh V2 projection replay also kept the strict activity boundary:
+
+| V2 diagnostic | Result |
+|---|---:|
+| Strict job-posting facts | **0** |
+| Strict dated company-update facts | **0** |
+
+Those zeroes are not converted into negative business claims; they mean only that no retained page met the strict publication gates in that diagnostic cohort.
+
+Compatibility claim boundaries remain unchanged:
+
+- a generic careers page or section index is not a hiring fact;
+- a company-declared social URL does not imply that Signalpost fetched the platform page, verified ownership/activity, or observed any follower count;
+- a retained first-party contact email does not establish mailbox deliverability;
+- missing public activity is not interpreted as proof that no activity exists.
+
 ## 6. Exact-company and publication boundaries
 
 Signalpost does not trade precision for local fact count.
