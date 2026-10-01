@@ -9,9 +9,8 @@ __pycache__/
 .venv/
 venv/
 
-# Local run artifacts (the committed refresh demo is intentionally tracked already)
-out/*
-!out/refresh-demo.json
+# Generated evaluator / validation output
+out/
 
 # Local downloaded evaluator inputs
 brreg-enheter.csv
