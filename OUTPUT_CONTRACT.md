@@ -8,9 +8,9 @@ The original auditable envelope remains the source of truth:
 {
   "organisation_number": "123456789",
   "run": {
-    "run_id": "2026-08-24-a",
-    "started_at": "2026-08-24T06:00:00Z",
-    "completed_at": "2026-08-24T06:00:08Z",
+    "run_id": "2026-10-01-a",
+    "started_at": "2026-10-01T06:00:00Z",
+    "completed_at": "2026-10-01T06:00:08Z",
     "terminal_status": "completed"
   },
   "claims": [
@@ -27,7 +27,7 @@ The original auditable envelope remains the source of truth:
       "id": "ev-1",
       "source_url": "https://example.no/",
       "source_class": "company_owned",
-      "retrieved_at": "2026-08-24T06:00:04Z",
+      "retrieved_at": "2026-10-01T06:00:04Z",
       "content_sha256": "...",
       "claim_span": "Example AS, organisation number 123 456 789"
     }
@@ -42,15 +42,17 @@ The original auditable envelope remains the source of truth:
 }
 ```
 
-Allowed availability states are `available`, `not_available`, `blocked`, `not_applicable`, `ambiguous` and `failed`. A checked source that has zero jobs or zero locations is different from a source that was not checked.
+Allowed availability states are `available`, `not_available`, `blocked`, `not_applicable`, `ambiguous` and `failed`. A checked source with no qualifying value is different from a source that was not checked.
 
-## V2 canonical projection
+## Canonical projection and synthesis
 
 `scripts/run_signalpost_v2.py` preserves every field above and additionally emits evaluator-facing fields:
 
-- `canonical_facts[]` — flat, typed facts that reuse the evidence IDs of the original source-backed claim;
-- `canonical_profile` — the same facts grouped into Builderr-facing data areas: company record, financials, people, locations, company website, jobs and public activity;
-- `synthesis` — a deterministic zero-network brief assembled only from already-published canonical facts, refresh `changes[]`, and explicit unknown states.
+- `canonical_facts[]` — flat, typed facts that reuse evidence IDs from the original source-backed claims;
+- `canonical_profile` — the same facts grouped into company record, financials, people, locations, company website, jobs and public activity;
+- `synthesis` — a deterministic evidence-linked brief assembled only from already-published canonical facts, validated refresh changes, qualified official registry-change facts and explicit unknown states.
+
+The canonical schema name remains `signalpost-canonical-v2` for backward compatibility even though the current evaluator path includes the qualified V3–V5 layers.
 
 Example:
 
@@ -84,6 +86,19 @@ Example:
       "availability": "available",
       "confidence": 1.0,
       "evidence_ids": ["ev-revenue"]
+    },
+    {
+      "type": "registry_change",
+      "canonical_field": "company.registry_change",
+      "source_field": "official_registry_change",
+      "value": {
+        "event_date": "2026-09-30",
+        "path": "/antallAnsatte",
+        "summary": "Brønnøysundregistrene recorded a registered employee-count update."
+      },
+      "availability": "available",
+      "confidence": 1.0,
+      "evidence_ids": ["ev-registry-change"]
     }
   ],
   "canonical_profile": {
@@ -117,12 +132,12 @@ Example:
       }
     ],
     "what_changed": {
-      "text": "No material change is published for this run; this does not imply that nothing changed outside checked sources.",
+      "text": "Brønnøysundregistrene recorded a qualified registry update for this organisation.",
       "change_count": 0,
       "changes": []
     },
     "unknowns": ["No strict job posting is published."],
-    "evidence_ids": ["ev-revenue"],
+    "evidence_ids": ["ev-revenue", "ev-registry-change"],
     "generation": {
       "mode": "deterministic_zero_network",
       "llm_used": false,
@@ -132,12 +147,26 @@ Example:
 }
 ```
 
-The V2 projection and synthesis are deliberately **zero-network and evidence-bounded**. They do not repair missing values, invent facts, relax company-identity gates or replace provenance. `claims[]` and `evidence[]` remain the authoritative source layer. Every canonical fact must point to evidence already present in the same output object, and every positive synthesis statement is built from those canonical facts.
+## Evidence and identity invariants
 
-Current canonical namespaces are `company.*`, `financial.*`, `people.*`, `locations.*`, `website.*`, `hiring.*` and `public.*`. A social-profile fact means only that a verified company-owned page declared the profile URL; the social platform itself was not fetched. A generic careers page is never projected as a hiring fact.
+Canonical projection and synthesis do not repair missing values, invent facts, relax company-identity gates or replace provenance. `claims[]` and `evidence[]` remain the authoritative source layer.
 
-The synthesis layer makes three boundaries explicit:
+Every positive canonical fact must point to evidence already present in the same output object. Every positive synthesis statement must be grounded in already-published facts or validated refresh changes.
 
-- **what the company does / current snapshot** — only from qualified canonical facts;
-- **what changed** — only from validated `changes[]`; an empty list is described as “no material change published for this run,” never “nothing changed”;
-- **what remains unknown** — derived from unavailable canonical areas and strict activity abstentions, never converted into negative business facts.
+Current canonical namespaces are `company.*`, `financial.*`, `people.*`, `locations.*`, `website.*`, `hiring.*` and `public.*`.
+
+Important semantic boundaries:
+
+- a social-profile fact means only that an exact verified company-owned page declared the profile URL; the social platform itself was not fetched;
+- a generic careers page is never projected as a hiring fact;
+- an official BRREG registry-change fact means BRREG recorded a dated exact-org update; it is not company-authored news, hiring or social activity;
+- missing values, blocked sources and ambiguous identity evidence remain explicit rather than being converted into negative business claims.
+
+## Change semantics
+
+Signalpost has two distinct change channels:
+
+1. `changes[]` contains validated refresh diffs when the system can establish old and new material values from comparable snapshots.
+2. `official_registry_change` claims / `company.registry_change` canonical facts contain dated exact-org BRREG update events when BRREG provides a qualified current patch event. These facts do **not** invent an earlier value that the source did not provide.
+
+The synthesis `what_changed` section may use either channel, but must preserve the distinction. If neither channel contains a qualified event, it says that no material change was **published for the run** rather than claiming that nothing changed in reality.
