@@ -1,0 +1,92 @@
+name: V4 Registry Narrative Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/v4-registry-description"
+    paths:
+      - "src/norway_company_agent/registry_narrative.py"
+      - "src/norway_company_agent/v2_registry_projection.py"
+      - "scripts/audit_v4_registry_narrative.py"
+      - "tests/test_v4_registry_narrative.py"
+      - ".github/workflows/v4-registry-narrative-audit.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-certified-1000:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v4_registry_narrative.py tests/test_v2_registry_mapping.py tests/test_canonical_projection.py tests/test_synthesis.py
+
+      - name: Restore certified release chunks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived
+          for i in $(seq 0 9); do
+            mkdir -p "archived/$i"
+            gh run download 35246833190 \
+              --repo navadeep-17/signal-post \
+              --name "final-release-chunk-$i" \
+              --dir "archived/$i"
+            test -s "archived/$i/out/chunk-$i/work/profiles.jsonl"
+            test -s "archived/$i/out/release-chunk-$i.jsonl"
+          done
+
+      - name: Audit zero-network narrative projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          profiles=(archived/*/out/chunk-*/work/profiles.jsonl)
+          contracts=(archived/*/out/release-chunk-*.jsonl)
+          test "${#profiles[@]}" -eq 10
+          test "${#contracts[@]}" -eq 10
+          mkdir -p out
+          uv run python scripts/audit_v4_registry_narrative.py \
+            --profiles "${profiles[@]}" \
+            --contracts "${contracts[@]}" \
+            --report out/v4-registry-narrative-audit.json \
+            --samples out/v4-registry-narrative-samples.jsonl
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/v4-registry-narrative-audit.json').read_text())
+          assert report['companies'] == 1000, report
+          assert report['network_requests_added'] == 0, report
+          assert report['passed'] is True, report
+          assert report['company_description_after'] >= 990, report
+          assert report['net_new_company_description_companies'] >= 900, report
+          assert report['stronger_existing_descriptions_preserved'] == report['company_description_before'], report
+          assert report['canonical_description_companies'] == report['company_description_after'], report
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-registry-narrative-audit
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            out/v4-registry-narrative-audit.json
+            out/v4-registry-narrative-samples.jsonl
