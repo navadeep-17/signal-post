@@ -10,7 +10,7 @@ from .external_footprint import validate_observation
 
 # Annual reports use several recurring headings for the legal entity's activity.
 # Keep this extractor deliberately narrow: it only accepts explicit company-scope
-# activity sections and refuses group-only or accounting-policy language.
+# activity sections and refuses group-only, accounting-policy or financing-only text.
 HEADING_PATTERNS = (
     re.compile(r"(?im)^\s*(?:virksomhetens|verksemdas|selskapets|selskapets?)\s+(?:art|virksomhet|verksemd)\s*[:.-]?\s*$"),
     re.compile(r"(?im)^\s*(?:om\s+)?(?:selskapet|verksemda)\s*[:.-]?\s*$"),
@@ -18,6 +18,7 @@ HEADING_PATTERNS = (
 
 STOP_HEADING = re.compile(
     r"(?im)^\s*(?:fortsatt\s+drift|going\s+concern|arsresultat|årsresultat|resultat|"
+    r"utvikling\s+i\s+resultat(?:et)?\s+og\s+(?:finansiell\s+)?stilling|okonomisk\s+utvikling|økonomisk\s+utvikling|"
     r"balanse|egenkapital|styret|hendelser|risiko|arbeidsmiljo|arbeidsmiljø|likestilling|"
     r"miljo|miljø|redegjorelse|redegjørelse|noter?|note\s+\d+|salgsinntekter|"
     r"inntektsforing|inntektsføring|klassifisering\s+og\s+vurdering|anleggsmidler|"
@@ -25,9 +26,10 @@ STOP_HEADING = re.compile(
 )
 
 # OCR sometimes loses line breaks between the activity paragraph and the first
-# accounting-policy heading. Cut at those headings even when they appear inline.
-INLINE_ACCOUNTING_SECTION = re.compile(
-    r"(?i)(?<!^)\s+(?:salgsinntekter|inntektsforing|inntektsføring|"
+# accounting/results heading. Cut at those headings even when they appear inline.
+INLINE_NON_ACTIVITY_SECTION = re.compile(
+    r"(?i)(?<!^)\s+(?:utvikling\s+i\s+resultat(?:et)?\s+og\s+(?:finansiell\s+)?stilling|"
+    r"okonomisk\s+utvikling|økonomisk\s+utvikling|salgsinntekter|inntektsforing|inntektsføring|"
     r"klassifisering\s+og\s+vurdering(?:\s+av\s+balanseposter)?|anleggsmidler|"
     r"omlopsmidler|omløpsmidler|leieavtaler|fordringer|varelager|avskrivninger|"
     r"skatt(?:ekostnad(?:en)?)?)\b"
@@ -42,6 +44,21 @@ BOILERPLATE = re.compile(
 ACCOUNTING_POLICY_ONLY = re.compile(
     r"(?i)\b(?:har\s+(?:ikke\s+)?endret\s+regnskapsprinsipp|regnskapsprinsipp(?:er|ene)?|"
     r"accounting\s+polic(?:y|ies)|prinsippendring)\b"
+)
+# `Virksomhetens art` is sometimes followed by a financing/going-concern narrative
+# rather than a description of what the company does. Reject those short narratives
+# unless they also contain an explicit operational activity signal.
+FINANCING_ONLY = re.compile(
+    r"(?i)\b(?:investor(?:er|en)?|kapitalinnhenting|kapitaltilforsel|kapitaltilførsel|"
+    r"finansiering|refinansiering|likviditet|egenkapitaltilforsel|egenkapitaltilførsel)\b"
+)
+ACTIVITY_SIGNAL = re.compile(
+    r"(?i)\b(?:salg|selge|kjop|kjøp|import|eksport|produksjon|produsere|utvikl(?:er|ing|e)|"
+    r"lever(?:er|ing|e)|tjenest(?:e|er)|konsulent|radgiv|rådgiv|programvare|it\b|"
+    r"bygg|anlegg|tomrer|tømrer|oppforing|oppføring|utleie|eiendom|handel|butikk|"
+    r"transport|logistikk|servering|restaurant|overnatting|turist|fiske|kunst|kurs|"
+    r"konfeksjonering|investering(?:er)?|aksjer|andeler|eie|oppdrett|drift|driver|"
+    r"virksomhet|verksemd|tannlege|helse|behandling|engineering|consulting)\b"
 )
 LEGAL_ENTITY_AT_START = re.compile(
     r"^\s*([A-ZÆØÅ0-9][A-Za-zÆØÅæøå0-9&.'’()\-/ ]{1,80}?\s+"
@@ -62,7 +79,7 @@ def _clean_description(text: str) -> str:
     lines = [line.strip(" -•\t") for line in text.splitlines() if line.strip()]
     cleaned = " ".join(lines)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    inline_stop = INLINE_ACCOUNTING_SECTION.search(cleaned)
+    inline_stop = INLINE_NON_ACTIVITY_SECTION.search(cleaned)
     if inline_stop and inline_stop.start() >= 40:
         cleaned = cleaned[: inline_stop.start()].rstrip(" .;:-") + "."
     return cleaned[:700]
@@ -122,6 +139,8 @@ def extract_business_description(text: str) -> tuple[str | None, str]:
             if ACCOUNTING_POLICY_ONLY.search(candidate):
                 continue
             if BOILERPLATE.search(candidate):
+                continue
+            if FINANCING_ONLY.search(candidate) and not ACTIVITY_SIGNAL.search(candidate):
                 continue
             # Group-only sections are unsafe. A candidate may mention a group only when
             # the legal entity itself is also explicitly described.
@@ -204,7 +223,7 @@ def build_annual_report_description_observation(
             "claim_scope": "Explicit legal-entity business/activity description extracted from the official BRREG annual-account copy.",
             "description_characters": len(description),
         },
-        "strategy": "annual_report_company_description_exact_org_v2",
+        "strategy": "annual_report_company_description_exact_org_v3",
     }
     errors = validate_observation(observation)
     if errors:
