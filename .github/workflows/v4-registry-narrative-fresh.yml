@@ -1,0 +1,226 @@
+name: V4 Registry Narrative Fresh Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/v4-registry-description"
+    paths:
+      - "src/norway_company_agent/registry_narrative.py"
+      - "src/norway_company_agent/v2_registry_projection.py"
+      - "scripts/run_signalpost_v2.py"
+      - ".github/workflows/v4-registry-narrative-fresh.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qualify-fresh-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+
+      - name: Sync and regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v4_registry_narrative.py tests/test_v3_annual_report_description.py tests/test_v3_annual_report_reuse.py tests/test_v2_registry_mapping.py tests/test_canonical_projection.py tests/test_synthesis.py
+
+      - name: Download frozen universe and current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical qualification manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          echo 'fdf402093fa87e65103c9e5b9e8d26db15b0027da4a4504deb7f575117afa5bb  archived/v4screen/v4-source-screen-20.jsonl' | sha256sum -c -
+
+      - name: Recreate exclusions through V3
+        run: |
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered validation/h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze \
+            --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl \
+            --count 100 --seed 20261003 \
+            --evaluation-split v3_annual_description_zero_overlap \
+            --sample-slice fresh_annual_report_intelligence_validation \
+            --output v3-tuning-100.jsonl --report v3-tuning-100-selection.json
+          echo '2da901382ea417ebbfb73fc935295b6a8fa76b2d48e6be8f7efe5ba24671d43e  v3-tuning-100.jsonl' | sha256sum -c -
+          cat exclude-6900.jsonl v3-tuning-100.jsonl > exclude-7000.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl \
+            --count 100 --seed 20261004 \
+            --evaluation-split v3_annual_description_confirmation \
+            --sample-slice fresh_annual_report_intelligence_transfer \
+            --output v3-confirmation-100.jsonl --report v3-confirmation-100-selection.json
+          echo '9571c54439db6d1cc1f79e03e48bc4f6c400be4899fdfbf37b1be97ee3b86d1f  v3-confirmation-100.jsonl' | sha256sum -c -
+          cat exclude-7000.jsonl v3-confirmation-100.jsonl > exclude-7100.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl \
+            --count 100 --seed 20261005 \
+            --evaluation-split v3_annual_description_final_confirmation \
+            --sample-slice fresh_annual_report_intelligence_final_transfer \
+            --output v3-final-100.jsonl --report v3-final-100-selection.json
+          echo 'a9e093f6c1dfdc13010c7ca684db17a75cd827542fd7f7fc5ba8fe4b5db5a118  v3-final-100.jsonl' | sha256sum -c -
+          cat exclude-7100.jsonl v3-final-100.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          test "$(wc -l < exclude-7220.jsonl)" -eq 7220
+          UNIQUE_COUNT="$(python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('exclude-7220.jsonl').read_text().splitlines() if x.strip()]; print(len({str(r['organisation_number']) for r in rows}))")"
+          test "$UNIQUE_COUNT" -eq 7220
+
+      - name: Freeze untouched V4 registry-narrative confirmation 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7220.jsonl \
+            --count 100 \
+            --seed 20261007 \
+            --evaluation-split v4_registry_narrative_confirmation \
+            --sample-slice fresh_zero_network_registry_narrative \
+            --output v4-registry-fresh-100.jsonl \
+            --report v4-registry-fresh-100-selection.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('v4-registry-fresh-100-selection.json').read_text())
+          assert report['count']==100 and report['overlap_count']==0 and report['excluded_rows']==7220, report
+          print(json.dumps(report, indent=2))
+          PY
+          sha256sum v4-registry-fresh-100.jsonl > v4-registry-fresh-100.sha256
+
+      - name: Run full V2/V3/V4 stack on untouched cohort
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_v2.py \
+            --organisations v4-registry-fresh-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/v4-registry-fresh-100-output.jsonl \
+            --report out/v4-registry-fresh-100-report.json \
+            --work-dir out/v4-registry-fresh-work \
+            --run-id v4-registry-narrative-confirmation-100 \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Verify narrative reach, evidence and hard gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report=json.loads(Path('out/v4-registry-fresh-100-report.json').read_text())
+          rows=[json.loads(line) for line in Path('out/v4-registry-fresh-100-output.jsonl').read_text().splitlines() if line.strip()]
+          assert report['passed'] is True, report
+          assert len(rows)==100, len(rows)
+          assert not report['canonical_projection']['validation_errors'], report['canonical_projection']
+          assert not report['synthesis']['validation_errors'], report['synthesis']
+
+          descriptions=0
+          registry_descriptions=0
+          purposes=0
+          evidence_errors=[]
+          manual=[]
+          for row in rows:
+              org=str(row['organisation_number'])
+              ev={str(item.get('id')): item for item in row.get('evidence',[]) if item.get('id')}
+              available=[c for c in row.get('claims',[]) if c.get('availability')=='available']
+              desc=[c for c in available if c.get('field')=='company_description']
+              purpose=[c for c in available if c.get('field')=='registered_purpose']
+              descriptions += int(bool(desc))
+              purposes += int(bool(purpose))
+              own=[c for c in desc if c.get('signal_type')=='official_registry_narrative_projection']
+              registry_descriptions += int(bool(own))
+              for claim in own + purpose:
+                  for evidence_id in claim.get('evidence_ids') or []:
+                      item=ev.get(str(evidence_id))
+                      if not item or item.get('source_class')!='official' or str(item.get('source_row_key') or '')!=org:
+                          evidence_errors.append({'org':org,'evidence_id':evidence_id})
+              if own and len(manual)<25:
+                  manual.append({'organisation_number':org,'description':own[0].get('value'),'purpose':purpose[0].get('value') if purpose else None})
+
+          summary={
+              'companies':len(rows),
+              'company_description_companies':descriptions,
+              'registry_activity_fallback_companies':registry_descriptions,
+              'registered_purpose_companies':purposes,
+              'evidence_errors':evidence_errors,
+              'request_charge':report['request_budget']['observed_conservative_challenge_request_charge'],
+              'wall_runtime_seconds':report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd':report['source_policy']['third_party_cost_usd'],
+              'passed':not evidence_errors and descriptions>=98 and registry_descriptions>=70 and purposes>=90,
+          }
+          Path('out/v4-registry-fresh-summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          with Path('out/v4-registry-manual-audit.jsonl').open('w') as handle:
+              for item in manual:
+                  handle.write(json.dumps(item,ensure_ascii=False,separators=(',',':'))+'\n')
+          print(json.dumps(summary,indent=2))
+          assert summary['passed'] is True, summary
+          PY
+
+      - name: Upload fresh qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-registry-narrative-fresh-qualification
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            v4-registry-fresh-100.jsonl
+            v4-registry-fresh-100.sha256
+            v4-registry-fresh-100-selection.json
+            out/v4-registry-fresh-100-output.jsonl
+            out/v4-registry-fresh-100-report.json
+            out/v4-registry-fresh-summary.json
+            out/v4-registry-manual-audit.jsonl
+            out/v4-registry-fresh-work/profiles.jsonl

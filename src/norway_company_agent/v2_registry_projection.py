@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .registry_narrative import project_registry_narrative_claims
+
 
 MANAGED_FIELDS = ("industry", "municipality_number", "bankrupt", "liquidating")
 
@@ -43,8 +45,10 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
 
     The base collector/output adapter remains the immutable V1 behavior. V2 reads the
     exact-org registry profile already retained by that collector and adds only fields that
-    were present there but not reliably surfaced in the V1 claims envelope. No network
-    access, identity relaxation, or value inference occurs here.
+    were present there but not reliably surfaced in the V1 claims envelope. V4 additionally
+    reuses the same retained registry row for literal activity/purpose narrative through
+    :func:`project_registry_narrative_claims`. No network access, identity relaxation, or
+    value inference occurs here.
     """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
@@ -109,8 +113,9 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
             }
         )
 
-    return {
+    projected = {
         **contract,
         "claims": claims,
         "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
     }
+    return project_registry_narrative_claims(projected, profile)
