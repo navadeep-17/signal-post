@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SUBMISSION = ROOT / "submission"
 MANIFEST = SUBMISSION / "manifest.json"
+SMOKE_REPORT = SUBMISSION / "v5-smoke-100-run-report.json"
 
 
 def _sha256(path: Path) -> str:
@@ -21,50 +22,67 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     release = body["certified_release"]
     metrics = release["metrics"]
     artifacts = release["repository_artifacts"]
-    revision = body["revision_v2"]
+    revision_v2 = body["revision_v2"]
+    current = body["current_revision"]
 
     assert body["schema_version"] == 3
-    assert body["submission_identity"]["revision"] == "v2"
+    assert body["submission_identity"]["revision"] == "v5"
     assert body["submission_identity"]["v1_pinned_submission_sha"] == "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa"
     assert body["submission_identity"]["base_collector_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
+    assert body["submission_identity"]["v5_merged_production_sha"] == "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b"
+    assert body["submission_identity"]["v5_production_wrapper_git_blob"] == "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643"
+    assert body["submission_identity"]["v5_brreg_change_connector_git_blob"] == "9d22bcaf494a356a47985fc731cef6c2e0ecd493"
+
     assert body["entrypoints"]["evaluator_runner"] == "scripts/run_signalpost_v2.py"
     assert body["entrypoints"]["base_collector"] == "scripts/run_signalpost_final.py"
-    assert body["entrypoints"]["v2_registry_projection"] == "src/norway_company_agent/v2_registry_projection.py"
-    assert body["entrypoints"]["first_party_activity_projection"] == "src/norway_company_agent/first_party_activity.py"
-    assert body["entrypoints"]["v2_product_builder"] == "scripts/build_v2_product.py"
-    assert body["runtime"]["server_side_secrets_required"] == []
-    assert revision["canonical_schema_version"] == "signalpost-canonical-v2"
-    assert revision["zero_network_projection"] is True
-    assert revision["v2_registry_projection_zero_network"] is True
-    assert revision["strict_first_party_activity_projection_zero_network"] is True
-    assert revision["changes_identity_thresholds"] is False
-    assert revision["changes_v1_certified_corpus"] is False
-    assert revision["changes_v1_base_runner_or_output_adapter"] is False
-    assert revision["product_surface_generated_from_final_output"] is True
-    assert revision["generic_careers_page_counts_as_hiring"] is False
-    assert revision["generic_news_index_counts_as_activity"] is False
-    assert revision["cross_domain_activity_pages_allowed"] is False
-    assert revision["canonical_audit"]["canonical_facts"] == 19951
-    assert revision["canonical_audit"]["selected_fact_counts"]["person_role"] == 3932
-    assert revision["canonical_audit"]["validation_errors"] == 0
-    assert revision["canonical_audit"]["official_score_claimed"] is False
+    assert body["entrypoints"]["canonical_projection"] == "src/norway_company_agent/canonical_projection.py"
+    assert body["entrypoints"]["brreg_change_connector"] == "src/norway_company_agent/brreg_changes.py"
+    assert body["entrypoints"]["smoke_test_report"] == "submission/v5-smoke-100-run-report.json"
 
-    fresh = revision["fresh_validation"]
-    replay = fresh["final_projection_replay"]
-    assert fresh["companies"] == 300
-    assert fresh["known_internal_exclusions"] == 6900
-    assert fresh["known_internal_overlap_count"] == 0
-    assert fresh["observed_conservative_challenge_requests"] == 4052
-    assert fresh["theoretical_challenge_request_ceiling"] == 6000
-    assert fresh["third_party_cost_usd"] == 0.0
-    assert fresh["search_api_requests"] == 0
-    assert replay["companies"] == 300
-    assert replay["canonical_facts"] == 7165
-    assert replay["selected_fact_counts"]["job_posting"] == 0
-    assert replay["selected_fact_counts"]["company_update"] == 0
-    assert replay["activity_audit_file_empty"] is True
-    assert replay["contract_validation_errors"] == 0
-    assert replay["canonical_validation_errors"] == 0
+    policy = current["qualification_policy"]
+    assert current["canonical_schema_version"] == "signalpost-canonical-v2"
+    assert current["synthesis_schema_version"] == "signalpost-synthesis-v1"
+    assert policy["official_score_threshold"] == 65
+    assert policy["separate_dimension_thresholds"] is False
+    assert policy["weights"] == {
+        "recall_and_coverage": 50,
+        "precision_and_evidence": 30,
+        "synthesis": 12,
+        "ux": 8,
+    }
+    assert policy["official_score_claimed"] is False
+
+    smoke = current["fresh_smoke_test"]
+    assert smoke["workflow_run_id"] == 36892430561
+    assert smoke["companies"] == 100
+    assert smoke["overlap"] == 0
+    assert smoke["final_objects"] == 100
+    assert smoke["observed_conservative_request_charge"] == 1382
+    assert smoke["theoretical_conservative_request_ceiling"] == 2000
+    assert smoke["third_party_api_cost_usd"] == 0.0
+    assert smoke["search_api_requests"] == 0
+    assert smoke["passed"] is True
+
+    assert revision_v2["canonical_schema_version"] == "signalpost-canonical-v2"
+    assert revision_v2["zero_network_projection"] is True
+    assert revision_v2["v2_registry_projection_zero_network"] is True
+    assert revision_v2["strict_first_party_activity_projection_zero_network"] is True
+    assert revision_v2["changes_identity_thresholds"] is False
+    assert revision_v2["changes_v1_certified_corpus"] is False
+    assert revision_v2["changes_v1_base_runner_or_output_adapter"] is False
+    assert revision_v2["product_surface_generated_from_final_output"] is True
+    assert revision_v2["generic_careers_page_counts_as_hiring"] is False
+    assert revision_v2["generic_news_index_counts_as_activity"] is False
+    assert revision_v2["cross_domain_activity_pages_allowed"] is False
+    assert revision_v2["canonical_audit"]["canonical_facts"] == 19951
+    assert revision_v2["canonical_audit"]["selected_fact_counts"]["person_role"] == 3932
+    assert revision_v2["canonical_audit"]["validation_errors"] == 0
+    assert revision_v2["canonical_audit"]["official_score_claimed"] is False
+
+    assert body["runtime"]["server_side_secrets_required"] == []
+    assert body["models_and_paid_apis"]["llm_models_invoked_by_production_runner"] == []
+    assert body["models_and_paid_apis"]["paid_apis_invoked_by_production_runner"] == []
+    assert body["models_and_paid_apis"]["third_party_api_cost_usd_per_100_policy"] == 0.0
 
     assert release["release_companies"] == 1000
     assert release["overlap_count"] == 0
@@ -78,7 +96,32 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     assert metrics["third_party_api_cost_usd"] == 0.0
 
 
-def test_v2_submission_components_are_present() -> None:
+def test_current_smoke_report_is_submission_ready() -> None:
+    body = json.loads(SMOKE_REPORT.read_text(encoding="utf-8"))
+    result = body["result"]
+    operations = body["operations"]
+
+    assert body["workflow_run_id"] == 36892430561
+    assert body["input"]["companies"] == 100
+    assert body["input"]["overlap"] == 0
+    assert result["expected_count"] == 100
+    assert result["final_objects"] == 100
+    assert result["unique_organisation_numbers"] is True
+    assert result["all_entity_states_terminal"] is True
+    assert result["zero_silent_drops"] is True
+    assert result["contract_validation_errors"] == 0
+    assert result["canonical_validation_errors"] == 0
+    assert result["synthesis_validation_errors"] == 0
+    assert result["registry_change_integrity_errors"] == 0
+    assert result["passed"] is True
+    assert operations["observed_conservative_request_charge"] <= 2000
+    assert operations["theoretical_conservative_request_ceiling"] <= 2000
+    assert operations["wall_runtime_seconds"] <= operations["max_wall_runtime_seconds"]
+    assert operations["third_party_api_cost_usd"] == 0.0
+    assert operations["search_api_requests"] == 0
+
+
+def test_v2_compatibility_components_are_present() -> None:
     required = (
         "scripts/run_signalpost_v2.py",
         "scripts/build_v2_product.py",
@@ -112,12 +155,14 @@ def test_committed_certified_manifest_and_output_hashes_match() -> None:
     assert hashlib.sha256(gzip.decompress(output_gz.read_bytes())).hexdigest() == release["aggregate_output_sha256"]
 
 
-def test_submission_docs_preserve_v2_and_claim_boundaries() -> None:
+def test_submission_docs_preserve_current_and_compatibility_boundaries() -> None:
     submission = (ROOT / "SUBMISSION.md").read_text(encoding="utf-8")
     email = (SUBMISSION / "EMAIL_TEMPLATE.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     contract = (ROOT / "OUTPUT_CONTRACT.md").read_text(encoding="utf-8")
+    requirements = (ROOT / "docs" / "REQUIREMENTS_MATRIX.md").read_text(encoding="utf-8")
     submission_folded = submission.casefold()
+    requirements_folded = requirements.casefold()
 
     assert "scripts/run_signalpost_v2.py" in submission
     assert "--product-output" in submission
@@ -136,6 +181,12 @@ def test_submission_docs_preserve_v2_and_claim_boundaries() -> None:
     assert "mailbox deliverability" in submission_folded
     assert "follower" in submission_folded
     assert "generic careers" in submission_folded
+    assert "65/100" in submission
+    assert "not separate qualification thresholds" in submission_folded
+    assert "separate qualification thresholds" in requirements_folded
+    assert "21/35" not in submission
+    assert "60% weighted external" not in submission
+    assert "95% external" not in submission
 
 
 def test_repository_only_submission_verifier_passes() -> None:
@@ -149,10 +200,12 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     report = json.loads(completed.stdout)
     assert report["passed"] is True
-    assert report["revision"] == "v2"
+    assert report["revision"] == "v5"
     assert report["repository_bundle_errors"] == []
     assert report["v1_base_blobs"]["scripts/run_signalpost_final.py"] == "9be89b9827135b1ed703318e1d189d5d3b8ca604"
     assert report["v1_base_blobs"]["src/norway_company_agent/output_contract.py"] == "c163f493017e39252ef200e68d53bcebc12930b4"
+    assert report["v5_production_blobs"]["scripts/run_signalpost_v2.py"] == "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643"
+    assert report["v5_production_blobs"]["src/norway_company_agent/brreg_changes.py"] == "9d22bcaf494a356a47985fc731cef6c2e0ecd493"
     assert report["repository_artifacts"]["manifest_rows"] == 1000
     assert report["repository_artifacts"]["aggregate_output_rows"] == 1000
     assert report["repository_artifacts"]["terminal_completed"] == 1000
@@ -161,3 +214,4 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert report["repository_artifacts"]["v2_canonical_facts"] == 19951
     assert report["repository_artifacts"]["v2_canonical_failures"] == []
     assert report["repository_artifacts"]["v2_product"]["canonical_area_labels_present"] is True
+    assert report["repository_artifacts"]["v5_smoke_report"]["result"]["passed"] is True
