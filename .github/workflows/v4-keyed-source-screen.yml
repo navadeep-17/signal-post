@@ -1,0 +1,118 @@
+name: V4 Keyed Official Source Screen
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Official source to screen
+        required: true
+        type: choice
+        options:
+          - patentstyret
+          - doffin
+      endpoint_template:
+        description: Exact HTTPS GET operation URL with {organisation_number} placeholder
+        required: true
+        type: string
+      api_key_header:
+        description: Subscription-key request header
+        required: true
+        default: Ocp-Apim-Subscription-Key
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  keyed-exact-org-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PATENTSTYRET_API_KEY: ${{ secrets.PATENTSTYRET_API_KEY }}
+      DOFFIN_API_KEY: ${{ secrets.DOFFIN_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run screen regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v4_keyed_exact_org_source.py
+
+      - name: Restore the fixed V4 comparison cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source-screen
+          gh run download 36873654739 \
+            --repo navadeep-17/signal-post \
+            --name v4-official-source-screen \
+            --dir source-screen
+          test -s source-screen/v4-source-screen-20.jsonl
+          echo 'fdf402093fa87e65103c9e5b9e8d26db15b0027da4a4504deb7f575117afa5bb  source-screen/v4-source-screen-20.jsonl' | sha256sum -c -
+
+      - name: Select source key without persisting it
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ inputs.source }}' in
+            patentstyret)
+              KEY="$PATENTSTYRET_API_KEY"
+              SOURCE_NAME='patentstyret_open_data'
+              ;;
+            doffin)
+              KEY="$DOFFIN_API_KEY"
+              SOURCE_NAME='doffin_public_api'
+              ;;
+            *)
+              echo 'Unsupported source' >&2
+              exit 2
+              ;;
+          esac
+          if [ -z "$KEY" ]; then
+            echo "Missing required GitHub Actions secret for $SOURCE_NAME" >&2
+            exit 3
+          fi
+          echo "::add-mask::$KEY"
+          printf '%s' "$KEY" > "$RUNNER_TEMP/source-api-key"
+          echo "source_name=$SOURCE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Measure exact-org response reach
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/responses
+          export SIGNALPOST_SOURCE_API_KEY="$(cat "$RUNNER_TEMP/source-api-key")"
+          uv run python scripts/screen_keyed_exact_org_source.py \
+            --companies source-screen/v4-source-screen-20.jsonl \
+            --source-name '${{ steps.source.outputs.source_name }}' \
+            --endpoint-template '${{ inputs.endpoint_template }}' \
+            --api-key-header '${{ inputs.api_key_header }}' \
+            --responses-dir out/responses \
+            --rows-output out/keyed-source-screen-rows.jsonl \
+            --report out/keyed-source-screen-report.json
+          rm -f "$RUNNER_TEMP/source-api-key"
+          cat out/keyed-source-screen-report.json
+
+      - name: Upload screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-${{ inputs.source }}-keyed-source-screen
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            source-screen/v4-source-screen-20.jsonl
+            source-screen/v4-source-screen-20.sha256
+            out/keyed-source-screen-rows.jsonl
+            out/keyed-source-screen-report.json
+            out/responses/
