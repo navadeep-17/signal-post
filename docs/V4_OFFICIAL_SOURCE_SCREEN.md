@@ -74,19 +74,30 @@ No production facts are emitted from this screen.
 
 ### Patentstyret — high semantic value, access-gated
 
-Patentstyret's official Open Data documentation exposes a company-portfolio endpoint (`/register/v1/IprCasesByCompany`) and states that many Norwegian rights can be linked to businesses by national organisation number. This is exactly the kind of deterministic join Signalpost wants for trademark/patent/design activity.
+Patentstyret's official Open Data documentation exposes a company-portfolio endpoint (`/register/v1/IprCasesByCompany`) and states that many Norwegian rights can be linked to businesses by national organisation number. It also states that the dataset is free to use subject to source/copyright guidance and NLOD 2.0.
 
-However, the official developer documentation requires a valid API subscription key. Subscription is self-service, but a key is still required before we can run a reproducible exact-org reach screen. Do not build the production connector before that screen.
+The same official developer material requires a valid API subscription key. Account creation and product subscription are self-service. We therefore now treat access semantics as verified, but the exact authenticated operation/query shape must be copied from the official portal rather than guessed from the endpoint name.
 
-Status: **promising but blocked on API subscription key for measurement**.
+Status: **promising; screen tooling ready; blocked only on API subscription key + exact operation URL**.
 
-### Doffin — potentially useful, API access must be verified before implementation
+### Doffin — potentially useful, access verified but role-sensitive
 
-Doffin notices are public and individual notices contain structured organisation sections. Result/award notices can provide dated procurement activity and supplier information when published.
+Doffin's official help describes its distribution chain as including an API and Doffindata. The official DFØ API developer portal exposes a `Public API` for searching for and downloading published notices and requires sign-up/subscription access.
 
-The public-API route is preferable to scraping the search UI. Current external implementations indicate the API is Azure APIM-backed and requires a subscription key; official Doffin help exposes a public-API access FAQ but the dynamic answer is not available to our static crawler. Treat API access as unresolved until verified directly.
+That resolves the earlier access uncertainty. It does **not** resolve supplier attribution: an organisation number in a notice can identify the buyer, supplier, participant or another organisation. The first keyed screen therefore measures exact-org response reach only; any useful matches must then be schema-audited for supplier/award roles before productionization.
 
-Status: **candidate, but do not implement until API access and exact supplier-org query strategy are verified**.
+Status: **candidate; screen tooling ready; blocked on API subscription key + exact authenticated operation URL**.
+
+### Credential-gated comparison tooling
+
+The branch now includes:
+
+- `scripts/screen_keyed_exact_org_source.py` — generic exact-org API reach screen;
+- `tests/test_v4_keyed_exact_org_source.py` — compact/grouped identifier, numeric-boundary, HTTPS and secret-header regressions;
+- `.github/workflows/v4-keyed-source-screen.yml` — manual Patentstyret/Doffin screen using the same fixed 20-company comparison cohort;
+- `docs/V4_KEYED_SOURCE_ACCESS.md` — verified access facts and dispatch checklist.
+
+The API key is passed only through the configured request header, never embedded in the URL or persisted in reports. The workflow uses `PATENTSTYRET_API_KEY` or `DOFFIN_API_KEY` GitHub Actions secrets.
 
 ### NAV Job Vacancy Feed — deprioritized
 
@@ -94,14 +105,13 @@ NAV's official feed is free to use with a signed JWT and includes employer organ
 
 Status: **deprioritized unless a materially more bounded lookup becomes available**.
 
-## Milestone 2 decision after Screen 1
+## Milestone 2 decision after current screens
 
-Do not promote Støtteregisteret.
+1. **Støtteregisteret:** DROP for broad random-company enrichment (0/20 exact-org reach).
+2. **Patentstyret:** READY TO SCREEN once `PATENTSTYRET_API_KEY` and the exact official operation URL are configured.
+3. **Doffin:** READY TO SCREEN once `DOFFIN_API_KEY` and the exact official public-search operation URL are configured; schema role validation remains mandatory after any match.
+4. **NAV jobs:** DEPRIORITIZED under the current feed-wide architecture.
 
-Next priority order:
-
-1. **Patentstyret exact-org portfolio screen**, once a subscription key is available;
-2. **Doffin exact supplier/award screen**, only after public API access is verified;
-3. otherwise move engineering effort to the next highest measured-return milestone rather than forcing a low-reach connector.
+Because the remaining high-value official sources are now externally credential-gated rather than engineering-blocked, we should not stall the project or weaken evidence rules. The next active engineering milestone can proceed in parallel on **ML request ranking**, while keyed source screens remain ready to dispatch as soon as official subscriptions are available.
 
 The core rule remains: failed screens are useful results. We document and drop them instead of adding connectors for feature count.
