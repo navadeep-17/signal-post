@@ -19,6 +19,7 @@ CANONICAL_FIELD_BY_TYPE = {
     "accounting_obligation": "company.accounting_obligation",
     "group_structure": "company.group_structure",
     "workforce_snapshot": "company.workforce_snapshot",
+    "registry_change": "company.registry_change",
     "financial_revenue": "financial.revenue",
     "financial_operating_result": "financial.operating_result",
     "financial_profit_before_tax": "financial.profit_before_tax",
@@ -127,7 +128,8 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
     This is zero-network and lossless with respect to published current facts: it never
     relaxes company identity checks, invents missing values, or replaces the original
     claims/evidence envelope. Historical/inactive role rows remain in the source claim
-    but are not mislabeled as current people facts.
+    but are not mislabeled as current people facts. Official BRREG change events remain
+    explicitly typed as registry changes and are never relabeled as company-authored news.
     """
 
     index = _claim_index(contract)
@@ -186,6 +188,8 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         facts.append(_fact("job_posting", claim))
     for claim in index.get("external.company_update") or []:
         facts.append(_fact("company_update", claim))
+    for claim in index.get("official_registry_change") or []:
+        facts.append(_fact("registry_change", claim))
 
     company_keys = {
         "company_name",
@@ -200,6 +204,7 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "accounting_obligation",
         "group_structure",
         "workforce_snapshot",
+        "registry_change",
     }
     website_keys = {"website", "company_description", "contact_email"}
     activity_keys = {"social_profile", "company_update"}
