@@ -7,16 +7,19 @@
     "v1_pinned_submission_sha": "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa",
     "base_collector_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
     "v5_merged_production_sha": "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b",
-    "v5_production_wrapper_git_blob": "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643",
+    "v5_core_wrapper_git_blob": "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643",
+    "current_evaluator_wrapper_git_blob": "5b69cc320c38e3aab13cf09fe2e2a09e62751433",
+    "current_product_builder_git_blob": "c9ff949063769edfce853bc6a6fa9ce7292a2070",
     "v5_brreg_change_connector_git_blob": "9d22bcaf494a356a47985fc731cef6c2e0ecd493",
-    "repository_head_rule": "Submit the exact final merged main commit SHA. The production-code lineage is pinned separately above so documentation-only finalization commits remain distinguishable from evaluator behavior."
+    "repository_head_rule": "Submit the exact final merged main commit SHA. The V5 data pipeline lineage and current evaluator/product blobs are pinned separately so UX-only finalization remains distinguishable from evidence collection behavior."
   },
   "entrypoints": {
     "evaluator_runner": "scripts/run_signalpost_v2.py",
     "base_collector": "scripts/run_signalpost_final.py",
     "canonical_projection": "src/norway_company_agent/canonical_projection.py",
     "canonical_audit": "scripts/audit_canonical_v2.py",
-    "product_builder": "scripts/build_v2_product.py",
+    "current_product_builder": "scripts/build_current_product.py",
+    "certified_v2_product_builder": "scripts/build_certified_v2_product.py",
     "refresh_replay": "scripts/run_refresh_replay.py",
     "submission_verifier": "scripts/verify_submission_bundle.py",
     "brreg_change_connector": "src/norway_company_agent/brreg_changes.py",
@@ -26,13 +29,25 @@
   "current_revision": {
     "canonical_schema_version": "signalpost-canonical-v2",
     "synthesis_schema_version": "signalpost-synthesis-v1",
+    "product_schema_version": "signalpost-product-current-v1",
     "layers": [
       "V1 exact-entity evidence collection foundation",
       "V2 canonical projection, deterministic synthesis and data-linked product surface",
       "V3 conservative annual-report company descriptions",
       "V4 exact-org BRREG registered-activity description fallback",
-      "V5 bounded exact-org BRREG registry-change history"
+      "V5 bounded exact-org BRREG registry-change history",
+      "Current UX layer with evidence-linked explorer and side-by-side company comparison"
     ],
+    "product_surface": {
+      "generated_from_final_jsonl": true,
+      "explorer_enabled": true,
+      "company_compare_enabled": true,
+      "comparison_is_descriptive_only": true,
+      "company_ranking_enabled": false,
+      "evidence_links_in_compare": true,
+      "missing_values_remain_unknown": true,
+      "historical_certified_v2_html_preserved": true
+    },
     "qualification_policy": {
       "official_score_threshold": 65,
       "separate_dimension_thresholds": false,
@@ -212,10 +227,11 @@
   "known_limitations": [
     "Builderr owns the checked collection and official score; repository smoke tests do not prove qualification.",
     "The current official qualification rule is 65/100 overall; the four score dimensions are weighted components, not separate qualification thresholds.",
+    "The current comparison surface is descriptive and evidence-linked; it does not rank companies or infer a winner.",
     "Verified company websites, social declarations and contact emails are intentionally conservative because publication requires exact-entity evidence.",
     "The preserved V2 fresh diagnostic produced zero strict job-posting facts and zero strict dated company-update facts; no historical job/news improvement is claimed from that bounded retained-page layer.",
     "Annual-report extraction abstains on missing or conflicting company-scope evidence.",
-    "A company-declared social URL means only that the exact verified company page declared that URL; the platform page itself is not fetched.",
+    "A company-declared social URL means only that the exact verified company page declared the URL; the platform page itself is not fetched.",
     "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; mailbox deliverability is not claimed."
   ]
 }
