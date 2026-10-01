@@ -39,6 +39,32 @@ def test_cuts_inline_accounting_policy_section_after_real_activity() -> None:
     assert len(description) < 220
 
 
+def test_cuts_confirmation_cohort_inline_results_section() -> None:
+    text = """
+    Organisasjonsnummer 997 378 512
+    Virksomhetens art
+    Arctica Expeditions AS driver med annen nering. Selskapet har forretningslokale i Troms@. Utvikling i resultat og stilling Omsetningen er i 2025 691 328 kroner som er en nedgang pa 77.1 % fra i fjor. Arsresultatet ble redusert med 194.16 % til -350 235 kroner.
+    """
+    description, status = extract_business_description(text)
+    assert status == "accepted"
+    assert description is not None
+    assert description == "Arctica Expeditions AS driver med annen nering. Selskapet har forretningslokale i Troms@."
+    assert "Omsetningen" not in description
+    assert "Arsresultatet" not in description
+
+
+def test_rejects_confirmation_cohort_financing_only_narrative() -> None:
+    text = """
+    Organisasjonsnummer 920 800 580
+    Virksomhetens art
+    er i positive dialoger med en investor, som ser potensialet i selskapet.
+    Fortsatt drift
+    """
+    description, status = extract_business_description(text)
+    assert description is None
+    assert status == "no_company_activity_section"
+
+
 def test_rejects_explicit_different_legal_entity_even_when_target_org_is_elsewhere() -> None:
     profile = {
         "organisation_number": "123456789",
@@ -85,4 +111,4 @@ def test_accepts_explicit_target_legal_entity_name() -> None:
     )
     assert audit["status"] == "accepted"
     assert observation is not None
-    assert observation["strategy"] == "annual_report_company_description_exact_org_v2"
+    assert observation["strategy"] == "annual_report_company_description_exact_org_v3"
