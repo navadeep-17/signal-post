@@ -16,7 +16,7 @@ Contact name: `<CONTACT_NAME>`
 Contact email: `<CONTACT_EMAIL>`  
 Contact phone/other: `<CONTACT_PHONE_OR_OTHER>`
 
-The evaluator command remains `scripts/run_signalpost_v2.py` for backward compatibility, but the current production path now includes the qualified V3–V5 improvements while preserving the certified V1 foundation and strict exact-company gates.
+The evaluator command remains `scripts/run_signalpost_v2.py` for backward compatibility. The current production path includes the qualified V3–V5 improvements while preserving the certified V1 foundation and strict exact-company gates.
 
 Evaluator command:
 
@@ -43,6 +43,10 @@ uv run python scripts/run_signalpost_v2.py \
   --annual-workforce-ocr-dpi 110
 ```
 
+Current 100-company smoke-test report: `submission/v5-smoke-100-run-report.json`.
+
+The report is tied to exact-production-head workflow `36892430561` and records 100 inputs / 100 terminal outputs, zero contract/canonical/synthesis/registry-integrity errors, 1,382/2,000 observed conservative request charge, a 2,000/2,000 theoretical ceiling, 414.534 seconds wall time, $0.00 third-party API cost, and zero search-API requests. It is engineering evidence, not a claimed Builderr score.
+
 Main changes since the previous revision:
 
 1. **Annual-report company descriptions (V3).** Exact-org BRREG annual-account evidence is reused for conservative company-scope description facts with false-positive/group guards.
@@ -57,7 +61,6 @@ V4 description qualification:
 
 V5 registry-change qualification:
 
-- exact-production-head workflow: `36892430561`;
 - fresh deterministic 100 after excluding 7,320 previously touched organisations;
 - overlap: 0;
 - registry-change companies: 100/100;
@@ -67,29 +70,23 @@ V5 registry-change qualification:
 - theoretical conservative ceiling: 2,000/2,000;
 - wall runtime: 414.534 s;
 - third-party API cost: $0.00;
-- source-integrity/evidence/output-contract/canonical/synthesis errors: 0;
-- all qualification checks passed.
+- source-integrity/evidence/output-contract/canonical/synthesis errors: 0.
 
-The V5 request is reserved before base execution, so the combined theoretical challenge ceiling remains exactly 2,000 conservative requests/100 rather than silently exceeding the budget.
+The change-feed request is reserved before base execution, so the combined theoretical challenge ceiling remains exactly 2,000 conservative requests per 100-company run.
 
 The registry-change claim boundary is intentionally narrow: it means Brønnøysundregistrene recorded a dated exact-org registry update. It does not mean the company authored a news announcement, social post or hiring signal. Unknown change paths abstain.
 
-Production still invokes no LLM, no sentiment model, no paid API, no search API and no social-platform scraper/API. Server-side secrets/API keys required: **none**. Expected third-party API cost per 100-company run: **$0.00**.
+Production invokes no LLM, sentiment model, paid API, search API or social-platform scraper/API. Server-side secrets/API keys required: **none**. Expected third-party API cost per 100-company run: **$0.00**.
 
 The immutable certified V1 evidence baseline remains committed under `submission/`. Frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`. Uncompressed certified V1 output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`.
 
-Important validation runs:
-
-- V4 certified registry-narrative audit: `36884388934` — PASS
-- V4 fresh 100: `36884650475` — PASS
-- V5 exact-production-head fresh 100: `36892430561` — PASS
-- V5 merged-main Baseline CI: `36894134314` — PASS
-
 Full evaluator/setup guide: `SUBMISSION.md`  
+Machine-readable submission declaration: `submission/manifest.json`  
+Current smoke report: `submission/v5-smoke-100-run-report.json`  
 Source-rights declaration: `docs/SUBMISSION_SOURCE_RIGHTS.md`  
 V5 production qualification: `docs/V5_BRREG_CHANGE_PRODUCTION.md`
 
-These repository qualifications are not presented as an official Builderr score; Builderr remains authoritative for its private reference set and scoring.
+These repository qualifications are not presented as an official Builderr score; Builderr remains authoritative for its checked collection and scoring.
 
 Best regards,  
 `<CONTACT_NAME>`
