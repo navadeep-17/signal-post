@@ -1,0 +1,212 @@
+name: V3 Annual Description Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/v3-annual-report-intelligence"
+    paths:
+      - "src/norway_company_agent/annual_report_description.py"
+      - "src/norway_company_agent/annual_report_description_contract.py"
+      - "src/norway_company_agent/annual_report_workforce.py"
+      - "src/norway_company_agent/workforce_contract.py"
+      - "scripts/audit_v3_annual_report_descriptions.py"
+      - "tests/test_v3_annual_report_description.py"
+      - "tests/test_v3_annual_report_reuse.py"
+      - "tests/test_v3_annual_description_audit.py"
+      - ".github/workflows/v3-annual-description-qualification.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  qualify-v3-annual-description:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+
+      - name: Sync and regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download frozen universe and current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download archived qualification manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+
+      - name: Recreate all prior touched companies
+        run: |
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered validation/h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze \
+            --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+          test "$(wc -l < exclude-6900.jsonl)" -eq 6900
+          test "$(python - <<'PY'
+import json
+from pathlib import Path
+rows=[json.loads(x) for x in Path('exclude-6900.jsonl').read_text().splitlines() if x.strip()]
+print(len({str(r['organisation_number']) for r in rows}))
+PY
+)" -eq 6900
+
+      - name: Freeze fresh zero-overlap V3 qualification 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-6900.jsonl \
+            --count 100 \
+            --seed 20261003 \
+            --evaluation-split v3_annual_description_zero_overlap \
+            --sample-slice fresh_annual_report_intelligence_validation \
+            --output v3-fresh-100.jsonl \
+            --report v3-fresh-100-selection.json
+          test "$(wc -l < v3-fresh-100.jsonl)" -eq 100
+          python - <<'PY'
+import json
+from pathlib import Path
+r=json.loads(Path('v3-fresh-100-selection.json').read_text())
+assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==6900, r
+print(json.dumps(r, indent=2))
+PY
+          sha256sum v3-fresh-100.jsonl > v3-fresh-100.sha256
+
+      - name: Run production stack on fresh V3 cohort
+        run: |
+          uv run python scripts/run_signalpost_final.py \
+            --organisations v3-fresh-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/v3-fresh-100-output.jsonl \
+            --report out/v3-fresh-100-run-report.json \
+            --work-dir out/v3-fresh-work \
+            --run-id v3-annual-description-fresh-100 \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Audit V3 annual-description projection
+        run: |
+          uv run python scripts/audit_v3_annual_report_descriptions.py \
+            --profiles out/v3-fresh-work/profiles.jsonl \
+            --output out/v3-fresh-100-output.jsonl \
+            --report out/v3-annual-description-audit.json
+          cat out/v3-annual-description-audit.json
+
+      - name: Verify hard gates and prepare manual-audit rows
+        run: |
+          uv run python - <<'PY'
+import json
+from pathlib import Path
+run=json.loads(Path('out/v3-fresh-100-run-report.json').read_text())
+audit=json.loads(Path('out/v3-annual-description-audit.json').read_text())
+rows=[json.loads(x) for x in Path('out/v3-fresh-100-output.jsonl').read_text().splitlines() if x.strip()]
+profiles=[json.loads(x) for x in Path('out/v3-fresh-work/profiles.jsonl').read_text().splitlines() if x.strip()]
+assert run['passed'] is True, run
+assert len(rows)==100 and len({r['organisation_number'] for r in rows})==100
+assert all(r['run']['terminal_status']=='completed' for r in rows)
+assert run['request_budget']['observed_conservative_challenge_request_charge'] <= 2000
+assert run['runtime']['wall_runtime_seconds'] <= 2400
+assert run['source_policy']['third_party_cost_usd'] == 0.0
+assert run['contract_errors'] == [] and run['change_errors'] == []
+assert audit['passed'] is True, audit
+manual=[]
+for profile in profiles:
+    org=str(profile['organisation_number'])
+    for obs in profile.get('external_observations') or []:
+        if isinstance(obs, dict) and obs.get('signal_type')=='company_profile' and obs.get('platform')=='brreg' and obs.get('company_description'):
+            manual.append({
+                'organisation_number': org,
+                'name': profile.get('name'),
+                'description': obs.get('company_description'),
+                'evidence_span': obs.get('evidence_span'),
+                'source_url': obs.get('source_url'),
+                'effective_at': obs.get('effective_at'),
+                'content_sha256': obs.get('content_sha256'),
+            })
+Path('out/v3-manual-audit-rows.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False)+'\n' for x in manual), encoding='utf-8')
+summary={
+    'fresh_companies':100,
+    'selection_overlap':0,
+    'annual_description_observations':audit['annual_description_observations'],
+    'published_annual_description_claims':audit['published_annual_description_claims'],
+    'suppressed_by_stronger_description':audit['companies_suppressed_by_stronger_existing_description'],
+    'same_report_as_workforce':audit['companies_reusing_same_report_as_workforce'],
+    'manual_audit_rows':len(manual),
+    'observed_challenge_request_charge':run['request_budget']['observed_conservative_challenge_request_charge'],
+    'runtime_seconds':run['runtime']['wall_runtime_seconds'],
+}
+Path('out/v3-qualification-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+print(json.dumps(summary, indent=2))
+PY
+
+      - name: Upload V3 qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-annual-description-qualification
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            v3-fresh-100.jsonl
+            v3-fresh-100.sha256
+            v3-fresh-100-selection.json
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            out/v3-fresh-100-output.jsonl
+            out/v3-fresh-100-run-report.json
+            out/v3-fresh-work/profiles.jsonl
+            out/v3-fresh-work/internal-envelopes.jsonl
+            out/v3-annual-description-audit.json
+            out/v3-manual-audit-rows.jsonl
+            out/v3-qualification-summary.json
