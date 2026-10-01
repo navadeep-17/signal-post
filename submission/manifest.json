@@ -3,36 +3,77 @@
   "project": "Signalpost",
   "repository": "https://github.com/navadeep-17/signal-post",
   "submission_identity": {
-    "revision": "v2",
+    "revision": "v5",
     "v1_pinned_submission_sha": "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa",
     "base_collector_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
-    "production_application_behavior_sha": "b14ef3c277d8f1512064f865d4028e23dcd8bacf",
-    "certified_release_harness_sha": "550bba0cce64a0a26d878c3b7f41eb20a55dc10e",
-    "v1_base_git_blobs": {
-      "scripts/run_signalpost_final.py": "9be89b9827135b1ed703318e1d189d5d3b8ca604",
-      "src/norway_company_agent/output_contract.py": "c163f493017e39252ef200e68d53bcebc12930b4"
-    },
-    "repository_head_rule": "Submit the exact final merged V2 main commit SHA externally. V1 remains immutable."
+    "v5_merged_production_sha": "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b",
+    "v5_production_wrapper_git_blob": "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643",
+    "v5_brreg_change_connector_git_blob": "9d22bcaf494a356a47985fc731cef6c2e0ecd493",
+    "repository_head_rule": "Submit the exact final merged main commit SHA. The production-code lineage is pinned separately above so documentation-only finalization commits remain distinguishable from evaluator behavior."
   },
   "entrypoints": {
     "evaluator_runner": "scripts/run_signalpost_v2.py",
     "base_collector": "scripts/run_signalpost_final.py",
-    "v2_registry_projection": "src/norway_company_agent/v2_registry_projection.py",
-    "first_party_activity_projection": "src/norway_company_agent/first_party_activity.py",
     "canonical_projection": "src/norway_company_agent/canonical_projection.py",
     "canonical_audit": "scripts/audit_canonical_v2.py",
-    "v2_product_builder": "scripts/build_v2_product.py",
-    "certified_v2_product_builder": "scripts/build_certified_v2_product.py",
-    "output_contract": "OUTPUT_CONTRACT.md",
+    "product_builder": "scripts/build_v2_product.py",
     "refresh_replay": "scripts/run_refresh_replay.py",
-    "submission_verifier": "scripts/verify_submission_bundle.py"
+    "submission_verifier": "scripts/verify_submission_bundle.py",
+    "brreg_change_connector": "src/norway_company_agent/brreg_changes.py",
+    "source_rights": "docs/SUBMISSION_SOURCE_RIGHTS.md",
+    "smoke_test_report": "submission/v5-smoke-100-run-report.json"
+  },
+  "current_revision": {
+    "canonical_schema_version": "signalpost-canonical-v2",
+    "synthesis_schema_version": "signalpost-synthesis-v1",
+    "layers": [
+      "V1 exact-entity evidence collection foundation",
+      "V2 canonical projection, deterministic synthesis and data-linked product surface",
+      "V3 conservative annual-report company descriptions",
+      "V4 exact-org BRREG registered-activity description fallback",
+      "V5 bounded exact-org BRREG registry-change history"
+    ],
+    "qualification_policy": {
+      "official_score_threshold": 65,
+      "separate_dimension_thresholds": false,
+      "weights": {
+        "recall_and_coverage": 50,
+        "precision_and_evidence": 30,
+        "synthesis": 12,
+        "ux": 8
+      },
+      "official_score_claimed": false
+    },
+    "fresh_smoke_test": {
+      "workflow_run_id": 36892430561,
+      "workflow_artifact_id": 11178761646,
+      "workflow_artifact_digest_sha256": "e66e18bfc0ee245005d563f0555666dbde3402648fb87f028bb0ea45c77aa5ee",
+      "production_head_sha": "2c745ed22232a443fe2c9e8fc3f49a66c725be0e",
+      "companies": 100,
+      "prior_organisations_excluded": 7320,
+      "overlap": 0,
+      "selection_sha256": "a7a18aab77f9c7192ba5e55b31e5dd225718a20b6b0f6d036fb78a2a524d412d",
+      "final_objects": 100,
+      "contract_validation_errors": 0,
+      "canonical_validation_errors": 0,
+      "synthesis_validation_errors": 0,
+      "registry_change_integrity_errors": 0,
+      "observed_conservative_request_charge": 1382,
+      "theoretical_conservative_request_ceiling": 2000,
+      "wall_runtime_seconds": 414.534,
+      "max_wall_runtime_seconds": 2400,
+      "third_party_api_cost_usd": 0.0,
+      "search_api_requests": 0,
+      "passed": true,
+      "report_path": "submission/v5-smoke-100-run-report.json"
+    }
   },
   "revision_v2": {
+    "status": "preserved compatibility layer inside V5",
     "canonical_schema_version": "signalpost-canonical-v2",
     "zero_network_projection": true,
     "v2_registry_projection_zero_network": true,
     "strict_first_party_activity_projection_zero_network": true,
-    "changes_collection_request_budget": false,
     "changes_identity_thresholds": false,
     "changes_v1_certified_corpus": false,
     "changes_v1_base_runner_or_output_adapter": false,
@@ -40,21 +81,12 @@
     "generic_careers_page_counts_as_hiring": false,
     "generic_news_index_counts_as_activity": false,
     "cross_domain_activity_pages_allowed": false,
-    "job_publication_rule": "same verified company-owned site; job/career detail URL; specific title; job-detail marker; explicit apply/application action",
-    "company_update_publication_rule": "same verified company-owned site; news/blog/press detail URL; specific title; explicit publication date",
     "canonical_audit": {
-      "source": "immutable certified V1 1000-company output; repository-derived after inactive-role safety filter",
+      "source": "immutable certified V1 1000-company output",
       "companies": 1000,
       "unique_organisation_numbers": 1000,
       "canonical_facts": 19951,
       "validation_errors": 0,
-      "companies_by_data_area": {
-        "company_record": 998,
-        "financials": 998,
-        "people_and_locations": 999,
-        "company_website": 107,
-        "hiring_and_public_activity": 48
-      },
       "selected_fact_counts": {
         "person_role": 3932,
         "registered_location": 971,
@@ -64,67 +96,7 @@
         "social_profile": 82,
         "contact_email": 57
       },
-      "note": "This immutable-corpus audit projects the committed V1 output envelope only; live V2 runs additionally recover exact-org registry fields from retained V1 profiles through v2_registry_projection.",
       "official_score_claimed": false
-    },
-    "fresh_validation": {
-      "purpose": "fresh engineering diagnostic for V2 canonical/product/activity behavior; not an official Builderr score",
-      "capture_workflow_run_id": 36148292559,
-      "capture_head_sha": "7be47b5577c70f34a0891408c3a5cc5f0991c751",
-      "capture_artifact": {
-        "name": "v2-fresh-300-validation",
-        "artifact_id": 10871337704,
-        "artifact_digest_sha256": "f3ec8250743df3d1b09f4ec13602257702e5c40d8fdee4ee211ecf1113d2d244"
-      },
-      "seed": 20261003,
-      "companies": 300,
-      "known_internal_exclusions": 6900,
-      "known_internal_overlap_count": 0,
-      "overlap_scope": "zero overlap is proven against the repository's 5900 prior internal cohorts plus the immutable certified V1 1000; Builderr's private 700-company capture is unknown and not claimed disjoint",
-      "selection_sha256": "6aefc6aef2562538273f845e2734409f92fbbe3862deaed3b4e4eaa7ceadef99",
-      "observed_conservative_challenge_requests": 4052,
-      "theoretical_challenge_request_ceiling": 6000,
-      "wall_runtime_seconds": 1105.442,
-      "third_party_cost_usd": 0.0,
-      "search_api_requests": 0,
-      "capture_contract_validation_errors": 0,
-      "capture_canonical_validation_errors": 0,
-      "final_projection_replay": {
-        "workflow_run_id": 36151163094,
-        "replay_head_sha": "c06a9bbb192f2bb03d630dc80c21e208133fbedf",
-        "network_requests_added": 0,
-        "artifact": {
-          "name": "v2-final-projection-replay",
-          "artifact_id": 10871866988,
-          "artifact_digest_sha256": "ca6b46bb12524e44bcceb7d6ae8ad6d5b7701163af71f50fd1665c82b50587d8"
-        },
-        "output_sha256": "e9542031767a97d79ab271330061c2d2e0cdaf7655a7211d37ec09725d6af63a",
-        "companies": 300,
-        "canonical_facts": 7165,
-        "companies_by_data_area": {
-          "company_record": 299,
-          "financials": 300,
-          "people_and_locations": 299,
-          "company_website": 30,
-          "hiring_and_public_activity": 12
-        },
-        "selected_fact_counts": {
-          "person_role": 1206,
-          "registered_location": 261,
-          "financial_revenue": 239,
-          "financial_operating_result": 296,
-          "workforce_snapshot": 297,
-          "social_profile": 19,
-          "contact_email": 18,
-          "job_posting": 0,
-          "company_update": 0
-        },
-        "activity_companies": 0,
-        "activity_audit_file_empty": true,
-        "contract_validation_errors": 0,
-        "canonical_validation_errors": 0
-      },
-      "interpretation": "V2 materially improves explicit canonical exposure and product linkage. The bounded retained-page crawl did not yield any facts meeting the strict job/update publication gates on this fresh 300, so no job/news coverage improvement is claimed."
     }
   },
   "runtime": {
@@ -135,15 +107,14 @@
       "tesseract-ocr"
     ],
     "ocr_language": "eng",
-    "ocr_failure_policy": "abstain; do not invent a workforce value",
+    "ocr_failure_policy": "abstain; do not invent a value",
     "hosting_required": false,
     "server_side_secrets_required": []
   },
   "models_and_paid_apis": {
     "llm_models_invoked_by_production_runner": [],
     "paid_apis_invoked_by_production_runner": [],
-    "search_api_requests_per_certified_release": 0,
-    "third_party_api_cost_usd_per_certified_release": 0.0,
+    "search_api_requests_per_official_run_policy": 0,
     "third_party_api_cost_usd_per_100_policy": 0.0,
     "experimental_sentiment_or_platform_connectors_enabled": false
   },
@@ -165,10 +136,6 @@
       "aggregate_output_uncompressed_sha256_path": "submission/final-release-1000-output.sha256",
       "aggregate_output_gzip_sha256_path": "submission/final-release-1000-output.jsonl.gz.sha256",
       "aggregate_output_gzip_sha256": "7c9e7e822d2ad0fa5a2809ae5a092c9072eb0eed03899b190f62320a5f0c2bc1"
-    },
-    "manifest_artifact": {
-      "name": "final-release-manifest-1000",
-      "artifact_id": 10508036929
     },
     "aggregate_artifact": {
       "name": "final-release-1000-aggregate",
@@ -203,11 +170,18 @@
   },
   "source_classes": [
     {
-      "name": "Brønnøysundregistrene open data and official account copies",
-      "role": "entity identity, registry facts, roles, group structure, locations, financials and workforce evidence",
-      "acquisition": "official API/bulk download",
-      "license_or_rights_basis": "NLOD 2.0 for BRREG open-data datasets; official annual-account copies are fetched only to extract bounded claim evidence/hash metadata",
+      "name": "Brønnøysundregistrene open data",
+      "role": "exact identity, registry facts, roles, group structure, registered locations, normalized financials, registered activity/purpose, employee count and recent official registry changes",
+      "acquisition": "official bulk download and REST APIs",
+      "license_or_rights_basis": "NLOD 2.0",
       "attribution": "Brønnøysundregistrene"
+    },
+    {
+      "name": "Brønnøysundregistrene annual-account copies",
+      "role": "bounded company-scope workforce and description evidence",
+      "acquisition": "official account-copy endpoint with local text extraction/OCR",
+      "license_or_rights_basis": "official service; filing PDFs are not redistributed",
+      "publication_boundary": "exact target organisation number must be recovered from the filing; weak, group-only or conflicting text abstains"
     },
     {
       "name": "Wikidata structured data",
@@ -220,7 +194,7 @@
       "name": "Verified company-owned public web pages",
       "role": "website identity proof and bounded description/contact/social-link/job/update evidence",
       "acquisition": "bounded public HTTP retrieval with safe URL/redirect handling",
-      "license_or_rights_basis": "No blanket content-reuse licence is assumed; retain provenance and bounded factual spans rather than republishing pages",
+      "license_or_rights_basis": "No blanket content-reuse licence is assumed; bounded factual evidence and provenance are retained instead of republishing pages",
       "publication_boundary": "only exact-company evidence is published; generic careers/news indexes, cross-domain pages and ambiguous/conflicting pages abstain"
     }
   ],
@@ -236,12 +210,12 @@
     "No inferred follower counts, engagement or platform verification"
   ],
   "known_limitations": [
-    "Builderr owns the reference collection, matching logic, availability denominator and official score; this repository does not claim that hidden recall, coverage or total-score gates are proven.",
+    "Builderr owns the checked collection and official score; repository smoke tests do not prove qualification.",
+    "The current official qualification rule is 65/100 overall; the four score dimensions are weighted components, not separate qualification thresholds.",
     "Verified company websites, social declarations and contact emails are intentionally conservative because publication requires exact-entity evidence.",
-    "The fresh V2 300-company diagnostic produced zero strict job-posting facts and zero strict dated company-update facts; no job/news coverage improvement is claimed from this bounded retained-page layer.",
-    "Annual-report workforce extraction abstains on missing or conflicting company-scope employee/FTE phrases.",
+    "The preserved V2 fresh diagnostic produced zero strict job-posting facts and zero strict dated company-update facts; no historical job/news improvement is claimed from that bounded retained-page layer.",
+    "Annual-report extraction abstains on missing or conflicting company-scope evidence.",
     "A company-declared social URL means only that the exact verified company page declared that URL; the platform page itself is not fetched.",
-    "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; mailbox deliverability is not claimed.",
-    "V2 canonical-audit and fresh-validation counts are engineering diagnostics, not an official Builderr evaluation."
+    "A published contact email means the address was present in retained first-party evidence and matched the verified website registered domain; mailbox deliverability is not claimed."
   ]
 }
