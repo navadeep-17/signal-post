@@ -35,14 +35,31 @@ def _company_with_industry() -> dict:
         for line in handle:
             if not line.strip():
                 continue
-            row = project_canonical_profile(json.loads(line))
-            compact = compact_company(row)
-            if any(
-                fact.get("type") == "industry" and fact.get("availability") == "available"
-                for fact in compact["areas"]["company_record"]
-            ):
-                return row
-    raise AssertionError("certified corpus contains no compact available industry fact")
+            raw = json.loads(line)
+            source_claim = next(
+                (
+                    claim
+                    for claim in raw.get("claims") or []
+                    if claim.get("availability") == "available" and claim.get("evidence_ids")
+                ),
+                None,
+            )
+            if source_claim is None:
+                continue
+            raw.pop("canonical_profile", None)
+            raw.pop("canonical_facts", None)
+            raw.pop("synthesis", None)
+            raw.setdefault("claims", []).append(
+                {
+                    "field": "industry",
+                    "value": {"kode": "62.010", "beskrivelse": "Software development"},
+                    "availability": "available",
+                    "confidence": 1.0,
+                    "evidence_ids": list(source_claim["evidence_ids"]),
+                }
+            )
+            return project_canonical_profile(raw)
+    raise AssertionError("certified corpus contains no evidence-backed claim suitable for the industry fixture")
 
 
 def _company_with_unavailable_canonical_fact() -> tuple[dict, str]:
@@ -103,7 +120,7 @@ def test_v6_ui_search_indexes_existing_compact_industry_fact() -> None:
     )
     body = build_v6_html([row])
 
-    assert industry.get("value") is not None
+    assert industry.get("value") == {"code": "62.010", "description": "Software development"}
     assert "function industrySearchText(x)" in body
     assert "firstFact(x,'industry')" in body
     assert "norm(searchText(x)).includes(q)" in body
