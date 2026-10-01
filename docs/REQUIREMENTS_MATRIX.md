@@ -1,136 +1,196 @@
-# Signalpost V2 requirements matrix
+# Signalpost V5 requirements matrix
 
-Updated: 2026-09-25
+Updated: 2026-10-01
 
-This file separates directly reproduced properties from Builderr-owned evaluation outcomes. The certified V1 1,000-company corpus remains immutable; V2 changes evaluator-facing mapping/product exposure through zero-network projections rather than reselecting that evidence baseline.
-
-Status meanings: **PASS** = directly reproduced/verified; **PARTIAL** = measured evidence but Builderr remains authoritative; **OPEN** = evaluator-owned.
+This file separates directly reproduced engineering properties from Builderr-owned evaluation outcomes. **PASS** means reproduced/verified by repository tests or qualification runs; **PARTIAL** means measured evidence exists but Builderr remains authoritative; **OPEN** means the official private evaluator decides the result.
 
 ## Qualification and execution requirements
 
-| Requirement | V2 implementation/evidence | Status |
+| Requirement | Current implementation/evidence | Status |
 |---|---|---|
-| Organisation number is the entity anchor | BRREG bulk/live and every promoted discovery path resolve to exact org number | PASS |
-| 1,000+ completed profiles | immutable certified V1 release has 1,000 / 1,000 terminal completed | PASS |
-| Generalization beyond development companies | certified V1 release excludes 5,900 prior companies; fresh V2 diagnostic excludes 6,900 known internal companies | PASS observed |
-| Exactly one terminal result/company | 1,000 unique orgs / 1,000 terminal certified V1 outputs; fresh V2 300 / 300 | PASS |
-| Source claims/evidence/changes/operations | unchanged V1 collector emits and validates `OUTPUT_CONTRACT.md` envelope | PASS |
+| Organisation number is the entity anchor | BRREG bulk/live and every promoted discovery/change path resolve to exact org number | PASS |
+| Exactly one terminal result/company | certified 1,000: 1,000 unique/1,000 completed; fresh V4/V5 cohorts 100/100 | PASS |
+| 1,000+ release profiles | immutable certified V1 release remains committed and verified | PASS |
+| Generalization beyond development companies | certified release excludes 5,900 prior; V4 fresh excludes 7,220; V5 fresh excludes 7,320 | PASS observed |
+| Source claims/evidence/changes/operations | original output contract preserved | PASS |
 | V1 base runner unchanged | Git blob `9be89b9827135b1ed703318e1d189d5d3b8ca604` | PASS machine-verified |
 | V1 output adapter unchanged | Git blob `c163f493017e39252ef200e68d53bcebc12930b4` | PASS machine-verified |
-| Evaluator-friendly canonical mapping | V2 adds evidence-linked `canonical_facts[]` and `canonical_profile` | PASS implementation |
-| Registry/accounts mapped into explicit fields | immutable audit 19,951 facts; live V2 additionally projects retained exact-org registry fields | PASS implementation |
-| Current people flattened safely | 3,932 current `people.role` facts; inactive/departed appointments excluded | PASS implementation |
-| Locations flattened | 971 individual registered-location facts on immutable audit | PASS implementation |
+| Evaluator-friendly canonical mapping | evidence-linked `canonical_facts[]` / `canonical_profile` | PASS implementation |
+| Registry/accounts exposed explicitly | exact-org registry projection + canonical financial/company fields | PASS |
+| Current people safely flattened | inactive/departed BRREG appointments excluded from current `people.role` facts | PASS |
+| Locations flattened | individual registered-location facts with evidence | PASS |
 | Financial period/currency retained | canonical financial facts preserve source period/currency | PASS |
-| Claim-level provenance/time/hash | canonical facts preserve source fields/evidence IDs | PASS |
-| Explicit availability states | unavailable values never converted to zero | PASS |
-| No fabricated financials | deterministic BRREG financial path; V2 only projects retained facts | PASS |
-| External identity precision | exact-company website/handle/contact guards unchanged from V1 | PARTIAL; Builderr authoritative |
-| External/overall coverage | V2 exposes more existing facts but Builderr owns reference matching | OPEN |
-| Idempotent refresh/history | saved replay detects exactly two expected changes and none on rerun | PASS |
-| <=45-minute wall time / 100 | certified V1 slowest chunk 458.803 s; fresh V2 300 took 1,105.442 s | PASS observed |
-| <=2,000 outbound requests / 100 | fresh V2 used 4,052 conservative requests for 300 vs 6,000 ceiling; V2 projections add zero network | PASS |
-| <=$10 external API spend / 100 | $0 policy; fresh V2 $0 | PASS |
-| One evaluator command | `scripts/run_signalpost_v2.py` documented in `SUBMISSION.md` | PASS |
-| Data-linked product surface | same V2 command emits five-area evidence-linked HTML from final JSONL | PASS implementation |
-| Generic careers page not treated as hiring | requires same-site role detail URL + specific title + job detail + explicit apply action | PASS implementation/tests |
-| Generic news index not treated as activity | requires same-site article/update detail URL + specific title + explicit date | PASS implementation/tests |
-| Cross-domain activity rejected | strict projector requires exact verified company-owned site | PASS implementation/tests |
-| Fresh strict jobs/news yield measured honestly | final 300 replay produced 0 job postings and 0 company updates | PASS diagnostic; no coverage gain claimed |
-| Social claim boundary | social fact means verified company page declared URL; platform itself not fetched | PASS |
-| Source rights documented | `docs/SUBMISSION_SOURCE_RIGHTS.md` + `submission/manifest.json` | PASS |
-| Safe URL/SSRF/redirect handling | hardened V1 site stack remains unchanged base collector | PASS |
-| Pinned dependencies/tests | `uv.lock`; full CI + canonical audit + product regression + refresh replay | PASS |
-| Models/APIs/secrets declared | no LLM/paid/search/social scraper; no server-side secrets | PASS |
+| Honest missing financials | unavailable/source errors never converted to zero | PASS |
+| No fabricated financials | official normalized accounts path; no imputation | PASS |
+| Claim-level provenance/time/hash | output/canonical facts retain evidence IDs and source metadata | PASS |
+| Explicit availability states | unavailable/blocked/failed remain explicit | PASS |
+| Exact-company web identity | existing wrong-company/parent/brand guards unchanged | PASS implementation; evaluator precision authoritative |
+| Company descriptions | V3 annual-report descriptions + V4 exact-org BRREG activity fallback | PASS implementation/fresh transfer |
+| Description fallback precedence | stronger published description wins; registry activity only fills missing description | PASS tests/audits |
+| Registered purpose separated from activity | `vedtektsfestetFormaal` exposed separately, never substituted for `aktivitet` | PASS |
+| Strict first-party jobs | same verified site + detail URL + specific title + job marker + apply action | PASS implementation/tests |
+| Strict first-party company updates | same verified site + detail URL + title + explicit date | PASS implementation/tests |
+| Generic careers/news indexes rejected | section roots/generic filters do not count | PASS |
+| Cross-domain activity rejected | exact verified company-owned domain required | PASS |
+| Social claim boundary | verified company page declared URL; platform not fetched | PASS |
+| Contact-email boundary | retained first-party evidence + matching registered domain | PASS |
+| Official registry currentness | bounded exact-org BRREG update feed with dated events | PASS implementation/fresh transfer |
+| Registry-change semantics | `company.registry_change`, never company-authored news/social/hiring | PASS tests/manual audit |
+| Registry-change path abstention | unknown/unstable BRREG paths are not promoted | PASS |
+| Registry-change exact attribution | unexpected orgs hard-fail integrity and are never attributed | PASS |
+| Change explanation | deterministic synthesis can cite dated official registry changes when no stronger refresh diff exists | PASS implementation |
+| Refresh/idempotency | saved refresh replay plus idempotent registry/change projections | PASS |
+| <=45 min / 100 | certified slowest chunk 458.803 s; V5 exact fresh 100 414.534 s | PASS observed |
+| <=2,000 requests / 100 | V5 observed 1,382; combined structural ceiling exactly 2,000 | PASS |
+| <=$10 external API spend / 100 | production policy $0; V5 fresh $0 | PASS |
+| One evaluator command | `scripts/run_signalpost_v2.py` | PASS |
+| Data-linked product surface | same command can render HTML from final JSONL | PASS |
+| Evidence-bounded deterministic synthesis | no LLM/new facts; positive statements trace to evidence | PASS |
+| Source rights documented | `docs/SUBMISSION_SOURCE_RIGHTS.md` | PASS |
+| Safe URL/SSRF/redirect handling | hardened bounded site stack unchanged | PASS implementation |
+| Pinned dependencies/tests | `uv.lock`; full CI; submission verifier; refresh replay | PASS |
+| Models/APIs/secrets declared | no LLM/paid/search/social-platform API; no required server secret | PASS |
+| Official Builderr coverage >=21/35 | private evaluator-owned | OPEN |
+| Weighted external company recall >=60% | private evaluator-owned | OPEN |
+| External precision >=95% | private evaluator-owned | OPEN |
+| Overall Builderr score >=65/100 | private evaluator-owned | OPEN |
 
-## Immutable-corpus V2 mapping diagnostic
+## Immutable certified V1 baseline
 
-Reproducible command:
+Replay `35246833190`:
 
-```bash
-uv run python scripts/audit_canonical_v2.py
-```
+- companies: 1,000 / 1,000
+- unique organisations: 1,000
+- terminal completed: 1,000
+- claims: 17,098
+- deduplicated evidence: 17,050
+- contract errors: 0
+- observed conservative requests: 13,628 total
+- structural ceiling: 20,000 total / 2,000 per 100
+- slowest chunk: 458.803 s
+- third-party API cost: $0.00
+- search API requests: 0
+- workforce companies: 990
+- verified websites: 107
+- social-handle companies: 48
+- contact-email companies: 53
 
-Measured over the immutable certified V1 1,000-company output:
+The certified V1 corpus remains immutable release evidence. Later improvements are qualified separately rather than tuned against that frozen release set.
+
+## V2 canonical/product diagnostic
+
+Zero-network canonical audit over the immutable certified V1 output:
 
 - companies: 1,000
-- unique organisation numbers: 1,000
-- canonical facts: **19,951**
+- canonical facts: 19,951
 - canonical validation errors: 0
 - company record: 998 / 1,000
 - financials: 998 / 1,000
-- people / locations: 999 / 1,000
-- verified company website: 107 / 1,000
-- hiring / public activity: 48 / 1,000, driven by validated company-declared social profiles, not jobs
-- current individual role facts: **3,932**
+- people/locations: 999 / 1,000
+- verified website area: 107 / 1,000
+- hiring/public-activity area: 48 / 1,000 (driven by validated social-profile facts)
+- current role facts: 3,932
 - registered locations: 971
-- revenue: 792
-- operating result: 976
-- workforce: 990
-- social profiles: 82
-- contact emails: 57
+- revenue facts: 792
+- workforce facts: 990
 
-This demonstrates mapping exposure only. It is **not** an official Builderr score.
+This established mapping/product exposure, not an official score.
 
-## Fresh V2 300-company diagnostic
+## V3 annual-report company descriptions
 
-Capture workflow `36148292559` selected 300 companies with deterministic seed `20261003` after excluding 6,900 known internal companies. Proven overlap within that known-internal scope: 0. Builderr's private 700-company capture is unknown, so no disjointness claim is made against it.
+V3 reuses exact-org official annual-account evidence with conservative company-scope language guards. It does not interpret group-only or weak OCR text as a company description.
 
-Live capture:
+Qualification evidence is documented in the V3 annual-report description docs and regressions. V3 is upstream of the V4 fallback: if a stronger annual-report/company-site description is already published, V4 must not replace it.
 
-- 300 / 300 terminal
-- 4,052 observed conservative requests vs 6,000 structural ceiling
-- 1,105.442 seconds wall time
-- $0 third-party API cost
-- 0 search API requests
-- 0 contract errors
-- 0 canonical errors
+## V4 exact-org registry narrative
 
-The retained capture was replayed through the final V2 projections with **zero additional network requests** in workflow `36151163094`. Final replay:
+Certified 1,000 offline audit (`36884388934`):
 
-- 7,165 canonical facts
-- company record: 299 / 300
-- financials: 300 / 300
-- people / locations: 299 / 300
-- company website: 30 / 300
-- hiring / public activity: 12 / 300, driven by social-profile facts
-- strict job postings: **0**
-- strict dated company updates: **0**
-- contract errors: 0
-- canonical errors: 0
-- replay output SHA-256: `e9542031767a97d79ab271330061c2d2e0cdaf7655a7211d37ec09725d6af63a`
+- description companies before: **85 / 1,000**
+- description companies after: **998 / 1,000**
+- net-new: **913**
+- stronger descriptions preserved: **85 / 85**
+- registered-purpose companies: **961 / 1,000**
+- added network requests: **0**
+- idempotence/evidence/output/canonical/synthesis errors: **0**
 
-The activity audit was empty, so V2 does **not** claim a job/news coverage improvement from this bounded retained-page layer.
+Fresh zero-overlap 100 (`36884650475`), seed `20261007` after excluding 7,220 prior organisations:
 
-## Strict first-party activity boundary
+- terminal: **100 / 100**
+- descriptions: **100 / 100**
+- registry-activity fallback: **85 / 100**
+- registered purpose: **97 / 100**
+- canonical facts: **3,697**
+- conservative request charge: **1,380 / 2,000**
+- wall runtime: **422.647 s**
+- third-party cost: **$0.00**
+- contract/canonical/synthesis/evidence errors: **0**
 
-`src/norway_company_agent/first_party_activity.py` performs zero-network projection over already retained pages from an exact verified company website. Generic section roots, generic filter queries, cross-domain pages, missing apply actions and undated updates produce no job/update fact.
+This is literal exact-org BRREG source text, not an LLM-generated description.
 
-## Immutable V1 evidence identity
+## V5 exact-org BRREG registry changes
 
-- V1 pinned submission SHA: `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa`
-- base collector behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
-- certified replay: `35246833190`
-- final companies: 1,000
-- frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`
-- aggregate output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`
-- aggregate artifact digest: `sha256:8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e`
-- observed conservative requests: 13,628 total / 1,362.8 average per 100
-- structural ceiling: 2,000 per 100
-- third-party API cost: $0.00
+Source-screen run `36885512441` on the fixed 20-company comparison cohort:
 
-## V2 production declaration
+- 20 / 20 had update history;
+- 20 / 20 had an event in the prior 365 days;
+- one exact-org batched request;
+- unexpected organisations: 0.
 
-`scripts/run_signalpost_v2.py` invokes the unchanged final collector, then performs zero-network V2 registry, strict first-party activity and canonical projections plus optional data-linked product rendering. It does not change V1 identity thresholds, request policy, source connectors, base runner/output adapter or certified corpus.
+That justified promotion into a separate production connector with a narrow registry-only semantic boundary.
 
-The evaluator path uses official BRREG sources, bounded Wikidata candidate nomination and independently verified company-owned public pages. It invokes no LLM, paid API, search API, sentiment model or social-platform scraper.
+Fresh exact-production-head qualification (`36892430561`) used deterministic seed `20261008` after excluding **7,320** previously touched organisations:
 
-## Remaining release actions
+- companies: **100 / 100**
+- overlap: **0**
+- registry-change companies: **100 / 100**
+- published registry-change claims: **156**
+- change-feed requests: **1**
+- observed conservative request charge: **1,382 / 2,000**
+- theoretical conservative ceiling: **2,000 / 2,000**
+- wall runtime: **414.534 s**
+- third-party cost: **$0.00**
+- integrity/evidence/output/canonical/synthesis errors: **0**
+- qualification: **PASS**
 
-1. finish final submission-doc/email/verifier packaging;
-2. verify the V1→V2 diff contains no collector/output-adapter drift or temporary workflows;
-3. run full exact-head CI, canonical audit, repository verifier, product regression and refresh replay;
-4. merge PR #33 only from that green exact head SHA;
-5. submit the new pinned V2 commit as a revision while preserving V1 history.
+Fresh cohort SHA-256:
 
-Do not claim an official Builderr score before Builderr evaluates the pinned revision.
+`a7a18aab77f9c7192ba5e55b31e5dd225718a20b6b0f6d036fb78a2a524d412d`
+
+Observed qualified path families included latest submitted annual accounts, registered employee count, business address, articles date, VAT registration, industry and registered capital. A retained 50-event audit found no item relabelled as company-authored public activity.
+
+See `docs/V5_BRREG_CHANGE_PRODUCTION.md` for the complete measurement.
+
+## Request-budget proof after V5
+
+The base runner previously used the available structural request capacity for annual-report attempts. V5 therefore reserves the shared change-feed budget first.
+
+For 100 companies:
+
+- BRREG change-feed theoretical logical ceiling: 1
+- conservative multiplier: 2
+- reserved challenge charge: 2
+- base-runner challenge maximum: 1,998
+- combined theoretical challenge ceiling: **2,000**
+
+The fresh qualification observed **1,382**, leaving substantial runtime/request margin while still proving the structural hard cap.
+
+## Current production declaration
+
+`scripts/run_signalpost_v2.py` is the single evaluator path. The filename is retained for backward compatibility, but the current implementation includes:
+
+- immutable V1 foundation/collector;
+- V2 registry/canonical/product/synthesis layer;
+- V3 qualified annual-report description intelligence;
+- V4 exact-org registry narrative fallback;
+- V5 bounded exact-org BRREG registry-change source.
+
+It invokes no LLM, paid API, search API, sentiment model or social-platform scraper. The exact merged V5 production SHA before submission-only packaging is:
+
+`a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b`
+
+Merged-main Baseline CI `36894134314` passed.
+
+## Remaining decision rule
+
+Do not claim a new official score until Builderr evaluates the final pinned revision. After finalization, submit the exact main SHA and use the next Builderr report to choose any further engineering target. Do not weaken exact-company/evidence gates merely to inflate local counts.
