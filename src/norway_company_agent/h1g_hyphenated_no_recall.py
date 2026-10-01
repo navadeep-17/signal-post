@@ -22,25 +22,91 @@ from .identity import apply_website_identity_gate
 from .zero_cost_registry_guard import apply_registry_risk_guard
 
 OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE = 5
+V6_SOURCE_TYPE = "deterministic_legal_name_ranked_fallback"
 
 
-def hyphenated_no_candidate(profile: dict[str, Any]) -> dict[str, str] | None:
-    """Return the second deterministic H1c-style legal-name candidate: hyphenated `.no`."""
-
-    tokens = distinctive_legal_name_tokens(profile.get("name"))
-    if len(tokens) < 2:
-        return None
-    label = "-".join(tokens).strip("-")
+def _safe_domain(label: str, suffix: str) -> str | None:
+    label = label.strip("-")
     if not (3 <= len(label) <= 63):
         return None
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label):
         return None
-    domain = f"{label}.no"
-    return {
-        "domain": domain,
-        "url": f"https://{domain}/",
-        "strategy": "legal_name_hyphenated_no",
-    }
+    return f"{label}.{suffix}"
+
+
+def hyphenated_no_candidate(profile: dict[str, Any]) -> dict[str, str] | None:
+    """Return the historical H1g candidate for regression/audit compatibility."""
+    tokens = distinctive_legal_name_tokens(profile.get("name"))
+    if len(tokens) < 2:
+        return None
+    domain = _safe_domain("-".join(tokens), "no")
+    if not domain:
+        return None
+    return {"domain": domain, "url": f"https://{domain}/", "strategy": "legal_name_hyphenated_no"}
+
+
+def _attempted_domains(profile: dict[str, Any]) -> set[str]:
+    """Domains already nominated earlier in the same production discovery path."""
+    evidence_map = profile.get("evidence") or {}
+    domains: set[str] = set()
+    for key in (
+        "website_email_discovery",
+        "website_discovery_zero_cost",
+        "website_h1g_hyphenated_no_discovery",
+        "website_v6_ranked_domain_discovery",
+    ):
+        row = evidence_map.get(key) or {}
+        value = row.get("value") or {}
+        domain = str(value.get("candidate_domain") or "").strip().casefold().rstrip(".")
+        if domain:
+            domains.add(domain)
+    return domains
+
+
+def ranked_fallback_candidate(profile: dict[str, Any]) -> dict[str, str] | None:
+    """Rank a request-free legal-name fallback without increasing the V5 site budget.
+
+    The V5 fresh-100 spent this final slot on a hyphenated `.no` candidate 64 times and
+    verified zero sites; 63 of those hosts did not resolve. V6 uses the same slot for a
+    compact `.com` first, then a hyphenated `.com` only if the compact form was already
+    attempted through a stronger official-domain path. The historical hyphenated `.no`
+    remains last for compatibility. Candidate nomination is never identity evidence.
+    """
+    website = (profile.get("evidence") or {}).get("website") or {}
+    if _publishable(website):
+        return None
+
+    tokens = distinctive_legal_name_tokens(profile.get("name"))
+    if not tokens:
+        return None
+
+    attempted = _attempted_domains(profile)
+    candidates: list[dict[str, str]] = []
+
+    compact_com = _safe_domain("".join(tokens), "com")
+    if compact_com:
+        candidates.append({
+            "domain": compact_com,
+            "url": f"https://{compact_com}/",
+            "strategy": "legal_name_compact_com",
+        })
+
+    if len(tokens) >= 2:
+        hyphen_com = _safe_domain("-".join(tokens), "com")
+        if hyphen_com:
+            candidates.append({
+                "domain": hyphen_com,
+                "url": f"https://{hyphen_com}/",
+                "strategy": "legal_name_hyphenated_com",
+            })
+        old = hyphenated_no_candidate(profile)
+        if old:
+            candidates.append(old)
+
+    for candidate in candidates:
+        if candidate["domain"] not in attempted:
+            return candidate
+    return None
 
 
 def _quarantine(assessment: dict[str, Any], reason: str) -> dict[str, Any]:
@@ -50,7 +116,7 @@ def _quarantine(assessment: dict[str, Any], reason: str) -> dict[str, Any]:
         "score": min(float(assessment.get("score") or 0.85), 0.85),
         "publishable": False,
         "reasons": [*list(assessment.get("reasons") or []), reason],
-        "method": "h1g_hyphenated_no_homepage_identity_v1",
+        "method": "v6_ranked_fallback_exact_entity_guard_v1",
     }
 
 
@@ -59,20 +125,20 @@ def qualify_hyphenated_no_identity(
     website: dict[str, Any],
     assessment: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """Require strong independent identity proof for the second guessed `.no` homepage.
+    """Historical function name; now guards any V6 final-slot guessed domain.
 
-    Because H1g uses only remaining request headroom and does not allocate a secondary
-    legal/contact page, title/domain similarity alone is insufficient. Publication needs
-    the exact target organisation number or full legal name plus BRREG location.
+    Publication is deliberately stricter than nomination. A guessed `.com`/`.no` can
+    publish only when the independently fetched page has the exact target organisation
+    number, or the complete legal name plus independent BRREG location corroboration.
+    Title/hostname/name similarity alone never publishes this fallback.
     """
-
     if not assessment or not assessment.get("publishable") or website.get("status") != "available":
         return assessment
 
     if _has_conflicting_explicit_org_number(profile, website):
         return _quarantine(
             assessment,
-            "H1g independently fetched hyphenated .no candidate identifies a different organisation number",
+            "V6 guessed-domain page explicitly identifies a different organisation number",
         )
 
     if _page_contains_org_number(profile, website):
@@ -83,9 +149,9 @@ def qualify_hyphenated_no_identity(
             "publishable": True,
             "reasons": [
                 *list(assessment.get("reasons") or []),
-                "H1g independently fetched hyphenated .no homepage contains exact target organisation number",
+                "V6 guessed-domain page contains the exact target organisation number",
             ],
-            "method": "h1g_hyphenated_no_homepage_identity_v1",
+            "method": "v6_ranked_fallback_exact_entity_guard_v1",
         }
 
     if _page_contains_full_legal_name(profile, website) and _page_matches_registry_location(profile, website):
@@ -96,14 +162,14 @@ def qualify_hyphenated_no_identity(
             "publishable": True,
             "reasons": [
                 *list(assessment.get("reasons") or []),
-                "H1g independently fetched hyphenated .no homepage has full legal name plus BRREG location corroboration",
+                "V6 guessed-domain page has complete legal name plus independent BRREG location corroboration",
             ],
-            "method": "h1g_hyphenated_no_homepage_identity_v1",
+            "method": "v6_ranked_fallback_exact_entity_guard_v1",
         }
 
     return _quarantine(
         assessment,
-        "H1g hyphenated .no candidate lacks exact organisation-number or legal-name-plus-BRREG-location proof",
+        "V6 guessed-domain candidate lacks exact organisation-number or legal-name-plus-BRREG-location proof",
     )
 
 
@@ -123,16 +189,15 @@ def evaluate_hyphenated_no_fallback(
     timeout: float = 6.0,
     base_site_logical_requests: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Evaluate H1g only inside request headroom left by prior qualified discovery.
+    """Use V6 ranked fallback inside the exact request headroom formerly used by H1g.
 
-    The standalone evaluator derives site requests from ``profile.run_metrics``. Production
-    orchestration can instead pass the already-measured site request count directly so the
-    same four-request ceiling remains authoritative while discovery is still in progress.
+    The public function name is retained so the production orchestrator and existing
+    contract tests do not fork into a parallel implementation. The structural ceiling is
+    unchanged: this stage can run only when two of the four site logical slots remain.
     """
-
     row = deepcopy(profile)
     website = (row.get("evidence") or {}).get("website") or {}
-    candidate = hyphenated_no_candidate(row)
+    candidate = ranked_fallback_candidate(row)
     if base_site_logical_requests is None:
         base_site_requests = _base_site_logical_requests(row)
     else:
@@ -140,15 +205,13 @@ def evaluate_hyphenated_no_fallback(
             requested = int(base_site_logical_requests)
         except (TypeError, ValueError):
             requested = -1
-        base_site_requests = (
-            requested
-            if 0 <= requested <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
-            else None
-        )
+        base_site_requests = requested if 0 <= requested <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE else None
+
     result: dict[str, Any] = {
         "organisation_number": str(row.get("organisation_number") or ""),
         "candidate_available": bool(candidate),
         "candidate_domain": candidate.get("domain") if candidate else None,
+        "candidate_strategy": candidate.get("strategy") if candidate else None,
         "attempted": False,
         "verified": False,
         "base_site_logical_requests": base_site_requests,
@@ -167,7 +230,7 @@ def evaluate_hyphenated_no_fallback(
         result["skipped_reason"] = "base_site_request_accounting_unavailable"
         return row, result
     if not candidate:
-        result["skipped_reason"] = "no_distinct_hyphenated_no_candidate"
+        result["skipped_reason"] = "no_untried_ranked_candidate"
         return row, result
     if base_site_requests + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         result["skipped_reason"] = "site_request_budget_consumed"
@@ -176,14 +239,14 @@ def evaluate_hyphenated_no_fallback(
     result["attempted"] = True
     record, operations = fetch_bounded_homepage(
         candidate["url"],
-        source_type="deterministic_legal_name_hyphenated_no_fallback",
+        source_type=V6_SOURCE_TYPE,
         timeout=timeout,
     )
     added_requests = int(operations.get("requests") or 0)
     post_site_requests = base_site_requests + added_requests
     if post_site_requests > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         raise RuntimeError(
-            f"H1g exceeded site request ceiling for {row.get('organisation_number')}: "
+            f"V6 ranked fallback exceeded site request ceiling for {row.get('organisation_number')}: "
             f"{post_site_requests}>{MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE}"
         )
     result["requests_added"] = added_requests
@@ -206,10 +269,10 @@ def evaluate_hyphenated_no_fallback(
         and candidate_record.get("status") == "available"
     )
     evidence_map = row.setdefault("evidence", {})
-    evidence_map["website_h1g_hyphenated_no_discovery"] = evidence(
-        "website_h1g_hyphenated_no_discovery",
+    evidence_map["website_v6_ranked_domain_discovery"] = evidence(
+        "website_v6_ranked_domain_discovery",
         "available" if selected else "not_found",
-        "deterministic_legal_name_hyphenated_no_fallback",
+        V6_SOURCE_TYPE,
         BRREG_BULK_URL,
         value={
             "candidate_strategy": candidate["strategy"],
@@ -223,11 +286,11 @@ def evaluate_hyphenated_no_fallback(
         },
         source_row_key=row.get("organisation_number"),
         note=(
-            "H1g hyphenated .no candidate is derived from the BRREG legal name and independently fetched; "
-            "publication requires exact org-number or legal-name-plus-location proof."
+            "V6 ranked legal-name candidate is a request-free discovery hint only. "
+            "Publication requires exact org-number or legal-name-plus-location proof."
         ),
     )
-    evidence_map["website_h1g_candidate"] = candidate_record
+    evidence_map["website_v6_ranked_domain_candidate"] = candidate_record
 
     if selected:
         trial = deepcopy(row)
