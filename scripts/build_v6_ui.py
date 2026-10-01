@@ -22,7 +22,10 @@ def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evide
     payload = json.dumps(companies, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     template = (ASSET_DIR / "template.html").read_text(encoding="utf-8")
     css = (ASSET_DIR / "styles.css").read_text(encoding="utf-8")
-    js = (ASSET_DIR / "app.js").read_text(encoding="utf-8")
+    js = "\n".join(
+        (ASSET_DIR / filename).read_text(encoding="utf-8")
+        for filename in ("app_core.js", "app_views.js")
+    )
     return (
         template.replace("__TITLE__", html.escape(title))
         .replace("__CSS__", css)
