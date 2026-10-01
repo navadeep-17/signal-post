@@ -5,7 +5,7 @@ Evidence-backed Norwegian company intelligence for the Builderr Signalpost chall
 Signalpost resolves Norwegian companies by organisation number, gathers official and conservatively qualified public evidence, and emits one terminal, auditable result per company. The system is designed around **exact-entity attribution, explicit provenance, bounded cost, deterministic canonical facts, and abstention when evidence is insufficient**.
 
 > **Evaluator entry point:** `scripts/run_signalpost_v2.py`  
-> The filename is retained for backward compatibility; the current production path includes the qualified V3–V5 layers documented in `SUBMISSION.md`.
+> The filename is retained for backward compatibility; the current production path includes the qualified V3–V5 data layers plus the current evidence-linked explorer/compare product documented in `SUBMISSION.md`.
 
 ## Current production revision
 
@@ -19,7 +19,10 @@ The current system combines:
 - exact-org BRREG registered activity as a description fallback;
 - bounded exact-org BRREG registry-change history;
 - evidence-linked canonical facts and deterministic synthesis;
-- a static data-linked HTML workspace generated from the same final JSONL.
+- a static data-linked HTML workspace generated from the same final JSONL;
+- an evidence-linked side-by-side company comparison view covering company snapshot, financials, workforce, leadership, locations, website/public signals and recent official changes.
+
+The comparison surface is descriptive only. Signalpost does not rank companies, choose a winner or infer missing values.
 
 Production invokes **no LLM API, paid API, search API, sentiment model, or social-platform scraper**. Server-side secrets are not required and the third-party API spend policy is **$0.00 per 100-company run**.
 
@@ -31,6 +34,7 @@ Production invokes **no LLM API, paid API, search API, sentiment model, or socia
 4. **AI/ML cannot override evidence gates.** The current production evaluator path is deterministic.
 5. **Bounded execution.** A 100-company evaluator run is constrained to the challenge request/runtime envelope.
 6. **Exact semantics.** Registry changes are labelled as registry changes; they are not presented as company-authored news, hiring or social activity.
+7. **Comparison is non-ranking.** The UX places source-backed facts side by side without creating a best/worst verdict.
 
 ## Architecture
 
@@ -60,7 +64,10 @@ canonical_facts[] + canonical_profile
 deterministic synthesis
         │
         ├── JSONL output
-        └── optional evidence-linked HTML product
+        └── current HTML product
+               ├── company explorer
+               ├── evidence verification
+               └── side-by-side compare
 ```
 
 The original `claims[]` / `evidence[]` envelope remains the source of truth. Canonical facts reference the underlying source fields and evidence IDs rather than replacing provenance.
@@ -161,9 +168,13 @@ Canonical namespaces include `company.*`, `financial.*`, `people.*`, `locations.
 
 ## Product surface
 
-Passing `--product-output` generates a static workspace directly from the final JSONL. It exposes company record, financials, people and locations, website facts, public/hiring signals, changes, unknowns and source evidence without maintaining a separate demo dataset.
+Passing `--product-output` now generates the current Signalpost workspace directly from the final JSONL through `scripts/build_current_product.py`.
 
-A checked-in certified product artifact is retained at `submission/signalpost-v2.html` for reproducibility.
+The **Explore** view exposes company record, financials, people and locations, website facts, public/hiring signals, changes, unknowns and source evidence. The **Compare companies** view places two records side by side across company description/industry/location/legal form, financials, workforce, leadership, registered locations, official website/contact/social facts, strict job/update facts and recent official BRREG changes. Every published comparison value keeps source links next to the cell, and unavailable values remain “Not published” rather than being inferred.
+
+The comparison is descriptive only and deliberately does not rank companies or choose a winner.
+
+The historical checked-in `submission/signalpost-v2.html` remains unchanged as the certified V2 artifact. Current evaluator runs generate the newer product at the `--product-output` path without mutating that historical artifact.
 
 ## Verification
 
@@ -179,7 +190,7 @@ Baseline CI runs the regression suite, certified canonical audit, submission-bun
 
 ```text
 src/norway_company_agent/   production collectors, validators and projections
-scripts/                    evaluator, audits and reproducible tooling
+scripts/                    evaluator, current product, audits and reproducible tooling
 tests/                      deterministic regression and contract tests
 submission/                 certified artifacts and submission declarations
 docs/                       qualification evidence, source rights and design records
