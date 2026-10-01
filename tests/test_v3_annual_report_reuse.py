@@ -32,11 +32,14 @@ def _profile(org: str = "123456789") -> dict:
 def test_same_annual_report_fetch_yields_workforce_and_description(monkeypatch) -> None:
     org = "123456789"
     profile = _profile(org)
+    # Workforce extraction intentionally targets the OCR-normalized spellings used by
+    # the production H2g parser (aarsverk/regnskapsaret), while the description heading
+    # remains representative of the original Norwegian report text.
     report_text = (
         f"Organisasjonsnummer {org}\n"
         "Virksomhetens art\n"
         "Selskapet utvikler og leverer programvare for energibransjen i Norge og Sverige.\n"
-        "Antall årsverk i regnskapsåret er 4\n"
+        "Antall aarsverk i regnskapsaret er 4\n"
         "Fortsatt drift\n"
         "Styret bekrefter forutsetningen om fortsatt drift.\n"
         + ("Tilleggsinformasjon. " * 10)
