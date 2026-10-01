@@ -27,12 +27,10 @@ V1_BASE_BLOBS = {
     "scripts/run_signalpost_final.py": "9be89b9827135b1ed703318e1d189d5d3b8ca604",
     "src/norway_company_agent/output_contract.py": "c163f493017e39252ef200e68d53bcebc12930b4",
 }
-
 V5_PRODUCTION_BLOBS = {
     "scripts/run_signalpost_v2.py": "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643",
     "src/norway_company_agent/brreg_changes.py": "9d22bcaf494a356a47985fc731cef6c2e0ecd493",
 }
-
 REQUIRED_FILES = (
     ".gitignore",
     "README.md",
@@ -86,12 +84,8 @@ def sidecar_sha(path: Path) -> str:
 def repository_head() -> str | None:
     try:
         completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, check=True,
+            capture_output=True, text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -102,12 +96,8 @@ def repository_head() -> str | None:
 def git_blob_sha(path: str) -> str | None:
     try:
         completed = subprocess.run(
-            ["git", "hash-object", path],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
+            ["git", "hash-object", path], cwd=ROOT, check=True,
+            capture_output=True, text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -115,15 +105,11 @@ def git_blob_sha(path: str) -> str | None:
     return value if len(value) == 40 else None
 
 
-def read_json_object(path: Path) -> dict[str, Any]:
-    body = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(body, dict):
-        raise ValueError(f"{path.relative_to(ROOT)} must contain an object")
-    return body
-
-
-def read_manifest() -> dict[str, Any]:
-    return read_json_object(MANIFEST_PATH)
+def read_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.relative_to(ROOT)} must contain a JSON object")
+    return value
 
 
 def read_jsonl_bytes(body: bytes) -> list[dict[str, Any]]:
@@ -139,18 +125,12 @@ def read_jsonl_bytes(body: bytes) -> list[dict[str, Any]]:
 
 
 def product_report() -> tuple[dict[str, Any], list[str]]:
-    errors: list[str] = []
     body = PRODUCT_PATH.read_text(encoding="utf-8")
-    required_labels = (
-        "Company record",
-        "Financials",
-        "People & locations",
-        "Company website",
-        "Hiring & public activity",
-    )
-    missing_labels = [label for label in required_labels if label not in body]
-    if missing_labels:
-        errors.append(f"certified product missing canonical areas: {missing_labels}")
+    labels = ("Company record", "Financials", "People & locations", "Company website", "Hiring & public activity")
+    missing = [label for label in labels if label not in body]
+    errors: list[str] = []
+    if missing:
+        errors.append(f"certified product missing canonical areas: {missing}")
     if len(body.encode("utf-8")) < 1_000_000:
         errors.append("certified product artifact is unexpectedly small")
     if "Evidence" not in body or "evidence" not in body.casefold():
@@ -159,7 +139,7 @@ def product_report() -> tuple[dict[str, Any], list[str]]:
         "path": str(PRODUCT_PATH.relative_to(ROOT)),
         "bytes": len(body.encode("utf-8")),
         "sha256": sha256_bytes(body.encode("utf-8")),
-        "canonical_area_labels_present": not missing_labels,
+        "canonical_area_labels_present": not missing,
     }, errors
 
 
@@ -167,23 +147,20 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
     errors: list[str] = []
     release = manifest.get("certified_release") or {}
 
-    manifest_bytes = RELEASE_MANIFEST_PATH.read_bytes()
-    manifest_digest = sha256_bytes(manifest_bytes)
-    expected_manifest = str(release.get("release_manifest_sha256") or "")
-    if manifest_digest != expected_manifest:
-        errors.append(f"release manifest SHA mismatch: {manifest_digest}")
-    if sidecar_sha(RELEASE_MANIFEST_SHA_PATH) != expected_manifest:
+    release_manifest_bytes = RELEASE_MANIFEST_PATH.read_bytes()
+    release_manifest_digest = sha256_bytes(release_manifest_bytes)
+    expected_manifest_digest = str(release.get("release_manifest_sha256") or "")
+    if release_manifest_digest != expected_manifest_digest:
+        errors.append("release manifest SHA mismatch")
+    if sidecar_sha(RELEASE_MANIFEST_SHA_PATH) != expected_manifest_digest:
         errors.append("release manifest sidecar mismatch")
-    manifest_rows = read_jsonl_bytes(manifest_bytes)
+    manifest_rows = read_jsonl_bytes(release_manifest_bytes)
     manifest_orgs = [str(row.get("organisation_number") or "") for row in manifest_rows]
-    if len(manifest_rows) != 1000 or len(set(manifest_orgs)) != 1000:
-        errors.append("release manifest must contain 1000 unique organisation numbers")
 
     gzip_digest = sha256_file(OUTPUT_GZ_PATH)
-    repo_artifacts = release.get("repository_artifacts") or {}
-    expected_gzip = str(repo_artifacts.get("aggregate_output_gzip_sha256") or "")
+    expected_gzip = str((release.get("repository_artifacts") or {}).get("aggregate_output_gzip_sha256") or "")
     if gzip_digest != expected_gzip:
-        errors.append(f"compressed output SHA mismatch: {gzip_digest}")
+        errors.append("compressed output SHA mismatch")
     if sidecar_sha(OUTPUT_GZ_SHA_PATH) != expected_gzip:
         errors.append("compressed output sidecar mismatch")
 
@@ -191,23 +168,25 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
     output_digest = sha256_bytes(output_bytes)
     expected_output = str(release.get("aggregate_output_sha256") or "")
     if output_digest != expected_output:
-        errors.append(f"aggregate output SHA mismatch: {output_digest}")
+        errors.append("aggregate output SHA mismatch")
     if sidecar_sha(OUTPUT_SHA_PATH) != expected_output:
         errors.append("aggregate output sidecar mismatch")
 
     sys.path.insert(0, str(ROOT / "src"))
-    from norway_company_agent.output_contract import validate_contract_object
     from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
+    from norway_company_agent.output_contract import validate_contract_object
 
     output_rows = read_jsonl_bytes(output_bytes)
     output_orgs = [str(row.get("organisation_number") or "") for row in output_rows]
-    completed = sum(1 for row in output_rows if (row.get("run") or {}).get("terminal_status") == "completed")
+    terminal_completed = sum(
+        1 for row in output_rows if (row.get("run") or {}).get("terminal_status") == "completed"
+    )
     contract_failures = [
         {"organisation_number": row.get("organisation_number"), "errors": row_errors}
         for row in output_rows
         if (row_errors := validate_contract_object(row))
     ]
-    canonical_failures = []
+    canonical_failures: list[dict[str, Any]] = []
     canonical_fact_count = 0
     for row in output_rows:
         projected = project_canonical_profile(row)
@@ -216,10 +195,12 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
         if row_errors:
             canonical_failures.append({"organisation_number": row.get("organisation_number"), "errors": row_errors})
 
+    if len(manifest_rows) != 1000 or len(set(manifest_orgs)) != 1000:
+        errors.append("release manifest must contain 1000 unique organisation numbers")
     if len(output_rows) != 1000 or len(set(output_orgs)) != 1000:
         errors.append("aggregate output must contain 1000 unique organisation numbers")
-    if completed != 1000:
-        errors.append(f"aggregate output terminal completed count is {completed}, expected 1000")
+    if terminal_completed != 1000:
+        errors.append(f"aggregate output terminal completed count is {terminal_completed}, expected 1000")
     if output_orgs != manifest_orgs:
         errors.append("aggregate output organisation-number order does not match frozen manifest")
     if contract_failures:
@@ -230,13 +211,13 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
     product, product_errors = product_report()
     errors.extend(product_errors)
     return {
-        "manifest_sha256": manifest_digest,
+        "manifest_sha256": release_manifest_digest,
         "manifest_rows": len(manifest_rows),
         "aggregate_output_gzip_sha256": gzip_digest,
         "aggregate_output_sha256": output_digest,
         "aggregate_output_rows": len(output_rows),
         "unique_organisation_numbers": len(set(output_orgs)),
-        "terminal_completed": completed,
+        "terminal_completed": terminal_completed,
         "contract_failures": contract_failures,
         "manifest_output_order_match": output_orgs == manifest_orgs,
         "v2_canonical_facts": canonical_fact_count,
@@ -247,7 +228,7 @@ def repository_artifact_report(manifest: dict[str, Any]) -> tuple[dict[str, Any]
 
 def validate_smoke_report(manifest: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
-    smoke = read_json_object(SMOKE_REPORT_PATH)
+    smoke = read_object(SMOKE_REPORT_PATH)
     declared = ((manifest.get("current_revision") or {}).get("fresh_smoke_test") or {})
     result = smoke.get("result") or {}
     operations = smoke.get("operations") or {}
@@ -261,12 +242,7 @@ def validate_smoke_report(manifest: dict[str, Any]) -> tuple[dict[str, Any], lis
         errors.append("V5 smoke report must cover 100 zero-overlap companies")
     if result.get("expected_count") != 100 or result.get("final_objects") != 100:
         errors.append("V5 smoke report must contain one result per input")
-    for key in (
-        "unique_organisation_numbers",
-        "all_entity_states_terminal",
-        "zero_silent_drops",
-        "passed",
-    ):
+    for key in ("unique_organisation_numbers", "all_entity_states_terminal", "zero_silent_drops", "passed"):
         if result.get(key) is not True:
             errors.append(f"V5 smoke report failed required check: {key}")
     for key in (
@@ -277,15 +253,16 @@ def validate_smoke_report(manifest: dict[str, Any]) -> tuple[dict[str, Any], lis
     ):
         if result.get(key) != 0:
             errors.append(f"V5 smoke report has non-zero {key}")
-    if int(operations.get("observed_conservative_request_charge") or 0) > 2000:
+
+    if int(operations.get("observed_conservative_request_charge", 0)) > 2000:
         errors.append("V5 smoke observed request charge exceeds 2000")
-    if int(operations.get("theoretical_conservative_request_ceiling") or 0) > 2000:
+    if int(operations.get("theoretical_conservative_request_ceiling", 0)) > 2000:
         errors.append("V5 smoke theoretical request ceiling exceeds 2000")
-    if float(operations.get("wall_runtime_seconds") or 0) > 2400:
+    if float(operations.get("wall_runtime_seconds", 0)) > 2400:
         errors.append("V5 smoke runtime exceeds 2400 seconds")
-    if float(operations.get("third_party_api_cost_usd") or -1) != 0.0:
+    if float(operations.get("third_party_api_cost_usd", -1)) != 0.0:
         errors.append("V5 smoke third-party API cost must be $0")
-    if int(operations.get("search_api_requests") or -1) != 0:
+    if int(operations.get("search_api_requests", -1)) != 0:
         errors.append("V5 smoke search API requests must be zero")
 
     if declared.get("workflow_run_id") != smoke.get("workflow_run_id"):
@@ -296,7 +273,6 @@ def validate_smoke_report(manifest: dict[str, Any]) -> tuple[dict[str, Any], lis
         errors.append("manifest V5 smoke final-object count does not match committed smoke report")
     if declared.get("observed_conservative_request_charge") != operations.get("observed_conservative_request_charge"):
         errors.append("manifest V5 smoke request charge does not match committed smoke report")
-
     return smoke, errors
 
 
@@ -321,13 +297,11 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         errors.append("unexpected V5 merged production SHA")
 
     for path, expected_blob in V1_BASE_BLOBS.items():
-        actual_blob = git_blob_sha(path)
-        if actual_blob != expected_blob:
-            errors.append(f"V1 base file drifted: {path} blob {actual_blob!r} != {expected_blob}")
+        if git_blob_sha(path) != expected_blob:
+            errors.append(f"V1 base file drifted: {path}")
     for path, expected_blob in V5_PRODUCTION_BLOBS.items():
-        actual_blob = git_blob_sha(path)
-        if actual_blob != expected_blob:
-            errors.append(f"V5 production file drifted: {path} blob {actual_blob!r} != {expected_blob}")
+        if git_blob_sha(path) != expected_blob:
+            errors.append(f"V5 production file drifted: {path}")
 
     entrypoints = manifest.get("entrypoints") or {}
     expected_entrypoints = {
@@ -387,7 +361,6 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
     runtime = manifest.get("runtime") or {}
     if runtime.get("server_side_secrets_required") != []:
         errors.append("production submission must explicitly declare no required server-side secrets")
-
     models = manifest.get("models_and_paid_apis") or {}
     if models.get("llm_models_invoked_by_production_runner") != []:
         errors.append("production runner must declare no LLM models")
@@ -403,16 +376,15 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         errors.append("unexpected release manifest SHA-256")
     if release.get("aggregate_output_sha256") != "00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2":
         errors.append("unexpected aggregate output SHA-256")
-    aggregate = release.get("aggregate_artifact") or {}
-    if aggregate.get("artifact_digest_sha256") != "8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e":
+    if (release.get("aggregate_artifact") or {}).get("artifact_digest_sha256") != "8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e":
         errors.append("unexpected Actions aggregate artifact digest")
 
     if sidecar_sha(MANIFEST_SHA_PATH) != sha256_file(MANIFEST_PATH):
         errors.append("submission manifest sidecar mismatch")
 
-    summary = read_json_object(SUMMARY_PATH)
+    summary = read_object(SUMMARY_PATH)
     metrics = release.get("metrics") or {}
-    expected = {
+    expected_summary = {
         "companies": 1000,
         "unique_organisations": 1000,
         "terminal_completed": 1000,
@@ -423,22 +395,18 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         "search_api_requests": 0,
         "all_chunks_passed": True,
     }
-    for key, value in expected.items():
+    for key, value in expected_summary.items():
         if summary.get(key) != value:
             errors.append(f"certified summary mismatch for {key}: {summary.get(key)!r} != {value!r}")
 
     smoke_report, smoke_errors = validate_smoke_report(manifest)
     errors.extend(smoke_errors)
-
     artifact_report, artifact_errors = repository_artifact_report(manifest)
     errors.extend(artifact_errors)
     if artifact_report.get("v2_canonical_facts") != declared_facts:
         errors.append("repository-derived V2 canonical fact count does not match compatibility declaration")
 
-    return errors, {
-        **artifact_report,
-        "v5_smoke_report": smoke_report,
-    }
+    return errors, {**artifact_report, "v5_smoke_report": smoke_report}
 
 
 def main() -> None:
@@ -448,7 +416,7 @@ def main() -> None:
     parser.add_argument("--aggregate-zip", type=Path, help="Optional downloaded V1 Actions aggregate ZIP to verify")
     args = parser.parse_args()
 
-    manifest = read_manifest()
+    manifest = read_object(MANIFEST_PATH)
     errors, artifacts = validate_repository_bundle(manifest)
     report: dict[str, Any] = {
         "repository_head": repository_head(),
@@ -461,7 +429,6 @@ def main() -> None:
         "repository_artifacts": artifacts,
         "repository_bundle_errors": errors,
     }
-
     if args.aggregate_zip:
         expected = manifest["certified_release"]["aggregate_artifact"]["artifact_digest_sha256"]
         actual = sha256_file(args.aggregate_zip)
@@ -472,7 +439,6 @@ def main() -> None:
         }
         if actual != expected:
             errors.append("Actions aggregate ZIP digest mismatch")
-
     report["passed"] = not errors
     print(json.dumps(report, indent=2, sort_keys=True))
     raise SystemExit(0 if report["passed"] else 1)
