@@ -84,13 +84,8 @@ jobs:
           echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
           cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
           test "$(wc -l < exclude-6900.jsonl)" -eq 6900
-          test "$(python - <<'PY'
-import json
-from pathlib import Path
-rows=[json.loads(x) for x in Path('exclude-6900.jsonl').read_text().splitlines() if x.strip()]
-print(len({str(r['organisation_number']) for r in rows}))
-PY
-)" -eq 6900
+          UNIQUE_COUNT="$(python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('exclude-6900.jsonl').read_text().splitlines() if x.strip()]; print(len({str(r['organisation_number']) for r in rows}))")"
+          test "$UNIQUE_COUNT" -eq 6900
 
       - name: Freeze fresh zero-overlap V3 qualification 100
         run: |
@@ -104,13 +99,7 @@ PY
             --output v3-fresh-100.jsonl \
             --report v3-fresh-100-selection.json
           test "$(wc -l < v3-fresh-100.jsonl)" -eq 100
-          python - <<'PY'
-import json
-from pathlib import Path
-r=json.loads(Path('v3-fresh-100-selection.json').read_text())
-assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==6900, r
-print(json.dumps(r, indent=2))
-PY
+          python -c "import json,pathlib; r=json.loads(pathlib.Path('v3-fresh-100-selection.json').read_text()); assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==6900, r; print(json.dumps(r, indent=2))"
           sha256sum v3-fresh-100.jsonl > v3-fresh-100.sha256
 
       - name: Run production stack on fresh V3 cohort
@@ -145,50 +134,7 @@ PY
 
       - name: Verify hard gates and prepare manual-audit rows
         run: |
-          uv run python - <<'PY'
-import json
-from pathlib import Path
-run=json.loads(Path('out/v3-fresh-100-run-report.json').read_text())
-audit=json.loads(Path('out/v3-annual-description-audit.json').read_text())
-rows=[json.loads(x) for x in Path('out/v3-fresh-100-output.jsonl').read_text().splitlines() if x.strip()]
-profiles=[json.loads(x) for x in Path('out/v3-fresh-work/profiles.jsonl').read_text().splitlines() if x.strip()]
-assert run['passed'] is True, run
-assert len(rows)==100 and len({r['organisation_number'] for r in rows})==100
-assert all(r['run']['terminal_status']=='completed' for r in rows)
-assert run['request_budget']['observed_conservative_challenge_request_charge'] <= 2000
-assert run['runtime']['wall_runtime_seconds'] <= 2400
-assert run['source_policy']['third_party_cost_usd'] == 0.0
-assert run['contract_errors'] == [] and run['change_errors'] == []
-assert audit['passed'] is True, audit
-manual=[]
-for profile in profiles:
-    org=str(profile['organisation_number'])
-    for obs in profile.get('external_observations') or []:
-        if isinstance(obs, dict) and obs.get('signal_type')=='company_profile' and obs.get('platform')=='brreg' and obs.get('company_description'):
-            manual.append({
-                'organisation_number': org,
-                'name': profile.get('name'),
-                'description': obs.get('company_description'),
-                'evidence_span': obs.get('evidence_span'),
-                'source_url': obs.get('source_url'),
-                'effective_at': obs.get('effective_at'),
-                'content_sha256': obs.get('content_sha256'),
-            })
-Path('out/v3-manual-audit-rows.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False)+'\n' for x in manual), encoding='utf-8')
-summary={
-    'fresh_companies':100,
-    'selection_overlap':0,
-    'annual_description_observations':audit['annual_description_observations'],
-    'published_annual_description_claims':audit['published_annual_description_claims'],
-    'suppressed_by_stronger_description':audit['companies_suppressed_by_stronger_existing_description'],
-    'same_report_as_workforce':audit['companies_reusing_same_report_as_workforce'],
-    'manual_audit_rows':len(manual),
-    'observed_challenge_request_charge':run['request_budget']['observed_conservative_challenge_request_charge'],
-    'runtime_seconds':run['runtime']['wall_runtime_seconds'],
-}
-Path('out/v3-qualification-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
-print(json.dumps(summary, indent=2))
-PY
+          uv run python -c "exec(compile('''import json\nfrom pathlib import Path\nrun=json.loads(Path(\"out/v3-fresh-100-run-report.json\").read_text())\naudit=json.loads(Path(\"out/v3-annual-description-audit.json\").read_text())\nrows=[json.loads(x) for x in Path(\"out/v3-fresh-100-output.jsonl\").read_text().splitlines() if x.strip()]\nprofiles=[json.loads(x) for x in Path(\"out/v3-fresh-work/profiles.jsonl\").read_text().splitlines() if x.strip()]\nassert run[\"passed\"] is True, run\nassert len(rows)==100 and len({r[\"organisation_number\"] for r in rows})==100\nassert all(r[\"run\"][\"terminal_status\"]==\"completed\" for r in rows)\nassert run[\"request_budget\"][\"observed_conservative_challenge_request_charge\"] <= 2000\nassert run[\"runtime\"][\"wall_runtime_seconds\"] <= 2400\nassert run[\"source_policy\"][\"third_party_cost_usd\"] == 0.0\nassert run[\"contract_errors\"] == [] and run[\"change_errors\"] == []\nassert audit[\"passed\"] is True, audit\nmanual=[]\nfor profile in profiles:\n    org=str(profile[\"organisation_number\"])\n    for obs in profile.get(\"external_observations\") or []:\n        if isinstance(obs, dict) and obs.get(\"signal_type\")==\"company_profile\" and obs.get(\"platform\")==\"brreg\" and obs.get(\"company_description\"):\n            manual.append({\"organisation_number\":org,\"name\":profile.get(\"name\"),\"description\":obs.get(\"company_description\"),\"evidence_span\":obs.get(\"evidence_span\"),\"source_url\":obs.get(\"source_url\"),\"effective_at\":obs.get(\"effective_at\"),\"content_sha256\":obs.get(\"content_sha256\")})\nPath(\"out/v3-manual-audit-rows.jsonl\").write_text(\"\".join(json.dumps(x,ensure_ascii=False)+\"\\n\" for x in manual),encoding=\"utf-8\")\nsummary={\"fresh_companies\":100,\"selection_overlap\":0,\"annual_description_observations\":audit[\"annual_description_observations\"],\"published_annual_description_claims\":audit[\"published_annual_description_claims\"],\"suppressed_by_stronger_description\":audit[\"companies_suppressed_by_stronger_existing_description\"],\"same_report_as_workforce\":audit[\"companies_reusing_same_report_as_workforce\"],\"manual_audit_rows\":len(manual),\"observed_challenge_request_charge\":run[\"request_budget\"][\"observed_conservative_challenge_request_charge\"],\"runtime_seconds\":run[\"runtime\"][\"wall_runtime_seconds\"]}\nPath(\"out/v3-qualification-summary.json\").write_text(json.dumps(summary,indent=2)+\"\\n\")\nprint(json.dumps(summary,indent=2))''','v3_verify','exec'))"
 
       - name: Upload V3 qualification evidence
         if: always()
