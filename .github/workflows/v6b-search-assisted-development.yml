@@ -1,0 +1,292 @@
+name: V6b Search-Assisted Development
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6b-search-assisted-discovery"
+    paths:
+      - "src/norway_company_agent/search_verified_discovery.py"
+      - "scripts/run_brave_verified_discovery.py"
+      - "tests/test_search_verified_discovery.py"
+      - "docs/V6B_SEARCH_ASSISTED_DISCOVERY.md"
+      - ".github/workflows/v6b-search-assisted-development.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  offline-and-optional-live-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      BASELINE_SHA: 97af39c7943d6e72e3bcc45b649e111744e5673d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and run search identity regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_search_discovery.py tests/test_search_verified_discovery.py
+
+      - name: Check whether a live Brave development screen is configured
+        id: brave
+        env:
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+        run: |
+          if [ -n "$BRAVE_SEARCH_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "A Brave key is configured; live zero-overlap development screen will run."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No BRAVE_SEARCH_API_KEY secret is configured. Offline qualification passed; live experiment is intentionally skipped."
+          fi
+
+      - name: Install OCR runtime for matched V5 baseline
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+
+      - name: Download public universe and current BRREG snapshot
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical touched-company manifests
+        if: steps.brave.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen archived/v4narrative archived/v5
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
+          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          test -s historical-h1e-fresh-300-exclusion.jsonl
+          test -s archived/v5/v5-change-fresh-100.jsonl
+
+      - name: Recreate all exclusions through the rejected V6 domain screen
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered historical-h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze \
+            --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl \
+            --count 100 --seed 20261003 --evaluation-split v3_annual_description_zero_overlap \
+            --sample-slice fresh_annual_report_intelligence_validation \
+            --output v3-tuning-100.jsonl --report v3-tuning-selection.json
+          cat exclude-6900.jsonl v3-tuning-100.jsonl > exclude-7000.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl \
+            --count 100 --seed 20261004 --evaluation-split v3_annual_description_confirmation \
+            --sample-slice fresh_annual_report_intelligence_transfer \
+            --output v3-confirmation-100.jsonl --report v3-confirmation-selection.json
+          cat exclude-7000.jsonl v3-confirmation-100.jsonl > exclude-7100.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl \
+            --count 100 --seed 20261005 --evaluation-split v3_annual_description_final_confirmation \
+            --sample-slice fresh_annual_report_intelligence_final_transfer \
+            --output v3-final-100.jsonl --report v3-final-selection.json
+          cat exclude-7100.jsonl v3-final-100.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          cat exclude-7220.jsonl archived/v4narrative/v4-registry-fresh-100.jsonl > exclude-7320.jsonl
+          cat exclude-7320.jsonl archived/v5/v5-change-fresh-100.jsonl > exclude-7420.jsonl
+
+          # Recreate the 50-company deterministic-.com development cohort used by rejected PR #45,
+          # then exclude it too so V6b cannot tune against that sample.
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz --exclude exclude-7420.jsonl \
+            --count 50 --seed 20261009 --evaluation-split v6_domain_recall_development \
+            --sample-slice fresh_ranked_domain_candidate_development \
+            --output rejected-v6-domain-50.jsonl --report rejected-v6-domain-50-selection.json
+          cat exclude-7420.jsonl rejected-v6-domain-50.jsonl > exclude-7470.jsonl
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('exclude-7470.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(r['organisation_number']) for r in rows]
+          assert len(rows)==7470, len(rows)
+          assert len(set(orgs))==7470, len(set(orgs))
+          print({'excluded_rows': len(rows), 'unique': len(set(orgs))})
+          PY
+
+      - name: Freeze zero-overlap V6b search development 50
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7470.jsonl \
+            --count 50 \
+            --seed 20261010 \
+            --evaluation-split v6b_search_assisted_development \
+            --sample-slice fresh_search_verified_website_development \
+            --output v6b-search-dev-50.jsonl \
+            --report v6b-search-dev-50-selection.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('v6b-search-dev-50-selection.json').read_text())
+          assert report['count']==50 and report['overlap_count']==0 and report['excluded_rows']==7470, report
+          print(json.dumps(report, indent=2))
+          PY
+          sha256sum v6b-search-dev-50.jsonl > v6b-search-dev-50.sha256
+
+      - name: Create frozen V5 worktree
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          git worktree add baseline "$BASELINE_SHA"
+          (cd baseline && uv sync --locked)
+
+      - name: Run V5 baseline on the exact search cohort
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          mkdir -p out/v5
+          (cd baseline && uv run python scripts/run_signalpost_v2.py \
+            --organisations "$GITHUB_WORKSPACE/v6b-search-dev-50.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/v5/output.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/v5/report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/v5/work" \
+            --run-id v6b-search-dev50-v5-baseline \
+            --expected-count 50 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 1000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110)
+
+      - name: Run search-assisted verification only on unresolved V5 profiles
+        if: steps.brave.outputs.available == 'true'
+        env:
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+        run: |
+          mkdir -p out/v6b
+          uv run python scripts/run_brave_verified_discovery.py \
+            --input out/v5/work/profiles.jsonl \
+            --output out/v6b/profiles.jsonl \
+            --report out/v6b/search-report.json \
+            --audit-output out/v6b/search-audit.jsonl \
+            --limit 40 --count 10 \
+            --provider-timeout 10 --crawl-timeout 6 \
+            --cost-per-query-usd 0.005 --max-provider-cost-usd 1.0 \
+            --max-added-conservative-requests 300 --request-charge-multiplier 2
+
+      - name: Compare verified website coverage and enforce budget
+        if: steps.brave.outputs.available == 'true'
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def rows(path):
+              return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+          def verified(row):
+              w=(row.get('evidence') or {}).get('website') or {}
+              a=(w.get('value') or {}).get('identity_assessment') or {}
+              return w.get('status')=='available' and bool(a.get('publishable'))
+
+          before=rows('out/v5/work/profiles.jsonl')
+          after=rows('out/v6b/profiles.jsonl')
+          assert [r['organisation_number'] for r in before] == [r['organisation_number'] for r in after]
+          before_map={r['organisation_number']: r for r in before}
+          after_map={r['organisation_number']: r for r in after}
+          before_sites={org for org,row in before_map.items() if verified(row)}
+          after_sites={org for org,row in after_map.items() if verified(row)}
+          new=sorted(after_sites-before_sites)
+          lost=sorted(before_sites-after_sites)
+          assert not lost, lost
+
+          base_report=json.loads(Path('out/v5/report.json').read_text())
+          search_report=json.loads(Path('out/v6b/search-report.json').read_text())
+          base_charge=int((base_report.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0)
+          added_charge=int((search_report.get('budget') or {}).get('added_conservative_request_charge') or 0)
+          combined_charge=base_charge+added_charge
+          assert combined_charge <= 1000, (base_charge, added_charge, combined_charge)
+          assert float((search_report.get('provider') or {}).get('declared_cost_usd') or 0) <= 1.0
+
+          comparison={
+              'companies': len(before),
+              'v5_verified_websites': len(before_sites),
+              'v6b_verified_websites': len(after_sites),
+              'website_delta': len(new),
+              'net_new_orgs': new,
+              'lost_orgs': lost,
+              'v5_conservative_request_charge': base_charge,
+              'v6b_added_conservative_request_charge': added_charge,
+              'combined_conservative_request_charge': combined_charge,
+              'provider_cost_usd': (search_report.get('provider') or {}).get('declared_cost_usd'),
+              'queried_unresolved_profiles': search_report.get('queried_unresolved_profiles'),
+          }
+          Path('out/v6b/comparison.json').write_text(json.dumps(comparison, indent=2)+'\n')
+
+          with Path('out/v6b/net-new-websites.jsonl').open('w') as f:
+              for org in new:
+                  row=after_map[org]
+                  w=(row.get('evidence') or {}).get('website') or {}
+                  a=(w.get('value') or {}).get('identity_assessment') or {}
+                  item={
+                      'organisation_number': org,
+                      'name': row.get('name'),
+                      'website': row.get('website'),
+                      'identity_method': a.get('method'),
+                      'identity_score': a.get('score'),
+                      'identity_reasons': a.get('reasons'),
+                      'website_evidence': w,
+                  }
+                  f.write(json.dumps(item, ensure_ascii=False)+'\n')
+          print(json.dumps(comparison, indent=2))
+          PY
+
+      - name: Upload V6b development evidence
+        if: always() && steps.brave.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6b-search-assisted-development-50
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            v6b-search-dev-50.jsonl
+            v6b-search-dev-50.sha256
+            v6b-search-dev-50-selection.json
+            out/v5/report.json
+            out/v5/work/profiles.jsonl
+            out/v6b/profiles.jsonl
+            out/v6b/search-report.json
+            out/v6b/search-audit.jsonl
+            out/v6b/comparison.json
+            out/v6b/net-new-websites.jsonl
