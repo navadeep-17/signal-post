@@ -11,7 +11,9 @@ on:
       - "src/norway_company_agent/annual_report_workforce.py"
       - "src/norway_company_agent/workforce_contract.py"
       - "scripts/audit_v3_annual_report_descriptions.py"
+      - "scripts/prepare_v3_qualification_summary.py"
       - "tests/test_v3_annual_report_description.py"
+      - "tests/test_v3_annual_report_description_hardening.py"
       - "tests/test_v3_annual_report_reuse.py"
       - "tests/test_v3_annual_description_audit.py"
       - ".github/workflows/v3-annual-description-qualification.yml"
@@ -87,7 +89,7 @@ jobs:
           UNIQUE_COUNT="$(python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('exclude-6900.jsonl').read_text().splitlines() if x.strip()]; print(len({str(r['organisation_number']) for r in rows}))")"
           test "$UNIQUE_COUNT" -eq 6900
 
-      - name: Freeze fresh zero-overlap V3 qualification 100
+      - name: Recreate consumed V3 tuning cohort and extend exclusion chain
         run: |
           uv run python scripts/select_disjoint_validation_batch.py \
             --universe signalpost-universe.jsonl.gz \
@@ -96,10 +98,27 @@ jobs:
             --seed 20261003 \
             --evaluation-split v3_annual_description_zero_overlap \
             --sample-slice fresh_annual_report_intelligence_validation \
+            --output v3-tuning-100.jsonl \
+            --report v3-tuning-100-selection.json
+          echo '2da901382ea417ebbfb73fc935295b6a8fa76b2d48e6be8f7efe5ba24671d43e  v3-tuning-100.jsonl' | sha256sum -c -
+          cat exclude-6900.jsonl v3-tuning-100.jsonl > exclude-7000.jsonl
+          test "$(wc -l < exclude-7000.jsonl)" -eq 7000
+          UNIQUE_COUNT="$(python -c "import json,pathlib; rows=[json.loads(x) for x in pathlib.Path('exclude-7000.jsonl').read_text().splitlines() if x.strip()]; print(len({str(r['organisation_number']) for r in rows}))")"
+          test "$UNIQUE_COUNT" -eq 7000
+
+      - name: Freeze fresh zero-overlap V3 confirmation 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7000.jsonl \
+            --count 100 \
+            --seed 20261004 \
+            --evaluation-split v3_annual_description_confirmation \
+            --sample-slice fresh_annual_report_intelligence_transfer \
             --output v3-fresh-100.jsonl \
             --report v3-fresh-100-selection.json
           test "$(wc -l < v3-fresh-100.jsonl)" -eq 100
-          python -c "import json,pathlib; r=json.loads(pathlib.Path('v3-fresh-100-selection.json').read_text()); assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==6900, r; print(json.dumps(r, indent=2))"
+          python -c "import json,pathlib; r=json.loads(pathlib.Path('v3-fresh-100-selection.json').read_text()); assert r['count']==100 and r['overlap_count']==0 and r['excluded_rows']==7000, r; print(json.dumps(r, indent=2))"
           sha256sum v3-fresh-100.jsonl > v3-fresh-100.sha256
 
       - name: Run production stack on fresh V3 cohort
@@ -110,7 +129,7 @@ jobs:
             --output out/v3-fresh-100-output.jsonl \
             --report out/v3-fresh-100-run-report.json \
             --work-dir out/v3-fresh-work \
-            --run-id v3-annual-description-fresh-100 \
+            --run-id v3-annual-description-confirmation-100 \
             --expected-count 100 \
             --workers 8 \
             --site-timeout 6 \
@@ -134,7 +153,14 @@ jobs:
 
       - name: Verify hard gates and prepare manual-audit rows
         run: |
-          uv run python -c "exec(compile('''import json\nfrom pathlib import Path\nrun=json.loads(Path(\"out/v3-fresh-100-run-report.json\").read_text())\naudit=json.loads(Path(\"out/v3-annual-description-audit.json\").read_text())\nrows=[json.loads(x) for x in Path(\"out/v3-fresh-100-output.jsonl\").read_text().splitlines() if x.strip()]\nprofiles=[json.loads(x) for x in Path(\"out/v3-fresh-work/profiles.jsonl\").read_text().splitlines() if x.strip()]\nassert run[\"passed\"] is True, run\nassert len(rows)==100 and len({r[\"organisation_number\"] for r in rows})==100\nassert all(r[\"run\"][\"terminal_status\"]==\"completed\" for r in rows)\nassert run[\"request_budget\"][\"observed_conservative_challenge_request_charge\"] <= 2000\nassert run[\"runtime\"][\"wall_runtime_seconds\"] <= 2400\nassert run[\"source_policy\"][\"third_party_cost_usd\"] == 0.0\nassert run[\"contract_errors\"] == [] and run[\"change_errors\"] == []\nassert audit[\"passed\"] is True, audit\nmanual=[]\nfor profile in profiles:\n    org=str(profile[\"organisation_number\"])\n    for obs in profile.get(\"external_observations\") or []:\n        if isinstance(obs, dict) and obs.get(\"signal_type\")==\"company_profile\" and obs.get(\"platform\")==\"brreg\" and obs.get(\"company_description\"):\n            manual.append({\"organisation_number\":org,\"name\":profile.get(\"name\"),\"description\":obs.get(\"company_description\"),\"evidence_span\":obs.get(\"evidence_span\"),\"source_url\":obs.get(\"source_url\"),\"effective_at\":obs.get(\"effective_at\"),\"content_sha256\":obs.get(\"content_sha256\")})\nPath(\"out/v3-manual-audit-rows.jsonl\").write_text(\"\".join(json.dumps(x,ensure_ascii=False)+\"\\n\" for x in manual),encoding=\"utf-8\")\nsummary={\"fresh_companies\":100,\"selection_overlap\":0,\"annual_description_observations\":audit[\"annual_description_observations\"],\"published_annual_description_claims\":audit[\"published_annual_description_claims\"],\"suppressed_by_stronger_description\":audit[\"companies_suppressed_by_stronger_existing_description\"],\"same_report_as_workforce\":audit[\"companies_reusing_same_report_as_workforce\"],\"manual_audit_rows\":len(manual),\"observed_challenge_request_charge\":run[\"request_budget\"][\"observed_conservative_challenge_request_charge\"],\"runtime_seconds\":run[\"runtime\"][\"wall_runtime_seconds\"]}\nPath(\"out/v3-qualification-summary.json\").write_text(json.dumps(summary,indent=2)+\"\\n\")\nprint(json.dumps(summary,indent=2))''','v3_verify','exec'))"
+          uv run python scripts/prepare_v3_qualification_summary.py \
+            --run-report out/v3-fresh-100-run-report.json \
+            --audit out/v3-annual-description-audit.json \
+            --profiles out/v3-fresh-work/profiles.jsonl \
+            --output out/v3-fresh-100-output.jsonl \
+            --manual-output out/v3-manual-audit-rows.jsonl \
+            --summary-output out/v3-qualification-summary.json
+          cat out/v3-qualification-summary.json
 
       - name: Upload V3 qualification evidence
         if: always()
@@ -144,6 +170,8 @@ jobs:
           retention-days: 90
           if-no-files-found: error
           path: |
+            v3-tuning-100.jsonl
+            v3-tuning-100-selection.json
             v3-fresh-100.jsonl
             v3-fresh-100.sha256
             v3-fresh-100-selection.json
