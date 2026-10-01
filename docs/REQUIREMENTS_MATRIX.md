@@ -2,7 +2,7 @@
 
 Updated: 2026-10-01
 
-This file separates directly reproduced engineering properties from Builderr-owned evaluation outcomes. **PASS** means reproduced/verified by repository tests or qualification runs; **PARTIAL** means measured evidence exists but Builderr remains authoritative; **OPEN** means the official private evaluator decides the result.
+This file separates directly reproduced engineering properties from Builderr-owned evaluation outcomes. **PASS** means reproduced/verified by repository tests or qualification runs; **PARTIAL** means measured evidence exists but Builderr remains authoritative; **OPEN** means the official evaluator decides the result.
 
 ## Qualification and execution requirements
 
@@ -10,11 +10,14 @@ This file separates directly reproduced engineering properties from Builderr-own
 |---|---|---|
 | Organisation number is the entity anchor | BRREG bulk/live and every promoted discovery/change path resolve to exact org number | PASS |
 | Exactly one terminal result/company | certified 1,000: 1,000 unique/1,000 completed; fresh V4/V5 cohorts 100/100 | PASS |
+| Current 100-company smoke report committed | `submission/v5-smoke-100-run-report.json`; 100 inputs / 100 terminal outputs | PASS |
 | 1,000+ release profiles | immutable certified V1 release remains committed and verified | PASS |
 | Generalization beyond development companies | certified release excludes 5,900 prior; V4 fresh excludes 7,220; V5 fresh excludes 7,320 | PASS observed |
 | Source claims/evidence/changes/operations | original output contract preserved | PASS |
 | V1 base runner unchanged | Git blob `9be89b9827135b1ed703318e1d189d5d3b8ca604` | PASS machine-verified |
-| V1 output adapter unchanged | Git blob `c163f493017e39252ef200e68d53bcebc12930b4` | PASS machine-verified |
+| V1 output adapter unchanged | Git blob `c163f49301748f3c20a0eaecc` | PASS machine-verified |
+| V5 production wrapper pinned | Git blob `07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643` | PASS machine-verified |
+| V5 BRREG-change connector pinned | Git blob `9d22bcaf494a356a47985fc731cef6c2e0ecd493` | PASS machine-verified |
 | Evaluator-friendly canonical mapping | evidence-linked `canonical_facts[]` / `canonical_profile` | PASS implementation |
 | Registry/accounts exposed explicitly | exact-org registry projection + canonical financial/company fields | PASS |
 | Current people safely flattened | inactive/departed BRREG appointments excluded from current `people.role` facts | PASS |
@@ -50,10 +53,13 @@ This file separates directly reproduced engineering properties from Builderr-own
 | Safe URL/SSRF/redirect handling | hardened bounded site stack unchanged | PASS implementation |
 | Pinned dependencies/tests | `uv.lock`; full CI; submission verifier; refresh replay | PASS |
 | Models/APIs/secrets declared | no LLM/paid/search/social-platform API; no required server secret | PASS |
-| Official Builderr coverage >=21/35 | private evaluator-owned | OPEN |
-| Weighted external company recall >=60% | private evaluator-owned | OPEN |
-| External precision >=95% | private evaluator-owned | OPEN |
-| Overall Builderr score >=65/100 | private evaluator-owned | OPEN |
+| Current scoring weights documented | recall/coverage 50, precision/evidence 30, synthesis 12, UX 8 | PASS documentation |
+| Score dimensions are not separate qualification thresholds | current submission docs and manifest explicitly preserve this boundary | PASS documentation |
+| Official Builderr score >=65/100 | Builderr checked collection/evaluator owned | OPEN |
+
+## Current scoring boundary
+
+The current qualification rule is **65/100 overall** on the official Builderr evaluation. Recall/coverage, precision/evidence, synthesis and UX are weighted score dimensions; they are **not separate qualification thresholds**. Repository audits can validate execution, evidence integrity, cost, runtime and observed coverage on our cohorts, but they cannot prove the official Builderr score.
 
 ## Immutable certified V1 baseline
 
@@ -159,7 +165,7 @@ Fresh cohort SHA-256:
 
 Observed qualified path families included latest submitted annual accounts, registered employee count, business address, articles date, VAT registration, industry and registered capital. A retained 50-event audit found no item relabelled as company-authored public activity.
 
-See `docs/V5_BRREG_CHANGE_PRODUCTION.md` for the complete measurement.
+See `docs/V5_BRREG_CHANGE_PRODUCTION.md` for the complete measurement. A concise evaluator-facing copy of the current smoke result is committed at `submission/v5-smoke-100-run-report.json`.
 
 ## Request-budget proof after V5
 
@@ -185,12 +191,12 @@ The fresh qualification observed **1,382**, leaving substantial runtime/request 
 - V4 exact-org registry narrative fallback;
 - V5 bounded exact-org BRREG registry-change source.
 
-It invokes no LLM, paid API, search API, sentiment model or social-platform scraper. The exact merged V5 production SHA before submission-only packaging is:
+It invokes no LLM, paid API, search API, sentiment model or social-platform scraper. The exact merged V5 production SHA before final documentation/audit packaging is:
 
 `a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b`
 
-Merged-main Baseline CI `36894134314` passed.
+The production wrapper and BRREG-change connector are pinned by Git blob in the current submission verifier so presentation-only finalization cannot silently alter evaluator behavior.
 
 ## Remaining decision rule
 
-Do not claim a new official score until Builderr evaluates the final pinned revision. After finalization, submit the exact main SHA and use the next Builderr report to choose any further engineering target. Do not weaken exact-company/evidence gates merely to inflate local counts.
+Do not claim qualification until Builderr evaluates the final pinned revision. Submit the exact final `main` SHA, then use Builderr's next official category breakdown to select any further engineering target. Do not weaken exact-company/evidence gates merely to inflate local counts.
