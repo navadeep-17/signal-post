@@ -24,24 +24,40 @@ def test_submission_manifest_and_repository_artifacts_are_frozen() -> None:
     artifacts = release["repository_artifacts"]
     revision_v2 = body["revision_v2"]
     current = body["current_revision"]
+    identity = body["submission_identity"]
 
     assert body["schema_version"] == 3
-    assert body["submission_identity"]["revision"] == "v5"
-    assert body["submission_identity"]["v1_pinned_submission_sha"] == "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa"
-    assert body["submission_identity"]["base_collector_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
-    assert body["submission_identity"]["v5_merged_production_sha"] == "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b"
-    assert body["submission_identity"]["v5_production_wrapper_git_blob"] == "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643"
-    assert body["submission_identity"]["v5_brreg_change_connector_git_blob"] == "9d22bcaf494a356a47985fc731cef6c2e0ecd493"
+    assert identity["revision"] == "v5"
+    assert identity["v1_pinned_submission_sha"] == "60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa"
+    assert identity["base_collector_behavior_sha"] == "b14ef3c277d8f1512064f865d4028e23dcd8bacf"
+    assert identity["v5_merged_production_sha"] == "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b"
+    assert identity["v5_core_wrapper_git_blob"] == "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643"
+    assert identity["current_evaluator_wrapper_git_blob"] == "5b69cc320c38e3aab13cf09fe2e2a09e62751433"
+    assert identity["current_product_builder_git_blob"] == "c9ff949063769edfce853bc6a6fa9ce7292a2070"
+    assert identity["v5_brreg_change_connector_git_blob"] == "9d22bcaf494a356a47985fc731cef6c2e0ecd493"
 
     assert body["entrypoints"]["evaluator_runner"] == "scripts/run_signalpost_v2.py"
     assert body["entrypoints"]["base_collector"] == "scripts/run_signalpost_final.py"
     assert body["entrypoints"]["canonical_projection"] == "src/norway_company_agent/canonical_projection.py"
+    assert body["entrypoints"]["current_product_builder"] == "scripts/build_current_product.py"
+    assert body["entrypoints"]["certified_v2_product_builder"] == "scripts/build_certified_v2_product.py"
     assert body["entrypoints"]["brreg_change_connector"] == "src/norway_company_agent/brreg_changes.py"
     assert body["entrypoints"]["smoke_test_report"] == "submission/v5-smoke-100-run-report.json"
 
     policy = current["qualification_policy"]
     assert current["canonical_schema_version"] == "signalpost-canonical-v2"
     assert current["synthesis_schema_version"] == "signalpost-synthesis-v1"
+    assert current["product_schema_version"] == "signalpost-product-current-v1"
+    assert current["product_surface"] == {
+        "generated_from_final_jsonl": True,
+        "explorer_enabled": True,
+        "company_compare_enabled": True,
+        "comparison_is_descriptive_only": True,
+        "company_ranking_enabled": False,
+        "evidence_links_in_compare": True,
+        "missing_values_remain_unknown": True,
+        "historical_certified_v2_html_preserved": True,
+    }
     assert policy["official_score_threshold"] == 65
     assert policy["separate_dimension_thresholds"] is False
     assert policy["weights"] == {
@@ -121,15 +137,17 @@ def test_current_smoke_report_is_submission_ready() -> None:
     assert operations["search_api_requests"] == 0
 
 
-def test_v2_compatibility_components_are_present() -> None:
+def test_current_and_v2_compatibility_components_are_present() -> None:
     required = (
         "scripts/run_signalpost_v2.py",
+        "scripts/build_current_product.py",
         "scripts/build_v2_product.py",
         "scripts/build_certified_v2_product.py",
         "src/norway_company_agent/canonical_projection.py",
         "src/norway_company_agent/v2_registry_projection.py",
         "src/norway_company_agent/first_party_activity.py",
         "submission/signalpost-v2.html",
+        "tests/test_current_product.py",
         "tests/test_canonical_projection.py",
         "tests/test_v2_registry_mapping.py",
         "tests/test_first_party_activity.py",
@@ -183,6 +201,8 @@ def test_submission_docs_preserve_current_and_compatibility_boundaries() -> None
     assert "generic careers" in submission_folded
     assert "65/100" in submission
     assert "not separate qualification thresholds" in submission_folded
+    assert "compare" in submission_folded
+    assert "compare" in readme.casefold()
     assert "separate qualification thresholds" in requirements_folded
     assert "21/35" not in submission
     assert "60% weighted external" not in submission
@@ -204,8 +224,9 @@ def test_repository_only_submission_verifier_passes() -> None:
     assert report["repository_bundle_errors"] == []
     assert report["v1_base_blobs"]["scripts/run_signalpost_final.py"] == "9be89b9827135b1ed703318e1d189d5d3b8ca604"
     assert report["v1_base_blobs"]["src/norway_company_agent/output_contract.py"] == "c163f493017e39252ef200e68d53bcebc12930b4"
-    assert report["v5_production_blobs"]["scripts/run_signalpost_v2.py"] == "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643"
-    assert report["v5_production_blobs"]["src/norway_company_agent/brreg_changes.py"] == "9d22bcaf494a356a47985fc731cef6c2e0ecd493"
+    assert report["current_evaluator_blobs"]["scripts/run_signalpost_v2.py"] == "5b69cc320c38e3aab13cf09fe2e2a09e62751433"
+    assert report["current_evaluator_blobs"]["scripts/build_current_product.py"] == "c9ff949063769edfce853bc6a6fa9ce7292a2070"
+    assert report["current_evaluator_blobs"]["src/norway_company_agent/brreg_changes.py"] == "9d22bcaf494a356a47985fc731cef6c2e0ecd493"
     assert report["repository_artifacts"]["manifest_rows"] == 1000
     assert report["repository_artifacts"]["aggregate_output_rows"] == 1000
     assert report["repository_artifacts"]["terminal_completed"] == 1000

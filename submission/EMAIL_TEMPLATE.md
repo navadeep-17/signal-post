@@ -16,7 +16,7 @@ Contact name: `<CONTACT_NAME>`
 Contact email: `<CONTACT_EMAIL>`  
 Contact phone/other: `<CONTACT_PHONE_OR_OTHER>`
 
-The evaluator command remains `scripts/run_signalpost_v2.py` for backward compatibility. The current production path includes the qualified V3–V5 improvements while preserving the certified V1 foundation and strict exact-company gates.
+The evaluator command remains `scripts/run_signalpost_v2.py` for backward compatibility. The current path preserves the qualified V3–V5 evidence/data pipeline and adds a current evidence-linked product surface with company exploration and side-by-side comparison. The compare layer uses the same final JSONL, adds no source requests, creates no new company facts, and does not rank companies.
 
 Evaluator command:
 
@@ -47,12 +47,12 @@ Current 100-company smoke-test report: `submission/v5-smoke-100-run-report.json`
 
 The report is tied to exact-production-head workflow `36892430561` and records 100 inputs / 100 terminal outputs, zero contract/canonical/synthesis/registry-integrity errors, 1,382/2,000 observed conservative request charge, a 2,000/2,000 theoretical ceiling, 414.534 seconds wall time, $0.00 third-party API cost, and zero search-API requests. It is engineering evidence, not a claimed Builderr score.
 
-Main changes since the previous revision:
+Main changes represented by the current revision:
 
 1. **Annual-report company descriptions (V3).** Exact-org BRREG annual-account evidence is reused for conservative company-scope description facts with false-positive/group guards.
 2. **BRREG registered-activity description fallback (V4).** Literal exact-org `aktivitet` is projected only when no stronger description exists. `vedtektsfestetFormaal` remains separately labelled as registered purpose.
 3. **Official BRREG registry changes (V5).** The exact-org Enhetsregister update feed is queried in bounded batches and publishes only semantically allowlisted dated registry changes. These facts are explicitly `company.registry_change`; they are never labelled as company-authored news, social activity or hiring.
-4. Existing evidence-linked canonical facts, deterministic synthesis and data-linked product rendering remain in place.
+4. **Current evidence-linked product UX.** `--product-output` now renders a current Signalpost workspace from the same final JSONL with an Explore mode and a Compare companies mode. The comparison covers company snapshot, period-aware financials, workforce, leadership, registered locations, official website/contact/social facts, strict job/update facts when qualified, and recent official BRREG registry changes. Evidence/source links remain beside published comparison values, missing values stay `Not published`, and the product does not score or choose a winner between companies.
 
 V4 description qualification:
 
@@ -79,6 +79,8 @@ The registry-change claim boundary is intentionally narrow: it means Brønnøysu
 Production invokes no LLM, sentiment model, paid API, search API or social-platform scraper/API. Server-side secrets/API keys required: **none**. Expected third-party API cost per 100-company run: **$0.00**.
 
 The immutable certified V1 evidence baseline remains committed under `submission/`. Frozen manifest SHA-256: `80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26`. Uncompressed certified V1 output SHA-256: `00750f7d66f16937703f417af493dad38d895cdf0e36020be9c28399e6d6d0f2`.
+
+Current evaluator/product identities are declared in `submission/manifest.json`. The historical checked-in `submission/signalpost-v2.html` remains unchanged; current runs generate the compare-enabled workspace at the supplied `--product-output` path.
 
 Full evaluator/setup guide: `SUBMISSION.md`  
 Machine-readable submission declaration: `submission/manifest.json`  

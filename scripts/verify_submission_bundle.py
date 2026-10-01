@@ -27,8 +27,9 @@ V1_BASE_BLOBS = {
     "scripts/run_signalpost_final.py": "9be89b9827135b1ed703318e1d189d5d3b8ca604",
     "src/norway_company_agent/output_contract.py": "c163f493017e39252ef200e68d53bcebc12930b4",
 }
-V5_PRODUCTION_BLOBS = {
-    "scripts/run_signalpost_v2.py": "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643",
+CURRENT_EVALUATOR_BLOBS = {
+    "scripts/run_signalpost_v2.py": "5b69cc320c38e3aab13cf09fe2e2a09e62751433",
+    "scripts/build_current_product.py": "c9ff949063769edfce853bc6a6fa9ce7292a2070",
     "src/norway_company_agent/brreg_changes.py": "9d22bcaf494a356a47985fc731cef6c2e0ecd493",
 }
 REQUIRED_FILES = (
@@ -41,6 +42,7 @@ REQUIRED_FILES = (
     "scripts/run_signalpost_v2.py",
     "scripts/audit_canonical_v2.py",
     "scripts/run_refresh_replay.py",
+    "scripts/build_current_product.py",
     "scripts/build_v2_product.py",
     "scripts/build_certified_v2_product.py",
     "scripts/verify_submission_bundle.py",
@@ -295,13 +297,21 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         errors.append("unexpected V1 base collector behavior SHA")
     if identity.get("v5_merged_production_sha") != "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b":
         errors.append("unexpected V5 merged production SHA")
+    if identity.get("v5_core_wrapper_git_blob") != "07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643":
+        errors.append("unexpected historical V5 core wrapper blob")
+    if identity.get("current_evaluator_wrapper_git_blob") != CURRENT_EVALUATOR_BLOBS["scripts/run_signalpost_v2.py"]:
+        errors.append("manifest current evaluator wrapper blob is inconsistent")
+    if identity.get("current_product_builder_git_blob") != CURRENT_EVALUATOR_BLOBS["scripts/build_current_product.py"]:
+        errors.append("manifest current product builder blob is inconsistent")
+    if identity.get("v5_brreg_change_connector_git_blob") != CURRENT_EVALUATOR_BLOBS["src/norway_company_agent/brreg_changes.py"]:
+        errors.append("manifest BRREG-change connector blob is inconsistent")
 
     for path, expected_blob in V1_BASE_BLOBS.items():
         if git_blob_sha(path) != expected_blob:
             errors.append(f"V1 base file drifted: {path}")
-    for path, expected_blob in V5_PRODUCTION_BLOBS.items():
+    for path, expected_blob in CURRENT_EVALUATOR_BLOBS.items():
         if git_blob_sha(path) != expected_blob:
-            errors.append(f"V5 production file drifted: {path}")
+            errors.append(f"current evaluator file drifted: {path}")
 
     entrypoints = manifest.get("entrypoints") or {}
     expected_entrypoints = {
@@ -309,6 +319,8 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         "base_collector": "scripts/run_signalpost_final.py",
         "canonical_projection": "src/norway_company_agent/canonical_projection.py",
         "canonical_audit": "scripts/audit_canonical_v2.py",
+        "current_product_builder": "scripts/build_current_product.py",
+        "certified_v2_product_builder": "scripts/build_certified_v2_product.py",
         "brreg_change_connector": "src/norway_company_agent/brreg_changes.py",
         "smoke_test_report": "submission/v5-smoke-100-run-report.json",
     }
@@ -321,6 +333,22 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         errors.append("unexpected canonical schema version")
     if current.get("synthesis_schema_version") != "signalpost-synthesis-v1":
         errors.append("unexpected synthesis schema version")
+    if current.get("product_schema_version") != "signalpost-product-current-v1":
+        errors.append("unexpected current product schema version")
+    surface = current.get("product_surface") or {}
+    if surface.get("generated_from_final_jsonl") is not True:
+        errors.append("current product must be generated from final JSONL")
+    if surface.get("explorer_enabled") is not True or surface.get("company_compare_enabled") is not True:
+        errors.append("current product must expose explorer and company comparison")
+    if surface.get("comparison_is_descriptive_only") is not True or surface.get("company_ranking_enabled") is not False:
+        errors.append("current comparison must remain descriptive and non-ranking")
+    if surface.get("evidence_links_in_compare") is not True:
+        errors.append("current comparison must expose evidence links")
+    if surface.get("missing_values_remain_unknown") is not True:
+        errors.append("current product must preserve unknown/missing boundaries")
+    if surface.get("historical_certified_v2_html_preserved") is not True:
+        errors.append("historical certified V2 HTML must remain preserved")
+
     policy = current.get("qualification_policy") or {}
     if policy.get("official_score_threshold") != 65:
         errors.append("current qualification threshold must be declared as 65/100")
@@ -380,7 +408,7 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
         errors.append("unexpected Actions aggregate artifact digest")
 
     if sidecar_sha(MANIFEST_SHA_PATH) != sha256_file(MANIFEST_PATH):
-        errors.append("submission manifest sidecar mismatch")
+        errors.append(f"submission manifest sidecar mismatch: actual {sha256_file(MANIFEST_PATH)}")
 
     summary = read_object(SUMMARY_PATH)
     metrics = release.get("metrics") or {}
@@ -411,7 +439,7 @@ def validate_repository_bundle(manifest: dict[str, Any]) -> tuple[list[str], dic
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Verify the current Signalpost V5 submission bundle and immutable V1 evidence baseline."
+        description="Verify the current Signalpost V5 submission bundle, compare product and immutable V1 evidence baseline."
     )
     parser.add_argument("--aggregate-zip", type=Path, help="Optional downloaded V1 Actions aggregate ZIP to verify")
     args = parser.parse_args()
@@ -425,7 +453,7 @@ def main() -> None:
         "base_collector_behavior_sha": manifest["submission_identity"]["base_collector_behavior_sha"],
         "v5_merged_production_sha": manifest["submission_identity"]["v5_merged_production_sha"],
         "v1_base_blobs": {path: git_blob_sha(path) for path in V1_BASE_BLOBS},
-        "v5_production_blobs": {path: git_blob_sha(path) for path in V5_PRODUCTION_BLOBS},
+        "current_evaluator_blobs": {path: git_blob_sha(path) for path in CURRENT_EVALUATOR_BLOBS},
         "repository_artifacts": artifacts,
         "repository_bundle_errors": errors,
     }

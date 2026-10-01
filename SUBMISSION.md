@@ -12,17 +12,19 @@ Submit Builderr the exact final merged `main` commit SHA:
 git rev-parse HEAD
 ```
 
-The production-code lineage is pinned separately from later documentation-only cleanup:
+The evidence-collection lineage is pinned separately from the current evaluator/product wrapper:
 
 - V1 pinned submission SHA: `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa`
 - V1 base collector behavior SHA: `b14ef3c277d8f1512064f865d4028e23dcd8bacf`
 - V1 runner Git blob: `9be89b9827135b1ed703318e1d189d5d3b8ca604`
 - V1 output-adapter Git blob: `c163f493017e39252ef200e68d53bcebc12930b4`
-- V5 merged production SHA: `a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b`
-- V5 production wrapper Git blob: `07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643`
+- V5 merged data-pipeline SHA: `a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b`
+- historical V5 core wrapper Git blob: `07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643`
+- current evaluator wrapper Git blob: `5b69cc320c38e3aab13cf09fe2e2a09e62751433`
+- current product builder Git blob: `c9ff949063769edfce853bc6a6fa9ce7292a2070`
 - V5 BRREG-change connector Git blob: `9d22bcaf494a356a47985fc731cef6c2e0ecd493`
 
-The final repository SHA may be newer because documentation, smoke evidence, and verification metadata can be improved without changing those production files.
+The current evaluator wrapper changes only the generated product surface/report metadata relative to the qualified V5 data pipeline. Source collection, company-identity gates, canonical projection, synthesis, request budgeting and BRREG-change semantics remain unchanged.
 
 ## 2. What the evaluator path does
 
@@ -37,7 +39,7 @@ For every supplied Norwegian organisation number, Signalpost:
 7. falls back to literal exact-org BRREG `aktivitet` when no stronger description exists;
 8. fetches recent exact-org BRREG update history in one bounded batch and publishes only semantically allowlisted registry changes;
 9. projects source-backed claims into canonical facts and deterministic evidence-linked synthesis;
-10. optionally renders a static HTML workspace from the exact final JSONL.
+10. optionally renders the current static HTML workspace from the exact final JSONL, with both company exploration and side-by-side comparison.
 
 The V5 change feed is explicitly an **official registry-change source**. It is never relabelled as company-authored news, hiring, social activity or a press release.
 
@@ -91,7 +93,7 @@ uv run python scripts/run_signalpost_v2.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-`scripts/run_signalpost_v2.py` remains the single evaluator entrypoint. Its filename is retained for backward compatibility; its current implementation includes the qualified V3–V5 layers.
+`scripts/run_signalpost_v2.py` remains the single evaluator entrypoint. Its filename is retained for backward compatibility; its current implementation includes the qualified V3–V5 data layers and the current compare-enabled product renderer.
 
 ## 5. Current 100-company smoke-test evidence
 
@@ -292,7 +294,9 @@ Validated source diffs remain in `changes[]`. V5 also exposes dated official reg
 
 ## 13. Product surface
 
-`--product-output out/signalpost.html` builds a static workspace directly from the final output. It exposes:
+`--product-output out/signalpost.html` builds the current static workspace directly from the final output through `scripts/build_current_product.py`.
+
+The **Explore** mode exposes:
 
 1. company record;
 2. financials;
@@ -303,7 +307,20 @@ Validated source diffs remain in `changes[]`. V5 also exposes dated official reg
 7. what changed and unknown boundaries;
 8. source/evidence links.
 
-The renderer uses the final output rather than a parallel demo dataset, and the layout has desktop/mobile regression coverage.
+The **Compare companies** mode lets the evaluator choose Company A and Company B and inspect the same final JSONL side by side across:
+
+- company description, industry, municipality and legal form;
+- revenue, operating result, profit before tax, annual result, assets, equity and debt;
+- workforce;
+- leadership;
+- registered locations;
+- official website, contact email and company-declared social profiles;
+- strict job postings and strict dated company updates when qualified;
+- recent official BRREG registry changes.
+
+Every comparison cell keeps evidence/source links beside the value. Missing values stay **Not published** rather than being inferred. The comparison is descriptive only: Signalpost does **not** score, rank or choose a winner between companies.
+
+The current product and the explorer share one embedded data payload derived from the final JSONL; there is no parallel demo dataset. The historical checked-in `submission/signalpost-v2.html` remains unchanged for certified V2 reproducibility.
 
 ## 14. Current Builderr scoring boundary
 
@@ -328,9 +345,9 @@ uv run python scripts/audit_canonical_v2.py
 uv run --with pytest pytest -q
 ```
 
-The verifier checks immutable V1 evidence identities, current V5 production blobs, the committed V5 smoke report, manifest integrity, certified release hashes and the preserved evidence-linked product artifact.
+The verifier checks immutable V1 evidence identities, the current evaluator wrapper/product builder/BRREG-change blobs, the committed V5 smoke report, manifest integrity, certified release hashes and the preserved historical V2 product artifact.
 
-Relevant green qualification runs before this final audit:
+Relevant green qualification runs before this UX enhancement:
 
 - certified V1 replay: `35246833190`
 - V4 certified 1,000 registry narrative audit: `36884388934`
@@ -339,8 +356,8 @@ Relevant green qualification runs before this final audit:
 - V5 exact-production-head replay: `36892430561`
 - V5 merged-production Baseline CI: `36894134314`
 
-The exact final audit/merge CI is recorded in the pull request that finalizes this submission metadata.
+The compare/product layer adds no source requests and creates no new company facts. Its final regression/verification CI is recorded in the pull request that merges this enhancement.
 
 ## 16. Revision submission
 
-Use `submission/EMAIL_TEMPLATE.md` after the final pre-submission audit is merged. Replace `<FINAL_MAIN_SHA>` with the resulting exact `main` SHA and fill the contact placeholders before sending the revision to Builderr.
+Use `submission/EMAIL_TEMPLATE.md` after the final UX branch is merged. Replace `<FINAL_MAIN_SHA>` with the resulting exact `main` SHA and fill the contact placeholders before sending the revision to Builderr.

@@ -17,7 +17,9 @@ The current public rule is **65/100 overall**. The four score dimensions are wei
 | Original source envelope preserved | `claims[]`, `evidence[]`, `changes[]`, `errors[]`, `operations` | PASS |
 | V1 base runner unchanged | Git blob `9be89b9827135b1ed703318e1d189d5d3b8ca604` | PASS machine-verified |
 | V1 output adapter unchanged | Git blob `c163f493017e39252ef200e68d53bcebc12930b4` | PASS machine-verified |
-| V5 production wrapper pinned | Git blob `07cdd0f5f1edb6c425ac8b8c9ae90e6357c87643` | PASS machine-verified |
+| Qualified V5 data-pipeline lineage retained | merged production SHA `a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b` | PASS |
+| Current evaluator wrapper pinned | Git blob `5b69cc320c38e3aab13cf09fe2e2a09e62751433` | PASS machine-verified |
+| Current product builder pinned | Git blob `c9ff949063769edfce853bc6a6fa9ce7292a2070` | PASS machine-verified |
 | V5 BRREG-change connector pinned | Git blob `9d22bcaf494a356a47985fc731cef6c2e0ecd493` | PASS machine-verified |
 | Evidence-linked canonical mapping | `canonical_facts[]` / `canonical_profile` | PASS |
 | Deterministic evidence-linked synthesis | no new factual claims created by synthesis | PASS |
@@ -44,6 +46,12 @@ The current public rule is **65/100 overall**. The four score dimensions are wei
 | External API spend <=$10 / 100 | production policy and smoke result are $0.00 | PASS |
 | One evaluator command | `scripts/run_signalpost_v2.py` | PASS |
 | Data-linked product | `--product-output` renders from the final JSONL | PASS |
+| Company explorer | search/select profile view uses the same final JSONL | PASS tests |
+| Side-by-side company comparison | Company A/B compare is generated from the same evidence-linked payload | PASS tests |
+| Compare values remain evidence-linked | source links are retained beside published comparison values | PASS tests |
+| Compare missing-value boundary | unavailable values display as not published; no imputation | PASS tests |
+| Comparison is descriptive, not ranking | no score, winner, best/worst or inferred preference | PASS implementation/tests |
+| Historical certified V2 product preserved | `submission/signalpost-v2.html` remains the immutable compatibility artifact | PASS regression |
 | Source rights documented | `docs/SUBMISSION_SOURCE_RIGHTS.md` | PASS |
 | Safe URL/redirect handling | hardened bounded web stack retained | PASS implementation |
 | Dependencies pinned | `uv.lock` | PASS |
@@ -112,6 +120,8 @@ The zero-network projection over the immutable certified V1 output contains:
 
 The historical fresh V2 diagnostic yielded zero strict job-posting facts and zero strict dated company-update facts. Those zeroes mean no retained page met the publication gate; they are not negative claims about the companies.
 
+The checked-in `submission/signalpost-v2.html` stays unchanged. Current evaluator runs use `scripts/build_current_product.py` to build the newer explorer/compare workspace from the current final JSONL.
+
 ## V3 and V4 description qualification
 
 V3 reuses exact-org annual-account evidence with conservative company-scope language guards. V4 adds literal exact-org BRREG `aktivitet` only as a fallback.
@@ -148,21 +158,31 @@ The change-feed request budget is reserved before base execution. For 100 compan
 
 Registry-change facts remain `company.registry_change`. They do not become company-authored public activity and they never invent an earlier value that BRREG did not supply.
 
-## Current production declaration
+## Current product declaration
 
-`scripts/run_signalpost_v2.py` is the single evaluator path. Its filename is retained for backward compatibility. Current production combines:
+`scripts/run_signalpost_v2.py` is the single evaluator path. Its filename is retained for backward compatibility. The evidence/data path combines:
 
 - the immutable V1 exact-entity collection foundation;
-- V2 canonical projection, deterministic synthesis and product rendering;
+- V2 canonical projection and deterministic synthesis;
 - V3 annual-report company descriptions;
 - V4 exact-org registry-activity fallback;
 - V5 bounded exact-org BRREG registry changes.
 
-Merged V5 production SHA before final documentation/audit packaging:
+The current product layer then renders that already-qualified final JSONL through `scripts/build_current_product.py`. It adds **zero source requests and zero new company facts**. Explore and Compare use one embedded payload. The comparison is descriptive only and preserves evidence links beside values.
+
+Qualified V5 data-pipeline SHA before the UX wrapper:
 
 `a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b`
 
-The verifier pins the current production wrapper and BRREG-change connector by Git blob so final presentation/documentation changes cannot silently alter evaluator behavior.
+Current evaluator wrapper blob:
+
+`5b69cc320c38e3aab13cf09fe2e2a09e62751433`
+
+Current product builder blob:
+
+`c9ff949063769edfce853bc6a6fa9ce7292a2070`
+
+The verifier pins those files plus the BRREG-change connector so later documentation changes cannot silently alter evaluator/product behavior.
 
 ## Decision rule
 
