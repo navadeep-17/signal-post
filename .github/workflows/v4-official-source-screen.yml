@@ -9,7 +9,6 @@ on:
       - "scripts/screen_support_registry_reach.py"
       - "tests/test_v4_support_registry_screen.py"
       - ".github/workflows/v4-official-source-screen.yml"
-      - "docs/V4_OFFICIAL_SOURCE_SCREEN.md"
 
 permissions:
   contents: read
