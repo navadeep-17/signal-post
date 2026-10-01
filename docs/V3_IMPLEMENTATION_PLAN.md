@@ -44,13 +44,17 @@ First target: a conservative `company_description` / business-activity fact from
 
 Implementation sequence:
 
-1. add a pure deterministic business-description extractor over annual-report text;
-2. emit a narrowly scoped BRREG `company_profile` observation;
-3. project it only when no stronger verified-company-site description already exists;
-4. require exact organisation number in the report text;
-5. add false-positive guards for group-only / boilerplate passages;
-6. integrate with the existing H2g PDF/OCR fetch so the same report request supplies workforce + description;
-7. run a fresh qualification and measure company-description reach, precision and runtime.
+1. [x] add a pure deterministic business-description extractor over annual-report text;
+2. [x] emit a narrowly scoped BRREG `company_profile` observation;
+3. [x] project it only when no stronger verified-company-site description already exists;
+4. [x] require exact organisation number in the report text;
+5. [x] add false-positive guards for group-only / boilerplate passages;
+6. [x] implement a single-fetch annual-report intelligence collector that derives workforce + description from the same PDF/OCR text;
+7. [x] prove in focused tests that one annual-report request can produce both observations and that the V3 batch retains the exact H2g eligibility/request class;
+8. [ ] wire the validated collector into `run_signalpost_final.py` and project the description in the final contract;
+9. [ ] run a fresh qualification and measure company-description reach, precision and runtime.
+
+Offline Baseline CI is green through step 7. The production runner remains unchanged until the runner-integration gate is tested.
 
 Promotion gate: no wrong-entity descriptions in manual audit and meaningful net-new company coverage.
 
