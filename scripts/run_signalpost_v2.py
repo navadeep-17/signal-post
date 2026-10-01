@@ -29,7 +29,8 @@ from norway_company_agent.synthesis import (  # noqa: E402
     validate_company_synthesis,
 )
 from norway_company_agent.v2_registry_projection import project_v2_registry_claims  # noqa: E402
-from build_v2_product import build_v2_html, read_jsonl  # noqa: E402
+from build_current_product import CURRENT_PRODUCT_SCHEMA, build_current_html  # noqa: E402
+from build_v2_product import read_jsonl  # noqa: E402
 
 DEFAULT_EXPECTED_COUNT = 100
 DEFAULT_MAX_CHALLENGE_REQUESTS = 2000
@@ -307,15 +308,19 @@ def main() -> None:
         product_path = Path(product_output)
         product_path.parent.mkdir(parents=True, exist_ok=True)
         product_path.write_text(
-            build_v2_html(projected, title="Signalpost V2 — evidence-backed company intelligence"),
+            build_current_html(projected, title="Signalpost — evidence-backed company intelligence"),
             encoding="utf-8",
         )
         report["product_surface"] = {
+            "schema_version": CURRENT_PRODUCT_SCHEMA,
             "path": str(product_path),
             "data_linked": True,
             "source_output": str(output_path),
             "companies": len(projected),
             "deterministic_synthesis": True,
+            "comparison_enabled": True,
+            "comparison_semantics": "side-by-side descriptive facts only; no company ranking",
+            "evidence_links_in_compare": True,
             "canonical_areas": [
                 "company_record",
                 "financials",
