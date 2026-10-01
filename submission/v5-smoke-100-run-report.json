@@ -1,0 +1,53 @@
+{
+  "report_type": "builderr_submission_smoke_test",
+  "note": "Engineering smoke-test evidence only; this is not an official Builderr score.",
+  "workflow_run_id": 36892430561,
+  "workflow_artifact": {
+    "name": "v5-brreg-change-production-qualification",
+    "artifact_id": 11178761646,
+    "artifact_digest_sha256": "e66e18bfc0ee245005d563f0555666dbde3402648fb87f028bb0ea45c77aa5ee"
+  },
+  "production_head_sha": "2c745ed22232a443fe2c9e8fc3f49a66c725be0e",
+  "merged_v5_production_sha": "a0ca7bb1ab19de5c7c96b2e5e862763c27f8e34b",
+  "run_id": "v5-brreg-change-confirmation-100",
+  "input": {
+    "companies": 100,
+    "prior_organisations_excluded": 7320,
+    "overlap": 0,
+    "selection_sha256": "a7a18aab77f9c7192ba5e55b31e5dd225718a20b6b0f6d036fb78a2a524d412d"
+  },
+  "result": {
+    "expected_count": 100,
+    "final_objects": 100,
+    "unique_organisation_numbers": true,
+    "all_entity_states_terminal": true,
+    "zero_silent_drops": true,
+    "contract_validation_errors": 0,
+    "canonical_validation_errors": 0,
+    "synthesis_validation_errors": 0,
+    "registry_change_integrity_errors": 0,
+    "passed": true
+  },
+  "coverage_observed": {
+    "canonical_facts": 3795,
+    "company_record_companies": 100,
+    "financial_companies": 99,
+    "people_or_location_companies": 100,
+    "workforce_companies": 98,
+    "company_description_companies": 100,
+    "verified_website_companies": 7,
+    "social_profile_companies": 2,
+    "contact_email_companies": 4,
+    "registry_change_companies": 100,
+    "registry_change_claims": 156
+  },
+  "operations": {
+    "observed_conservative_request_charge": 1382,
+    "theoretical_conservative_request_ceiling": 2000,
+    "wall_runtime_seconds": 414.534,
+    "max_wall_runtime_seconds": 2400,
+    "third_party_api_cost_usd": 0.0,
+    "search_api_requests": 0,
+    "brreg_change_feed_requests": 1
+  }
+}
