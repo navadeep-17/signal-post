@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
+import sys
 
 import pytest
 
-from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
-from norway_company_agent.registry_narrative import project_registry_narrative_claims
-from norway_company_agent.synthesis import build_company_synthesis, validate_company_synthesis
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection  # noqa: E402
+from norway_company_agent.registry_narrative import project_registry_narrative_claims  # noqa: E402
+from norway_company_agent.synthesis import build_company_synthesis, validate_company_synthesis  # noqa: E402
 
 
 def _profile(*, activity: str = "Utvikling av programvare.", purpose: str = "Utvikle og selge programvare.") -> dict:
@@ -124,7 +129,11 @@ def test_projection_is_idempotent_and_can_yield_to_later_stronger_description() 
     descriptions = _claims(projected, "company_description")
     assert len(descriptions) == 1
     assert descriptions[0]["value"] == "Filed annual-report description."
-    assert all(not item["id"].startswith("ev-v4-registry-narrative-") or item["claim_span"].startswith("vedtektsfestetFormaal=") for item in projected["evidence"])
+    assert all(
+        not item["id"].startswith("ev-v4-registry-narrative-")
+        or item["claim_span"].startswith("vedtektsfestetFormaal=")
+        for item in projected["evidence"]
+    )
 
 
 def test_empty_activity_does_not_promote_purpose_to_description() -> None:
