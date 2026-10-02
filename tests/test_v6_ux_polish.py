@@ -31,7 +31,7 @@ def test_v6_polish_supports_find_compare_verify_flow() -> None:
     body = build_v6_html(_rows())
 
     assert 'id="globalFinderTrigger"' in body
-    assert 'id="companyFinder"' in body
+    assert "modal.id='companyFinder'" in body
     assert "Ctrl or Command K" in body
     assert "Search company, organisation number, industry or place" in body
     assert "Verify all evidence" in body
