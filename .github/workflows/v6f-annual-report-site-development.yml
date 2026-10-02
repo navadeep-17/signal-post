@@ -1,0 +1,98 @@
+name: V6f Annual Report Site Development
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6f-annual-report-site-candidates"
+    paths:
+      - "src/norway_company_agent/annual_report_site_candidate.py"
+      - "scripts/screen_v6f_annual_report_site_candidates.py"
+      - "tests/test_v6f_annual_report_site_candidate.py"
+      - ".github/workflows/v6f-annual-report-site-development.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-cohort-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6f_annual_report_site_candidate.py
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+
+      - name: Restore consumed V6d transfer baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 36978734059 --repo navadeep-17/signal-post \
+            --name v6d-first-party-depth-transfer --dir prior
+          test -s prior/out/v5/report.json
+          test -s prior/out/v5/work/profiles.jsonl
+          test -s prior/v6d-transfer-100.jsonl
+          echo '536b55977b2d6b7b996d397ceb7ad8c3773f7a7c5a7c33bfd633731ff3646ea7  prior/v6d-transfer-100.jsonl' | sha256sum -c -
+
+      - name: Run annual-report candidate screen
+        run: |
+          mkdir -p out/v6f
+          uv run python scripts/screen_v6f_annual_report_site_candidates.py \
+            --profiles prior/out/v5/work/profiles.jsonl \
+            --baseline-report prior/out/v5/report.json \
+            --report out/v6f/report.json \
+            --audit out/v6f/audit.jsonl \
+            --timeout 60 --site-timeout 6 --ocr-pages 8 --ocr-dpi 110 \
+            --max-report-refetches 100 --max-candidate-probes 30
+
+      - name: Verify experiment boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('out/v6f/report.json').read_text())
+          assert report['publication_enabled'] is False
+          assert report['third_party_api_cost_usd'] == 0.0
+          assert report['search_api_requests'] == 0
+          assert report['wrong_company_publications'] == 0
+          assert report['modeled_combined_observed_conservative_charge'] <= 2000, report
+          rows=[json.loads(x) for x in Path('out/v6f/audit.jsonl').read_text().splitlines() if x.strip()]
+          verified=[r for r in rows if r.get('verified_website')]
+          assert len(verified)==report['verified_sites']
+          for row in verified:
+              proof=row['verified_website']['annual_report_candidate_proof']
+              assert proof and len(str(proof['report_content_sha256']))==64
+              identity=row['verified_website']['identity_assessment']
+              assert identity and identity.get('publishable')
+          print(json.dumps({'verified':len(verified),'report':report},indent=2))
+          PY
+
+      - name: Upload V6f development evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6f-annual-report-site-development
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            prior/v6d-transfer-100.jsonl
+            out/v6f/report.json
+            out/v6f/audit.jsonl
