@@ -1,0 +1,101 @@
+name: V6i Registry Contact Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6i-registry-contact-email"
+    paths:
+      - "src/norway_company_agent/registry_contact.py"
+      - "src/norway_company_agent/v2_registry_projection.py"
+      - "scripts/screen_v6i_registry_contact.py"
+      - "tests/test_v6i_registry_contact.py"
+      - ".github/workflows/v6i-registry-contact-screen.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-100-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install and run V6i regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6i_registry_contact.py
+
+      - name: Restore already-consumed exact-profile cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p prior
+          gh run download 37046231861 --repo navadeep-17/signal-post \
+            --name v6h-brreg-subunit-site-screen --dir prior
+          test -s prior/base/work/profiles.jsonl
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('prior/base/work/profiles.jsonl').read_text().splitlines() if x.strip()]
+          assert len(rows)==100 and len({str(x['organisation_number']) for x in rows})==100
+          print({'profiles':len(rows),'unique':len({str(x['organisation_number']) for x in rows})})
+          PY
+
+      - name: Run zero-network exact-registry contact screen
+        run: |
+          mkdir -p out/v6i
+          uv run python scripts/screen_v6i_registry_contact.py \
+            --profiles prior/base/work/profiles.jsonl \
+            --report out/v6i/report.json \
+            --audit out/v6i/audit.jsonl
+
+      - name: Enforce screen boundaries and print promotion surface
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.load(open('out/v6i/report.json'))
+          audit=[json.loads(x) for x in Path('out/v6i/audit.jsonl').read_text().splitlines() if x.strip()]
+          assert r['input_profiles']==100
+          assert r['added_logical_requests']==0
+          assert r['added_conservative_request_charge']==0
+          assert r['third_party_api_cost_usd']==0.0
+          assert r['website_identity_changed'] is False
+          for row in audit:
+              assert str(row['source_url']).startswith('https://data.brreg.no/')
+              assert str(row['source_row_key'])==str(row['organisation_number'])
+              assert len(str(row['content_sha256']))==64
+          print(json.dumps({
+              'fresh_cohort_spent':False,
+              'consumed_cohort':True,
+              'contact_before':r['contact_companies_before'],
+              'registered_email_companies':r['companies_with_valid_registered_email'],
+              'net_new_contact_companies':r['net_new_contact_companies'],
+              'contact_after':r['contact_companies_after'],
+              'added_charge':0,
+              'decision_rule':'Spend a new zero-overlap cohort only if exact-org registered contacts provide material zero-request coverage gain.',
+          },indent=2,sort_keys=True))
+          PY
+
+      - name: Upload V6i screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6i-registry-contact-screen
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            out/v6i/report.json
+            out/v6i/audit.jsonl
