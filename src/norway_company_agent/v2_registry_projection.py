@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .registry_contact import project_registry_contact_email
 from .registry_narrative import project_registry_narrative_claims
 
 
@@ -41,14 +42,15 @@ def _registry_value(profile: dict[str, Any], field: str) -> Any:
 
 
 def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Attach evaluator-facing BRREG registry claims without changing the V1 adapter.
+    """Attach evaluator-facing exact-org BRREG facts without changing the base adapter.
 
     The base collector/output adapter remains the immutable V1 behavior. V2 reads the
     exact-org registry profile already retained by that collector and adds only fields that
     were present there but not reliably surfaced in the V1 claims envelope. V4 additionally
-    reuses the same retained registry row for literal activity/purpose narrative through
-    :func:`project_registry_narrative_claims`. No network access, identity relaxation, or
-    value inference occurs here.
+    reuses the same retained registry row for literal activity/purpose narrative. V6i reuses
+    the same row for a narrowly labelled registered contact-email fallback when no stronger
+    first-party contact email is already published. No network access, identity relaxation,
+    or value inference occurs here.
     """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
@@ -118,4 +120,5 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
         "claims": claims,
         "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
     }
-    return project_registry_narrative_claims(projected, profile)
+    with_narrative = project_registry_narrative_claims(projected, profile)
+    return project_registry_contact_email(with_narrative, profile)
