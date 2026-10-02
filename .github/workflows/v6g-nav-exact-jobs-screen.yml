@@ -47,7 +47,7 @@ jobs:
           test -s prior/out/v5/work/profiles.jsonl
           echo '536b55977b2d6b7b996d397ceb7ad8c3773f7a7c5a7c33bfd633731ff3646ea7  prior/v6d-transfer-100.jsonl' | sha256sum -c -
 
-      - name: Screen current NAV feed using exact employer organisation numbers
+      - name: Screen full current NAV active-job horizon using exact employer organisation numbers
         run: |
           mkdir -p out/v6g
           uv run python scripts/screen_v6g_nav_exact_jobs.py \
@@ -56,7 +56,7 @@ jobs:
             --audit out/v6g/company-audit.jsonl \
             --report out/v6g/report.json \
             --lookback-days 185 \
-            --max-feed-pages 90 \
+            --max-feed-pages 260 \
             --max-detail-requests 100 \
             --timeout 20 \
             --min-start-interval 0.2
@@ -67,7 +67,8 @@ jobs:
           assert r['third_party_api_cost_usd']==0.0
           assert r['wrong_company_publications']==0
           assert r['publication_enabled'] is False
-          assert r['logical_requests'] <= 191, r
+          # 1 public-token request + <=260 feed pages + <=100 nominated details.
+          assert r['logical_requests'] <= 361, r
           print(json.dumps({k:v for k,v in r.items() if k!='detail_audit'}, indent=2, sort_keys=True))
           PY
 
