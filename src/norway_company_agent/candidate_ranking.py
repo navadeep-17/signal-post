@@ -203,8 +203,10 @@ def feature_vector(profile: dict[str, Any], candidate: dict[str, Any]) -> dict[s
 
 def rules_score(profile: dict[str, Any], candidate: dict[str, Any]) -> float:
     f = feature_vector(profile, candidate)
+    # Official registry/domain signals outrank pure spelling guesses. The remaining terms
+    # order only the zero-cost generated candidates; none of these scores can publish a site.
     return (
-        9.0 * f["registry_domain_equal"] + 8.0 * f["registry_email_domain_equal"]
+        18.0 * f["registry_domain_equal"] + 14.0 * f["registry_email_domain_equal"]
         + 5.2 * f["legal_compact_equal"] + 4.8 * f["legal_hyphen_equal"]
         + 2.8 * f["legal_name_similarity"] + 1.8 * f["distinctive_token_overlap"]
         + 0.9 * f["tld_no"] + 0.35 * f["tld_com"] - 0.55 * f["municipality_token"]
