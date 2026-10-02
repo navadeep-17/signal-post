@@ -64,9 +64,8 @@ jobs:
           gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
           gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
           gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
-          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-fresh-100 --dir archived/v4narrative || \
-            gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
-          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-change-fresh-100 --dir archived/v5
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
           gh run download 36912683196 --repo navadeep-17/signal-post --name v6-domain-recall-development --dir archived/v6rejected
           gh run download 36963913555 --repo navadeep-17/signal-post --name v6c-candidate-ranking-development --dir archived/v6c
           gh run download 36967544569 --repo navadeep-17/signal-post --name v6d-first-party-depth-development --dir archived/v6d
