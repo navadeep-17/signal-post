@@ -1,0 +1,84 @@
+name: V6g NAV Exact Jobs Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6g-nav-exact-jobs-screen"
+    paths:
+      - "src/norway_company_agent/nav_exact_jobs.py"
+      - "scripts/screen_v6g_nav_exact_jobs.py"
+      - "tests/test_v6g_nav_exact_jobs.py"
+      - ".github/workflows/v6g-nav-exact-jobs-screen.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-100-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and exact-org regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6g_nav_exact_jobs.py
+
+      - name: Restore already-consumed V6d transfer profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 36978734059 --repo navadeep-17/signal-post \
+            --name v6d-first-party-depth-transfer --dir prior
+          test -s prior/out/v5/work/profiles.jsonl
+          echo '536b55977b2d6b7b996d397ceb7ad8c3773f7a7c5a7c33bfd633731ff3646ea7  prior/v6d-transfer-100.jsonl' | sha256sum -c -
+
+      - name: Screen current NAV feed using exact employer organisation numbers
+        run: |
+          mkdir -p out/v6g
+          uv run python scripts/screen_v6g_nav_exact_jobs.py \
+            --profiles prior/out/v5/work/profiles.jsonl \
+            --output out/v6g/jobs.jsonl \
+            --audit out/v6g/company-audit.jsonl \
+            --report out/v6g/report.json \
+            --lookback-days 185 \
+            --max-feed-pages 90 \
+            --max-detail-requests 100 \
+            --timeout 20 \
+            --min-start-interval 0.2
+          python - <<'PY'
+          import json
+          r=json.load(open('out/v6g/report.json'))
+          assert r['target_companies']==100
+          assert r['third_party_api_cost_usd']==0.0
+          assert r['wrong_company_publications']==0
+          assert r['publication_enabled'] is False
+          assert r['logical_requests'] <= 191, r
+          print(json.dumps({k:v for k,v in r.items() if k!='detail_audit'}, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload V6g screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6g-nav-exact-jobs-screen
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            out/v6g/jobs.jsonl
+            out/v6g/company-audit.jsonl
+            out/v6g/report.json
