@@ -4,17 +4,14 @@ from typing import Any
 
 from . import verified_site_depth_hardened as hardened
 
+_BASE_DETAIL_CANDIDATE = hardened._detail_candidate
+
 
 def _safe_detail_candidate(url: str, category: str) -> bool:
-    """Only careers/news have detail semantics in V6d.
-
-    The v1 hardened planner deliberately reuses the base detail helper, whose contract
-    assumes a known CATEGORY_TERMS key. Homepage/about/contact pages are not detail
-    candidates and must therefore short-circuit instead of reaching that helper.
-    """
+    """Only careers/news have detail semantics in V6d."""
     if category not in {"careers", "news"}:
         return False
-    return hardened._detail_candidate(url, category)
+    return _BASE_DETAIL_CANDIDATE(url, category)
 
 
 def crawl_verified_site_depth_hardened_v2(
