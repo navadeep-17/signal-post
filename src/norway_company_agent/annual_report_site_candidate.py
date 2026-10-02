@@ -73,12 +73,18 @@ def _blocked(domain: str) -> bool:
 
 def _score_candidate(profile: dict[str, Any], domain: str, source_kind: str, context: str) -> tuple[float, dict[str, Any]]:
     name_tokens = _name_tokens(str(profile.get("name") or ""))
-    domain_tokens = set(_domain_tokens(domain))
+    domain_token_list = _domain_tokens(domain)
+    domain_tokens = set(domain_token_list)
     matched = sorted(set(name_tokens) & domain_tokens)
     overlap = len(matched) / len(set(name_tokens)) if name_tokens else 0.0
     compact_name = "".join(name_tokens)
-    compact_domain = "".join(_domain_tokens(domain))
+    compact_domain = "".join(domain_token_list)
     distinctive = max(name_tokens, key=len, default="")
+    acronym = "".join(token[0] for token in name_tokens if token) if len(name_tokens) >= 2 else ""
+    acronym_match = bool(len(acronym) >= 3 and compact_domain == acronym)
+    compact_name_match = bool(compact_name and len(compact_name) >= 5 and compact_name in compact_domain)
+    distinctive_match = bool(distinctive and len(distinctive) >= 5 and distinctive in compact_domain)
+    domain_association = bool(matched or compact_name_match or distinctive_match or acronym_match)
     context_folded = _fold(context)
     context_name_hits = [token for token in name_tokens if token in context_folded]
     negative = any(marker in context.casefold() for marker in NEGATIVE_CONTEXT)
@@ -86,17 +92,19 @@ def _score_candidate(profile: dict[str, Any], domain: str, source_kind: str, con
 
     score = 4.0 if source_kind == "explicit_url" else 2.5
     score += 5.0 * overlap
-    if compact_name and len(compact_name) >= 5 and compact_name in compact_domain:
+    if compact_name_match:
         score += 4.0
-    if distinctive and len(distinctive) >= 5 and distinctive in compact_domain:
+    if distinctive_match:
         score += 2.0
+    if acronym_match:
+        score += 3.0
     if context_name_hits:
         score += min(3.0, float(len(set(context_name_hits))))
     if positive:
         score += 1.5
     if negative:
         score -= 8.0
-    if len(compact_domain) <= 3:
+    if len(compact_domain) <= 3 and not acronym_match:
         score -= 3.0
     return score, {
         "name_overlap": round(overlap, 4),
@@ -104,6 +112,10 @@ def _score_candidate(profile: dict[str, Any], domain: str, source_kind: str, con
         "context_name_tokens": sorted(set(context_name_hits)),
         "positive_context": positive,
         "negative_context": negative,
+        "compact_name_match": compact_name_match,
+        "distinctive_token_match": distinctive_match,
+        "safe_acronym_match": acronym_match,
+        "domain_association": domain_association,
     }
 
 
@@ -130,8 +142,10 @@ def extract_annual_report_site_candidates(
         if not domain or _blocked(domain):
             return
         score, features = _score_candidate(profile, domain, source_kind, span)
-        # A report mention with no company/domain association is normally auditor/vendor noise.
-        if score < 5.0 or features["negative_context"]:
+        # Broad report context often contains the company name even when a URL belongs to
+        # an auditor/vendor. A probe therefore requires direct legal-name/domain or safe
+        # acronym association in addition to a non-negative local context.
+        if score < 5.0 or features["negative_context"] or not features["domain_association"]:
             return
         row = {
             "url": root,
@@ -191,15 +205,21 @@ def verify_annual_report_site_candidate(
     location_match = _page_matches_registry_location(profile, candidate_record)
     explicit_report_url = candidate.get("source_kind") == "explicit_url"
     name_overlap = float((candidate.get("features") or {}).get("name_overlap") or 0.0)
+    direct_domain_association = bool((candidate.get("features") or {}).get("domain_association"))
 
     # Strong publication proof: exact org on homepage; or exact-site identity + BRREG
     # location; or an explicit exact-org annual-report URL plus exact homepage identity
-    # and substantive legal-name/domain association. Email-domain mentions never get the
-    # third route because they may belong to an auditor/accountant listed in the report.
+    # and direct legal-name/domain association. Email-domain mentions never get the third
+    # route because they may belong to an auditor/accountant listed in the report.
     accepted = bool(
         exact_org
         or location_match
-        or (explicit_report_url and name_overlap >= 0.5 and float(assessment.get("score") or 0.0) >= 0.95)
+        or (
+            explicit_report_url
+            and direct_domain_association
+            and (name_overlap >= 0.5 or (candidate.get("features") or {}).get("compact_name_match") or (candidate.get("features") or {}).get("distinctive_token_match") or (candidate.get("features") or {}).get("safe_acronym_match"))
+            and float(assessment.get("score") or 0.0) >= 0.95
+        )
     )
     if not accepted:
         return None, {
