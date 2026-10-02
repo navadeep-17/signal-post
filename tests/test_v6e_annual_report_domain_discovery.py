@@ -31,14 +31,14 @@ def available_record(url: str = "https://fjorddata.no/") -> dict:
     }
 
 
-def test_explicit_company_url_beats_auditor_and_free_mail():
+def test_explicit_company_url_is_ranked_and_known_noise_is_filtered():
     row = profile()
-    text = """
-    FJORD DATA SERVICE AS
-    Kontakt og nettside: www.fjorddata.no
-    Revisor: audit partner@example.pwc.no
-    Privat kontakt: owner@gmail.com
-    """
+    # Keep unrelated auditor metadata outside the bounded local context of the company URL.
+    text = (
+        "FJORD DATA SERVICE AS\nKontakt og nettside: www.fjorddata.no\n"
+        + ("virksomhetsinformasjon " * 30)
+        + "\nRevisor: audit partner@pwc.no\nPrivat kontakt: owner@gmail.com\n"
+    )
     candidates = v6e.extract_annual_report_domain_candidates(row, text)
     assert candidates
     assert candidates[0]["domain"] == "fjorddata.no"
