@@ -1,0 +1,234 @@
+name: V6e Zero Network Social Transfer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6e-zero-network-social-recovery"
+    paths:
+      - "src/norway_company_agent/zero_network_social_recovery.py"
+      - "scripts/run_v6e_zero_network_social_recovery.py"
+      - "tests/test_v6e_zero_network_social_recovery.py"
+      - ".github/workflows/v6e-zero-network-social-transfer.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  unseen-social-recovery-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      BASELINE_SHA: 97af39c7943d6e72e3bcc45b649e111744e5673d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and V6e regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6e_zero_network_social_recovery.py tests/test_company_site_social.py
+
+      - name: Install OCR runtime and download public inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical manifests through V6d transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen archived/v4narrative archived/v5 archived/v6rejected archived/v6c archived/v6ddev archived/v6dtransfer
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
+          gh run download 36912683196 --repo navadeep-17/signal-post --name v6-domain-recall-development --dir archived/v6rejected
+          gh run download 36963913555 --repo navadeep-17/signal-post --name v6c-candidate-ranking-development --dir archived/v6c
+          gh run download 36967544569 --repo navadeep-17/signal-post --name v6d-first-party-depth-development --dir archived/v6ddev
+          gh run download 36978734059 --repo navadeep-17/signal-post --name v6d-first-party-depth-transfer --dir archived/v6dtransfer
+          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          test -s archived/v6ddev/v6d-dev-100.jsonl
+          test -s archived/v6dtransfer/v6d-transfer-100.jsonl
+          echo '9256a2c823bb8a02ca1a0a3bf4cc5f168077ac5728e60a46efd9fe79ec25c73c  archived/v6ddev/v6d-dev-100.jsonl' | sha256sum -c -
+          echo '536b55977b2d6b7b996d397ceb7ad8c3773f7a7c5a7c33bfd633731ff3646ea7  archived/v6dtransfer/v6d-transfer-100.jsonl' | sha256sum -c -
+
+      - name: Recreate 7720-company exclusion chain
+        run: |
+          set -euo pipefail
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered historical-h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl --count 100 --seed 20261003 --evaluation-split v3a --sample-slice v3a --output v3a.jsonl --report v3a.json
+          cat exclude-6900.jsonl v3a.jsonl > exclude-7000.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl --count 100 --seed 20261004 --evaluation-split v3b --sample-slice v3b --output v3b.jsonl --report v3b.json
+          cat exclude-7000.jsonl v3b.jsonl > exclude-7100.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl --count 100 --seed 20261005 --evaluation-split v3c --sample-slice v3c --output v3c.jsonl --report v3c.json
+          cat exclude-7100.jsonl v3c.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          cat exclude-7220.jsonl archived/v4narrative/v4-registry-fresh-100.jsonl > exclude-7320.jsonl
+          cat exclude-7320.jsonl archived/v5/v5-change-fresh-100.jsonl > exclude-7420.jsonl
+          cat exclude-7420.jsonl archived/v6rejected/v6-dev-50.jsonl > exclude-7470.jsonl
+          cat exclude-7470.jsonl archived/v6c/v6c-dev-50.jsonl > exclude-7520.jsonl
+          cat exclude-7520.jsonl archived/v6ddev/v6d-dev-100.jsonl > exclude-7620.jsonl
+          cat exclude-7620.jsonl archived/v6dtransfer/v6d-transfer-100.jsonl > exclude-7720.jsonl
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('exclude-7720.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(r['organisation_number']) for r in rows]
+          assert len(rows)==7720 and len(set(orgs))==7720, (len(rows),len(set(orgs)))
+          print({'excluded':len(rows),'unique':len(set(orgs))})
+          PY
+
+      - name: Freeze unseen V6e 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7720.jsonl \
+            --count 100 --seed 20261013 \
+            --evaluation-split v6e_zero_network_social_transfer \
+            --sample-slice unseen_after_v6d_transfer \
+            --output v6e-transfer-100.jsonl --report v6e-transfer-100-selection.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('v6e-transfer-100-selection.json').read_text())
+          assert report['count']==100 and report['overlap_count']==0 and report['excluded_rows']==7720, report
+          print(json.dumps(report,indent=2))
+          PY
+          sha256sum v6e-transfer-100.jsonl > v6e-transfer-100.sha256
+
+      - name: Run frozen V5 incumbent on exact V6e cohort
+        run: |
+          git worktree add baseline "$BASELINE_SHA"
+          (cd baseline && uv sync --locked)
+          mkdir -p out/v5
+          (cd baseline && uv run python scripts/run_signalpost_v2.py \
+            --organisations "$GITHUB_WORKSPACE/v6e-transfer-100.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/v5/output.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/v5/report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/v5/work" \
+            --run-id v6e-transfer100-v5 \
+            --expected-count 100 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110)
+
+      - name: Run zero-network social challenger
+        run: |
+          mkdir -p out/v6e
+          uv run python scripts/run_v6e_zero_network_social_recovery.py \
+            --profiles out/v5/work/profiles.jsonl \
+            --observations out/v6e/recovered-socials.jsonl \
+            --report out/v6e/report.json
+
+      - name: Compare exact V5 vs V6e and enforce zero-cost boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from collections import Counter
+          from norway_company_agent.external_footprint import validate_observation
+
+          def rows(path):
+              return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+
+          output=rows('out/v5/output.jsonl')
+          profiles=rows('out/v5/work/profiles.jsonl')
+          recovered=rows('out/v6e/recovered-socials.jsonl')
+          report=json.loads(Path('out/v6e/report.json').read_text())
+          v5_report=json.loads(Path('out/v5/report.json').read_text())
+          assert report['logical_requests_added']==0
+          assert report['conservative_request_charge_added']==0
+          assert report['third_party_api_cost_usd']==0.0
+          assert report['website_identity_created']==0
+          assert not report['validation_errors']
+          pindex={str(p['organisation_number']):p for p in profiles}
+          baseline_social_companies=set()
+          for row in output:
+              org=str(row.get('organisation_number') or '')
+              if any(f.get('type')=='social_profile' and f.get('availability')=='available' for f in row.get('canonical_facts') or []):
+                  baseline_social_companies.add(org)
+          recovered_companies={str(x['organisation_number']) for x in recovered}
+          assert not (baseline_social_companies & recovered_companies), 'challenger returned already-published social company'
+          for obs in recovered:
+              assert validate_observation(obs)==[], obs
+              profile=pindex[str(obs['organisation_number'])]
+              website=(profile.get('evidence') or {}).get('website') or {}
+              identity=((website.get('value') or {}).get('identity_assessment') or {})
+              assert website.get('status')=='available' and identity.get('publishable')
+              pages=((website.get('value') or {}).get('pages') or [])
+              assert pages and pages[0].get('content_sha256')==obs['content_sha256']
+              assert str(pages[0].get('url') or '').rstrip('/')==str(obs['source_url']).rstrip('/')
+          baseline_charge=int((v5_report.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0)
+          summary={
+              'cohort_sha256':Path('v6e-transfer-100.sha256').read_text().split()[0],
+              'fresh_companies':100,
+              'historical_exclusions':7720,
+              'overlap':0,
+              'v5_verified_sites':int((v5_report.get('site_discovery') or {}).get('profiles_with_verified_site') or 0),
+              'v5_social_companies':len(baseline_social_companies),
+              'v6e_social_companies':len(baseline_social_companies | recovered_companies),
+              'net_new_social_companies':len(recovered_companies),
+              'net_new_social_observations':len(recovered),
+              'platform_counts':dict(sorted(Counter(str(x.get('platform') or 'unknown') for x in recovered).items())),
+              'v5_observed_conservative_charge':baseline_charge,
+              'v6e_added_logical_requests':0,
+              'v6e_added_conservative_charge':0,
+              'combined_conservative_charge':baseline_charge,
+              'third_party_api_cost_usd':0.0,
+              'wrong_company_publications':0,
+              'contract_errors':len(v5_report.get('contract_errors') or []),
+              'manual_audit_required_before_promotion':True,
+          }
+          Path('out/v6e-transfer-comparison.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload immutable V6e transfer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6e-zero-network-social-transfer
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            v6e-transfer-100.jsonl
+            v6e-transfer-100.sha256
+            v6e-transfer-100-selection.json
+            out/v5/output.jsonl
+            out/v5/report.json
+            out/v5/work/profiles.jsonl
+            out/v6e/recovered-socials.jsonl
+            out/v6e/report.json
+            out/v6e-transfer-comparison.json
