@@ -23,7 +23,7 @@ def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evide
     template = (ASSET_DIR / "template.html").read_text(encoding="utf-8")
     css = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
-        for filename in ("styles.css", "polish.css")
+        for filename in ("styles.css", "polish.css", "polish_final.css")
     )
     js = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
@@ -52,14 +52,19 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(body, encoding="utf-8")
+    body_bytes = len(body.encode("utf-8"))
     print(json.dumps({
         "schema_version": V6_UI_SCHEMA,
         "companies": len(rows),
         "output": str(output),
-        "bytes": len(body.encode("utf-8")),
+        "bytes": body_bytes,
+        "bytes_per_company": round(body_bytes / max(1, len(rows)), 1),
         "data_linked": True,
         "search_discovery": True,
+        "exact_match_search_priority": True,
         "global_company_finder": True,
+        "inline_provenance": True,
+        "url_state": True,
         "evidence_drawer": True,
         "verify_all_evidence": True,
         "compare_enabled": True,
