@@ -176,20 +176,11 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           r=json.load(open('out/v5/report.json'))
-          # Current report exposes observed conservative charge under hard_checks/operations variants across revisions.
-          candidates=[
-              r.get('observed_conservative_requests'),
-              (r.get('operations') or {}).get('conservative_request_charge'),
-              (r.get('budget') or {}).get('conservative_request_charge'),
-              (r.get('hard_checks') or {}).get('conservative_requests'),
-          ]
-          baseline=next((int(v) for v in candidates if isinstance(v,(int,float))), None)
-          if baseline is None:
-              # V5 conservative policy is 2x logical requests; total_requests is the retained report field.
-              logical=(r.get('operations') or {}).get('requests') or r.get('total_requests')
-              if logical is None:
-                  raise SystemExit('Cannot resolve V5 request usage from report')
-              baseline=int(logical)*2
+          budget=r.get('request_budget') or {}
+          value=budget.get('observed_conservative_challenge_request_charge')
+          if not isinstance(value,(int,float)):
+              raise SystemExit('V5 report is missing request_budget.observed_conservative_challenge_request_charge')
+          baseline=int(value)
           allowed=max(0,min(150,(1000-baseline)//2))
           if allowed < 20:
               raise SystemExit(f'Insufficient fair challenger headroom: baseline={baseline}, logical={allowed}')
