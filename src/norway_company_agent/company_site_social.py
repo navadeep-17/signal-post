@@ -74,8 +74,8 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
     This extractor performs no network access. It only reuses an already-qualified company
     website snapshot. Because the current website model can merge social links discovered
     across multiple bounded pages without retaining per-link page provenance, H2a abstains
-    whenever more than one captured page contributed to the snapshot. A later model may
-    relax this only after per-link source URL/hash provenance is stored explicitly.
+    whenever more than one captured page contributed to the snapshot. V6e separately
+    recovers only links whose primary-homepage URL/hash provenance can be proven exactly.
 
     The narrow claim is: "this exact company page declared this social profile URL".
     No social-platform page, post, metric, currentness or sentiment is implied.
@@ -168,7 +168,7 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
 
 
 def attach_company_site_social_observations(profile: dict[str, Any]) -> dict[str, Any]:
-    """Attach H2a observations without overwriting other future external observations."""
+    """Attach H2a plus qualified V6e recovery without adding network requests."""
 
     existing = [item for item in (profile.get("external_observations") or []) if isinstance(item, dict)]
     h2a = company_site_social_observations(profile)
@@ -177,6 +177,23 @@ def attach_company_site_social_observations(profile: dict[str, Any]) -> dict[str
         for item in [*existing, *h2a]
         if str(item.get("id") or "").strip()
     }
+    profile["external_observations"] = sorted(
+        by_id.values(), key=lambda row: (str(row.get("signal_type") or ""), str(row.get("platform") or ""), str(row.get("id") or ""))
+    )
+
+    # Local import avoids an import cycle: the recovery module deliberately reuses this
+    # module's strict social-profile URL gate. It sees H2a already attached, so it also
+    # abstains from duplicating a profile already published by the original path.
+    from .zero_network_social_recovery import recover_company_site_social_observations
+
+    recovered = recover_company_site_social_observations(profile)
+    by_id.update(
+        {
+            str(item.get("id")): item
+            for item in recovered
+            if str(item.get("id") or "").strip()
+        }
+    )
     profile["external_observations"] = sorted(
         by_id.values(), key=lambda row: (str(row.get("signal_type") or ""), str(row.get("platform") or ""), str(row.get("id") or ""))
     )
