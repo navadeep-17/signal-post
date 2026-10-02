@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import html
 import json
 import sys
@@ -14,12 +16,55 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from build_v2_product import compact_company, read_jsonl  # noqa: E402
 
 V6_UI_SCHEMA = "signalpost-ui-v6"
+V6_PAYLOAD_FORMAT = "signalpost-ui-v6-pooled-evidence"
 ASSET_DIR = ROOT / "scripts" / "ui_v6"
+
+
+def _evidence_key(item: dict[str, Any]) -> str:
+    explicit = item.get("id")
+    if explicit:
+        return str(explicit)
+    material = json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return "ui-ev-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
+
+
+def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
+    packed = copy.deepcopy(companies)
+    pool: dict[str, dict[str, Any]] = {}
+
+    def refs(rows: list[dict[str, Any]] | None) -> list[str]:
+        output: list[str] = []
+        for item in rows or []:
+            if not isinstance(item, dict):
+                continue
+            key = _evidence_key(item)
+            pool.setdefault(key, item)
+            if key not in output:
+                output.append(key)
+        return output
+
+    for company in packed:
+        for facts in (company.get("areas") or {}).values():
+            for fact in facts or []:
+                if not isinstance(fact, dict):
+                    continue
+                fact["evidenceRefs"] = refs(fact.pop("evidence", None))
+        for section in ((company.get("synthesis") or {}).get("sections") or []):
+            if not isinstance(section, dict):
+                continue
+            section["sourceRefs"] = refs(section.pop("sources", None))
+
+    return {
+        "format": V6_PAYLOAD_FORMAT,
+        "companies": packed,
+        "evidence": pool,
+    }
 
 
 def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evidence workspace") -> str:
     companies = [compact_company(row) for row in rows]
-    payload = json.dumps(companies, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    payload_object = _pool_evidence_payload(companies)
+    payload = json.dumps(payload_object, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     template = (ASSET_DIR / "template.html").read_text(encoding="utf-8")
     css = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
@@ -27,8 +72,9 @@ def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evide
     )
     js = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
-        for filename in ("app_core.js", "app_views.js", "app_polish.js")
+        for filename in ("payload_hydrate.js", "app_core.js", "app_views.js", "app_polish.js")
     )
+    js = js.replace("const DATA=__PAYLOAD__;", "const DATA=hydrateSignalpostPayload(__PAYLOAD__);")
     return (
         template.replace("__TITLE__", html.escape(title))
         .replace("__CSS__", css)
@@ -55,10 +101,12 @@ def main() -> None:
     body_bytes = len(body.encode("utf-8"))
     print(json.dumps({
         "schema_version": V6_UI_SCHEMA,
+        "payload_format": V6_PAYLOAD_FORMAT,
         "companies": len(rows),
         "output": str(output),
         "bytes": body_bytes,
         "bytes_per_company": round(body_bytes / max(1, len(rows)), 1),
+        "pooled_evidence": True,
         "data_linked": True,
         "search_discovery": True,
         "exact_match_search_priority": True,
