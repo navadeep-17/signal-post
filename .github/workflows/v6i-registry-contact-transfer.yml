@@ -1,0 +1,288 @@
+name: V6i Registry Contact Transfer Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6i-registry-contact-email"
+    paths:
+      - ".github/workflows/v6i-registry-contact-transfer.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  unseen-registry-contact-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      BASELINE_SHA: 92ecaf891d9370bfa48ede7cffeb07e803605c7d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and V6i regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6i_registry_contact.py
+
+      - name: Install OCR runtime and download public inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical manifests through V6e transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen archived/v4narrative archived/v5 archived/v6rejected archived/v6c archived/v6ddev archived/v6dtransfer archived/v6e
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
+          gh run download 36912683196 --repo navadeep-17/signal-post --name v6-domain-recall-development --dir archived/v6rejected
+          gh run download 36963913555 --repo navadeep-17/signal-post --name v6c-candidate-ranking-development --dir archived/v6c
+          gh run download 36967544569 --repo navadeep-17/signal-post --name v6d-first-party-depth-development --dir archived/v6ddev
+          gh run download 36978734059 --repo navadeep-17/signal-post --name v6d-first-party-depth-transfer --dir archived/v6dtransfer
+          gh run download 36995728296 --repo navadeep-17/signal-post --name v6e-zero-network-social-transfer --dir archived/v6e
+          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          echo '9256a2c823bb8a02ca1a0a3bf4cc5f168077ac5728e60a46efd9fe79ec25c73c  archived/v6ddev/v6d-dev-100.jsonl' | sha256sum -c -
+          echo '536b55977b2d6b7b996d397ceb7ad8c3773f7a7c5a7c33bfd633731ff3646ea7  archived/v6dtransfer/v6d-transfer-100.jsonl' | sha256sum -c -
+          echo '4f9e8c782eb8f3b74aedd34e8564f86ca91afdeea0e2e9e722bef6a626f9b294  archived/v6e/v6e-transfer-100.jsonl' | sha256sum -c -
+
+      - name: Recreate 7820-company exclusion chain
+        run: |
+          set -euo pipefail
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered historical-h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl --count 100 --seed 20261003 --evaluation-split v3a --sample-slice v3a --output v3a.jsonl --report v3a.json
+          cat exclude-6900.jsonl v3a.jsonl > exclude-7000.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl --count 100 --seed 20261004 --evaluation-split v3b --sample-slice v3b --output v3b.jsonl --report v3b.json
+          cat exclude-7000.jsonl v3b.jsonl > exclude-7100.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl --count 100 --seed 20261005 --evaluation-split v3c --sample-slice v3c --output v3c.jsonl --report v3c.json
+          cat exclude-7100.jsonl v3c.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          cat exclude-7220.jsonl archived/v4narrative/v4-registry-fresh-100.jsonl > exclude-7320.jsonl
+          cat exclude-7320.jsonl archived/v5/v5-change-fresh-100.jsonl > exclude-7420.jsonl
+          cat exclude-7420.jsonl archived/v6rejected/v6-dev-50.jsonl > exclude-7470.jsonl
+          cat exclude-7470.jsonl archived/v6c/v6c-dev-50.jsonl > exclude-7520.jsonl
+          cat exclude-7520.jsonl archived/v6ddev/v6d-dev-100.jsonl > exclude-7620.jsonl
+          cat exclude-7620.jsonl archived/v6dtransfer/v6d-transfer-100.jsonl > exclude-7720.jsonl
+          cat exclude-7720.jsonl archived/v6e/v6e-transfer-100.jsonl > exclude-7820.jsonl
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('exclude-7820.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(r['organisation_number']) for r in rows]
+          assert len(rows)==7820 and len(set(orgs))==7820, (len(rows),len(set(orgs)))
+          print({'excluded':len(rows),'unique':len(set(orgs))})
+          PY
+
+      - name: Freeze genuinely unseen V6i 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7820.jsonl \
+            --count 100 --seed 20261014 \
+            --evaluation-split v6i_registry_contact_transfer \
+            --sample-slice unseen_after_v6e \
+            --output v6i-transfer-100.jsonl --report v6i-transfer-100-selection.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('v6i-transfer-100-selection.json').read_text())
+          assert report['count']==100 and report['overlap_count']==0 and report['excluded_rows']==7820, report
+          print(json.dumps(report,indent=2))
+          PY
+          sha256sum v6i-transfer-100.jsonl > v6i-transfer-100.sha256
+
+      - name: Run current main incumbent on exact V6i cohort
+        run: |
+          git worktree add baseline "$BASELINE_SHA"
+          (cd baseline && uv sync --locked)
+          mkdir -p out/incumbent
+          (cd baseline && uv run python scripts/run_signalpost_v2.py \
+            --organisations "$GITHUB_WORKSPACE/v6i-transfer-100.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/incumbent/output.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/incumbent/report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/incumbent/work" \
+            --run-id v6i-transfer100-incumbent \
+            --expected-count 100 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110)
+
+      - name: Run V6i production challenger on same cohort
+        run: |
+          mkdir -p out/v6i
+          uv run python scripts/run_signalpost_v2.py \
+            --organisations v6i-transfer-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/v6i/output.jsonl \
+            --report out/v6i/report.json \
+            --work-dir out/v6i/work \
+            --run-id v6i-transfer100-challenger \
+            --expected-count 100 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110
+
+      - name: Compare mandatory scoring surface and enforce evidence boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def rows(path):
+              return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+
+          incumbent=rows('out/incumbent/output.jsonl')
+          challenger=rows('out/v6i/output.jsonl')
+          ireport=json.load(open('out/incumbent/report.json'))
+          creport=json.load(open('out/v6i/report.json'))
+          assert len(incumbent)==len(challenger)==100
+          assert [x['organisation_number'] for x in incumbent]==[x['organisation_number'] for x in challenger]
+
+          type_map={
+              'descriptions':'company_description',
+              'workforce':'workforce_snapshot',
+              'revenue':'financial_revenue',
+              'roles':'person_role',
+              'locations':'registered_location',
+              'websites':'website',
+              'contact_emails':'contact_email',
+              'social_profiles':'social_profile',
+              'jobs':'job_posting',
+              'company_authored_updates':'company_update',
+              'registry_changes':'registry_change',
+          }
+
+          def coverage(rows_, fact_type):
+              return {
+                  str(row['organisation_number'])
+                  for row in rows_
+                  if any(f.get('type')==fact_type and f.get('availability')=='available' for f in row.get('canonical_facts') or [])
+              }
+
+          comparison={}
+          for label,fact_type in type_map.items():
+              before=coverage(incumbent,fact_type)
+              after=coverage(challenger,fact_type)
+              comparison[label]={
+                  'v5_companies':len(before),
+                  'v6i_companies':len(after),
+                  'net_new_companies':len(after-before),
+                  'lost_companies':len(before-after),
+              }
+              assert not (before-after), (label,before-after)
+
+          # Audit every V6i-owned positive claim and prove it came from the exact BRREG row.
+          v6i_claims=[]
+          for row in challenger:
+              evidence={str(e.get('id')):e for e in row.get('evidence') or [] if e.get('id')}
+              for claim in row.get('claims') or []:
+                  if claim.get('signal_type')!='official_registry_contact':
+                      continue
+                  assert claim.get('field')=='external.contact_email'
+                  assert claim.get('availability')=='available'
+                  assert claim.get('confidence')==1.0
+                  assert claim.get('platform')=='brreg_registry'
+                  assert len(claim.get('evidence_ids') or [])==1
+                  ev=evidence[claim['evidence_ids'][0]]
+                  assert ev.get('source_class')=='official'
+                  assert str(ev.get('source_url') or '').startswith('https://data.brreg.no/')
+                  assert str(ev.get('source_row_key'))==str(row['organisation_number'])
+                  assert len(str(ev.get('content_sha256') or ''))==64
+                  assert str(ev.get('claim_span') or '').startswith('epostadresse=')
+                  v6i_claims.append({'organisation_number':row['organisation_number'],'email':claim['value'],'evidence':ev})
+
+          i_charge=int((ireport.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0)
+          c_charge=int((creport.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0)
+          i_requests=int((ireport.get('request_budget') or {}).get('observed_logical_requests') or 0)
+          c_requests=int((creport.get('request_budget') or {}).get('observed_logical_requests') or 0)
+          assert c_charge <= 2000 and c_requests==i_requests and c_charge==i_charge
+          assert float(creport.get('third_party_cost_usd') or 0.0)==0.0
+          assert not creport.get('contract_errors')
+          assert not creport.get('canonical_errors')
+          assert not creport.get('synthesis_errors')
+
+          summary={
+              'cohort_sha256':Path('v6i-transfer-100.sha256').read_text().split()[0],
+              'fresh_companies':100,
+              'historical_exclusions':7820,
+              'overlap':0,
+              'coverage_comparison':comparison,
+              'v5_total_claims':sum(len(r.get('claims') or []) for r in incumbent),
+              'v6i_total_claims':sum(len(r.get('claims') or []) for r in challenger),
+              'v5_evidence_count':sum(len(r.get('evidence') or []) for r in incumbent),
+              'v6i_evidence_count':sum(len(r.get('evidence') or []) for r in challenger),
+              'v5_observed_logical_requests':i_requests,
+              'v6i_observed_logical_requests':c_requests,
+              'v5_observed_conservative_charge':i_charge,
+              'v6i_observed_conservative_charge':c_charge,
+              'v5_wall_runtime_seconds':ireport.get('wall_runtime_seconds'),
+              'v6i_wall_runtime_seconds':creport.get('wall_runtime_seconds'),
+              'v6i_registry_contact_claims':len(v6i_claims),
+              'added_network_requests':c_requests-i_requests,
+              'added_conservative_charge':c_charge-i_charge,
+              'third_party_api_cost_usd':0.0,
+              'wrong_company_publications':0,
+              'contract_errors':len(creport.get('contract_errors') or []),
+              'canonical_errors':len(creport.get('canonical_errors') or []),
+              'synthesis_errors':len(creport.get('synthesis_errors') or []),
+              'publication_semantics':'Exact-org public BRREG registered contact; not website/domain ownership or deliverability.',
+          }
+          Path('out/v6i-transfer-comparison.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          with Path('out/v6i-contact-audit.jsonl').open('w') as f:
+              for item in v6i_claims:
+                  f.write(json.dumps(item,ensure_ascii=False,separators=(',',':'))+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload immutable V6i transfer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6i-registry-contact-transfer
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            v6i-transfer-100.jsonl
+            v6i-transfer-100.sha256
+            v6i-transfer-100-selection.json
+            out/incumbent/output.jsonl
+            out/incumbent/report.json
+            out/v6i/output.jsonl
+            out/v6i/report.json
+            out/v6i-transfer-comparison.json
+            out/v6i-contact-audit.jsonl
