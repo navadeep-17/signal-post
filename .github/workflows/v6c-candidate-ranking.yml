@@ -1,0 +1,278 @@
+name: V6c Candidate Ranking Development
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6c-candidate-ranking"
+    paths:
+      - "src/norway_company_agent/candidate_ranking.py"
+      - "scripts/train_v6c_candidate_ranker.py"
+      - "scripts/run_v6c_ranked_discovery.py"
+      - "tests/test_v6c_candidate_ranking.py"
+      - ".github/workflows/v6c-candidate-ranking.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rules-vs-ml-fresh-50:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      BASELINE_SHA: 97af39c7943d6e72e3bcc45b649e111744e5673d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and run V6c regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6c_candidate_ranking.py
+
+      - name: Restore historical resolved website attempts for training
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p historical/h1a historical/h1d
+          gh run download 34806483073 --repo navadeep-17/signal-post --name h1-qualification-audit --dir historical/h1a
+          gh run download 34934156901 --repo navadeep-17/signal-post --name h1d-zero-cost-recall-qualification --dir historical/h1d
+          test -s historical/h1a/out/h1-qualification-enriched-profiles.jsonl
+          test -s historical/h1a/out/h1-qualification-predictions.jsonl
+          test -s historical/h1d/out/h1d-fresh-work/profiles.jsonl
+
+      - name: Train local ML challenger from historical resolved attempts only
+        run: |
+          mkdir -p out/model
+          uv run python scripts/train_v6c_candidate_ranker.py \
+            --h1a-enriched historical/h1a/out/h1-qualification-enriched-profiles.jsonl \
+            --h1a-predictions historical/h1a/out/h1-qualification-predictions.jsonl \
+            --h1d-profiles historical/h1d/out/h1d-fresh-work/profiles.jsonl \
+            --model-output out/model/v6c-logistic.json \
+            --report-output out/model/training-report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('out/model/training-report.json').read_text())
+          assert report['fresh_v6c_data_used'] is False
+          assert report['train_examples'] > 20
+          labels=report['label_counts']
+          assert int(labels.get('1', 0)) > 0 and int(labels.get('0', 0)) > 0
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Install OCR runtime and download public inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical touched-company manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen archived/v4narrative archived/v5 archived/v6rejected
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
+          gh run download 36912683196 --repo navadeep-17/signal-post --name v6-domain-recall-development --dir archived/v6rejected
+          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          test -s archived/v6rejected/v6-dev-50.jsonl
+
+      - name: Recreate exclusions through rejected V6 experiment
+        run: |
+          set -euo pipefail
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered historical-h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze \
+            --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl --count 100 --seed 20261003 --evaluation-split v3a --sample-slice v3a --output v3a.jsonl --report v3a.json
+          cat exclude-6900.jsonl v3a.jsonl > exclude-7000.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl --count 100 --seed 20261004 --evaluation-split v3b --sample-slice v3b --output v3b.jsonl --report v3b.json
+          cat exclude-7000.jsonl v3b.jsonl > exclude-7100.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl --count 100 --seed 20261005 --evaluation-split v3c --sample-slice v3c --output v3c.jsonl --report v3c.json
+          cat exclude-7100.jsonl v3c.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          cat exclude-7220.jsonl archived/v4narrative/v4-registry-fresh-100.jsonl > exclude-7320.jsonl
+          cat exclude-7320.jsonl archived/v5/v5-change-fresh-100.jsonl > exclude-7420.jsonl
+          cat exclude-7420.jsonl archived/v6rejected/v6-dev-50.jsonl > exclude-7470.jsonl
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('exclude-7470.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(r['organisation_number']) for r in rows]
+          assert len(rows)==7470 and len(set(orgs))==7470, (len(rows), len(set(orgs)))
+          print({'excluded':len(rows),'unique':len(set(orgs))})
+          PY
+
+      - name: Freeze untouched V6c development 50
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7470.jsonl \
+            --count 50 --seed 20261010 \
+            --evaluation-split v6c_candidate_ranking_development \
+            --sample-slice unseen_rules_vs_ml \
+            --output v6c-dev-50.jsonl --report v6c-dev-50-selection.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('v6c-dev-50-selection.json').read_text())
+          assert report['count']==50 and report['overlap_count']==0 and report['excluded_rows']==7470, report
+          print(json.dumps(report, indent=2))
+          PY
+          sha256sum v6c-dev-50.jsonl > v6c-dev-50.sha256
+
+      - name: Run frozen V5 incumbent on exact V6c cohort
+        run: |
+          git worktree add baseline "$BASELINE_SHA"
+          (cd baseline && uv sync --locked)
+          mkdir -p out/v5
+          (cd baseline && uv run python scripts/run_signalpost_v2.py \
+            --organisations "$GITHUB_WORKSPACE/v6c-dev-50.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/v5/output.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/v5/report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/v5/work" \
+            --run-id v6c-dev50-v5 \
+            --expected-count 50 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 1000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110)
+
+      - name: Compute equal challenger request headroom
+        id: budget
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          r=json.load(open('out/v5/report.json'))
+          # Current report exposes observed conservative charge under hard_checks/operations variants across revisions.
+          candidates=[
+              r.get('observed_conservative_requests'),
+              (r.get('operations') or {}).get('conservative_request_charge'),
+              (r.get('budget') or {}).get('conservative_request_charge'),
+              (r.get('hard_checks') or {}).get('conservative_requests'),
+          ]
+          baseline=next((int(v) for v in candidates if isinstance(v,(int,float))), None)
+          if baseline is None:
+              # V5 conservative policy is 2x logical requests; total_requests is the retained report field.
+              logical=(r.get('operations') or {}).get('requests') or r.get('total_requests')
+              if logical is None:
+                  raise SystemExit('Cannot resolve V5 request usage from report')
+              baseline=int(logical)*2
+          allowed=max(0,min(150,(1000-baseline)//2))
+          if allowed < 20:
+              raise SystemExit(f'Insufficient fair challenger headroom: baseline={baseline}, logical={allowed}')
+          print(f'baseline_charge={baseline}')
+          print(f'added_logical={allowed}')
+          PY
+          cat "$GITHUB_OUTPUT"
+
+      - name: Run deterministic rules challenger
+        run: |
+          mkdir -p out/rules
+          uv run python scripts/run_v6c_ranked_discovery.py \
+            --input-profiles out/v5/work/profiles.jsonl \
+            --output-profiles out/rules/profiles.jsonl \
+            --report out/rules/report.json \
+            --new-websites out/rules/new-websites.jsonl \
+            --ranker website.candidate_rank.rules.v1 \
+            --max-probes 2 --timeout 6 \
+            --max-added-logical-requests '${{ steps.budget.outputs.added_logical }}'
+
+      - name: Run local ML challenger on the same candidate generator and cohort
+        run: |
+          mkdir -p out/ml
+          uv run python scripts/run_v6c_ranked_discovery.py \
+            --input-profiles out/v5/work/profiles.jsonl \
+            --output-profiles out/ml/profiles.jsonl \
+            --report out/ml/report.json \
+            --new-websites out/ml/new-websites.jsonl \
+            --ranker website.candidate_rank.ml.v1 \
+            --model out/model/v6c-logistic.json \
+            --max-probes 2 --timeout 6 \
+            --max-added-logical-requests '${{ steps.budget.outputs.added_logical }}'
+
+      - name: Compare incumbent, rules and ML on scoring-relevant efficiency
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          def rows(path):
+              return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+          base_profiles=rows('out/v5/work/profiles.jsonl')
+          base_sites=sum(1 for row in base_profiles if (((row.get('evidence') or {}).get('website') or {}).get('status')=='available' and bool(((((row.get('evidence') or {}).get('website') or {}).get('value') or {}).get('identity_assessment') or {}).get('publishable'))))
+          v5_report=json.loads(Path('out/v5/report.json').read_text())
+          rules=json.loads(Path('out/rules/report.json').read_text())
+          ml=json.loads(Path('out/ml/report.json').read_text())
+          baseline_charge=int('${{ steps.budget.outputs.baseline_charge }}')
+          for challenger in (rules, ml):
+              challenger['combined_conservative_charge']=baseline_charge+challenger['conservative_request_charge_added']
+              assert challenger['combined_conservative_charge'] <= 1000, challenger
+              assert challenger['third_party_api_cost_usd']==0.0
+          summary={
+              'cohort_count':50,
+              'baseline_verified_websites':base_sites,
+              'baseline_conservative_charge':baseline_charge,
+              'rules':rules,
+              'ml':ml,
+              'decision_metric':'net_new_verified_websites / conservative_request_charge_added',
+              'promotion_rule':'Prefer rules unless ML materially improves verified-site yield per charged request at equal precision; every net-new site requires manual audit.',
+          }
+          Path('out/v6c-comparison.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload complete V6c experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6c-candidate-ranking-development
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            v6c-dev-50.jsonl
+            v6c-dev-50.sha256
+            v6c-dev-50-selection.json
+            out/model/v6c-logistic.json
+            out/model/training-report.json
+            out/v5/output.jsonl
+            out/v5/report.json
+            out/v5/work/profiles.jsonl
+            out/rules/report.json
+            out/rules/new-websites.jsonl
+            out/rules/profiles.jsonl
+            out/ml/report.json
+            out/ml/new-websites.jsonl
+            out/ml/profiles.jsonl
+            out/v6c-comparison.json
