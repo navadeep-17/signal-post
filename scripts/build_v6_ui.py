@@ -21,10 +21,13 @@ def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evide
     companies = [compact_company(row) for row in rows]
     payload = json.dumps(companies, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     template = (ASSET_DIR / "template.html").read_text(encoding="utf-8")
-    css = (ASSET_DIR / "styles.css").read_text(encoding="utf-8")
+    css = "\n".join(
+        (ASSET_DIR / filename).read_text(encoding="utf-8")
+        for filename in ("styles.css", "polish.css")
+    )
     js = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
-        for filename in ("app_core.js", "app_views.js")
+        for filename in ("app_core.js", "app_views.js", "app_polish.js")
     )
     return (
         template.replace("__TITLE__", html.escape(title))
@@ -56,8 +59,11 @@ def main() -> None:
         "bytes": len(body.encode("utf-8")),
         "data_linked": True,
         "search_discovery": True,
+        "global_company_finder": True,
         "evidence_drawer": True,
+        "verify_all_evidence": True,
         "compare_enabled": True,
+        "compare_differences_filter": True,
         "changes_timeline": True,
         "grounded_ask": True,
         "responsive": True,
