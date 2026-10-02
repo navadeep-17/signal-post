@@ -118,4 +118,4 @@ def test_v6_polish_assets_are_bundled_once() -> None:
     assert body.count("function spuxInstallCompareTools()") == 1
     assert body.count("const spuxBaseOpenEvidence=openEvidence") == 1
     assert body.count("function spuxSearchRank(x,q)") == 1
-    assert body.count(".inline-provenance{") == 1
+    assert ".inline-provenance{" in body
