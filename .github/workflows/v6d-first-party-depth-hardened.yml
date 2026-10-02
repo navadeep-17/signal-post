@@ -1,0 +1,139 @@
+name: V6d Hardened Development Rerun
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6d-first-party-depth"
+    paths:
+      - "src/norway_company_agent/verified_site_depth_hardened.py"
+      - "src/norway_company_agent/verified_site_depth_hardened_v2.py"
+      - "scripts/run_v6d_first_party_depth_hardened.py"
+      - "tests/test_v6d_hardened.py"
+      - ".github/workflows/v6d-first-party-depth-hardened.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  hardened-same-dev-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and run V6d regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6d_verified_site_depth.py tests/test_v6d_hardened.py
+
+      - name: Restore frozen V6d development cohort and incumbent profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 36967544569 --repo navadeep-17/signal-post \
+            --name v6d-first-party-depth-development --dir prior
+          test -s prior/v6d-dev-100.jsonl
+          test -s prior/out/v5/report.json
+          test -s prior/out/v5/work/profiles.jsonl
+          echo '9256a2c823bb8a02ca1a0a3bf4cc5f168077ac5728e60a46efd9fe79ec25c73c  prior/v6d-dev-100.jsonl' | sha256sum -c -
+
+      - name: Resolve exact incumbent budget
+        id: budget
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          r=json.load(open('prior/out/v5/report.json'))
+          charge=int((r.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0)
+          assert charge == 1384, charge
+          logical=max(0,min(180,(2000-charge)//2))
+          assert logical >= 2
+          print(f'baseline_charge={charge}')
+          print(f'added_logical={logical}')
+          PY
+
+      - name: Run hardened V6d on the same consumed development cohort
+        run: |
+          mkdir -p out/v6d-hardened
+          uv run python scripts/run_v6d_first_party_depth_hardened.py \
+            --input-profiles prior/out/v5/work/profiles.jsonl \
+            --report out/v6d-hardened/report.json \
+            --new-facts out/v6d-hardened/new-facts.jsonl \
+            --site-audit out/v6d-hardened/site-audit.jsonl \
+            --timeout 6 \
+            --max-added-logical-requests '${{ steps.budget.outputs.added_logical }}' \
+            --max-requests-per-site 10 \
+            --max-section-pages 4 \
+            --max-detail-pages 2
+
+      - name: Verify hardened evidence boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from norway_company_agent.verified_site_depth import _same_registered_domain
+
+          def rows(path):
+              return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+
+          profiles={str(r['organisation_number']):r for r in rows('prior/out/v5/work/profiles.jsonl')}
+          facts=rows('out/v6d-hardened/new-facts.jsonl')
+          report=json.loads(Path('out/v6d-hardened/report.json').read_text())
+          baseline=int('${{ steps.budget.outputs.baseline_charge }}')
+          combined=baseline+int(report['conservative_request_charge_added'])
+          assert combined <= 2000, combined
+          assert report['third_party_api_cost_usd'] == 0.0
+          assert report['automatic_identity_conflicts_published'] == 0
+          for fact in facts:
+              profile=profiles[fact['organisation_number']]
+              website=(profile.get('evidence') or {}).get('website') or {}
+              identity=((website.get('value') or {}).get('identity_assessment') or {})
+              verified=((website.get('value') or {}).get('final_url') or website.get('source_url') or '')
+              assert website.get('status') == 'available' and identity.get('publishable')
+              assert _same_registered_domain(str(fact['source_url']), str(verified)), fact
+              assert len(str(fact['content_sha256'])) == 64, fact
+              if fact['fact_type'] == 'updates':
+                  value=fact['value']
+                  assert '/news/' in value['url'] or '/nyheter/' in value['url'] or '/aktuelt/' in value['url'] or '/press/' in value['url'] or '/presse/' in value['url'] or '/blog/' in value['url'], value
+                  assert value['title'].casefold().strip() not in {'hello world!','hello world','sample page','test','test post'}, value
+              assert fact['requires_manual_audit_before_promotion'] is True
+
+          summary={
+              'cohort_sha256':'9256a2c823bb8a02ca1a0a3bf4cc5f168077ac5728e60a46efd9fe79ec25c73c',
+              'development_cohort_reused_for_tuning':True,
+              'baseline_conservative_charge':baseline,
+              'combined_conservative_charge':combined,
+              'manual_audit_fact_count':len(facts),
+              'v6d_hardened':report,
+          }
+          Path('out/v6d-hardened-comparison.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload hardened development evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6d-first-party-depth-hardened-development
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            prior/v6d-dev-100.jsonl
+            prior/out/v5/report.json
+            prior/out/v5/work/profiles.jsonl
+            out/v6d-hardened/report.json
+            out/v6d-hardened/new-facts.jsonl
+            out/v6d-hardened/site-audit.jsonl
+            out/v6d-hardened-comparison.json
