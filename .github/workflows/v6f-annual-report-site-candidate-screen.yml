@@ -1,0 +1,83 @@
+name: V6f Annual Report Site Candidate Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v6f-annual-report-site-candidate-screen"
+    paths:
+      - "src/norway_company_agent/annual_report_site_candidates.py"
+      - "scripts/screen_v6f_annual_report_site_candidates.py"
+      - "tests/test_v6f_annual_report_site_candidates.py"
+      - ".github/workflows/v6f-annual-report-site-candidate-screen.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-development-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and candidate regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v6f_annual_report_site_candidates.py
+
+      - name: Install PDF/OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+
+      - name: Restore already-consumed V6d transfer profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prior
+          gh run download 36978734059 --repo navadeep-17/signal-post --name v6d-first-party-depth-transfer --dir prior
+          test -s prior/out/v5/work/profiles.jsonl
+          echo '536b55977b2d6b7b996d397ceb7ad8c3773f7a7c5a7c33bfd633731ff3646ea7  prior/v6d-transfer-100.jsonl' | sha256sum -c -
+
+      - name: Screen 50 unresolved companies without probing candidate sites
+        run: |
+          mkdir -p out/v6f
+          uv run python scripts/screen_v6f_annual_report_site_candidates.py \
+            --profiles prior/out/v5/work/profiles.jsonl \
+            --output out/v6f/candidates.jsonl \
+            --report out/v6f/report.json \
+            --max-companies 50 \
+            --timeout 60 \
+            --min-start-interval 2.1 \
+            --ocr-pages 4 \
+            --ocr-dpi 110
+          python - <<'PY'
+          import json
+          r=json.load(open('out/v6f/report.json'))
+          assert r['third_party_api_cost_usd']==0.0
+          assert r['site_probe_requests']==0
+          assert r['publication_count']==0
+          assert r['selected'] <= 50
+          print(json.dumps({k:v for k,v in r.items() if k!='audit'}, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload candidate screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6f-annual-report-site-candidate-screen
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            out/v6f/candidates.jsonl
+            out/v6f/report.json
