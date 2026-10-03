@@ -122,19 +122,24 @@ def _fact_trace(
         return []
     traces: list[dict[str, Any]] = []
     seen: set[str] = set()
+    value = fact.get("value")
+    value_object = value if isinstance(value, dict) else {}
     for evidence_id in fact.get("evidence_ids") or []:
         key = str(evidence_id)
         if not key or key in seen:
             continue
         seen.add(key)
         evidence = evidence_by_id.get(key) or {}
+        effective_at = fact.get("effective_at") or value_object.get("effective_at") or evidence.get("effective_at")
+        published_date = fact.get("published_date") or value_object.get("published_date") or evidence.get("published_date")
         traces.append(
             {
                 "evidence_id": key,
                 "source_url": evidence.get("source_url"),
                 "source_class": evidence.get("source_class"),
                 "retrieved_at": evidence.get("retrieved_at"),
-                "effective_at": fact.get("effective_at"),
+                "effective_at": effective_at,
+                "published_date": published_date,
                 "reporting_period": fact.get("reporting_period"),
                 "claim_span": evidence.get("claim_span"),
                 "content_sha256": evidence.get("content_sha256"),
