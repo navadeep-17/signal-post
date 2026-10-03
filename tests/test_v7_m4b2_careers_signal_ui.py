@@ -59,7 +59,7 @@ def test_careers_signal_ui_exposes_filter_badge_and_boundary() -> None:
     body = build_v6_html([_contract_with_careers()])
 
     assert "spCareersInstallFilter" in body
-    assert "data-filter=\"careers\"" in body
+    assert "b.dataset.filter='careers'" in body
     assert "careers-badge" in body
     assert "Careers surface found." in body
     assert "This does not establish an active vacancy." in body
