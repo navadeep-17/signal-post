@@ -33,6 +33,7 @@ CANONICAL_FIELD_BY_TYPE = {
     "company_description": "website.description",
     "contact_email": "website.contact_email",
     "social_profile": "public.social_profile",
+    "careers_signal": "hiring.careers_signal",
     "job_posting": "hiring.job_posting",
     "company_update": "public.company_update",
 }
@@ -99,9 +100,6 @@ def _flatten_roles(claim: dict[str, Any]) -> list[dict[str, Any]]:
     for ordinal, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        # BRREG marks departed appointments with ``inactive``. Keep those rows in the
-        # original source claim for audit/history, but never publish them as a current
-        # ``people.role`` fact.
         if row.get("inactive") is True:
             continue
         facts.append(_fact("person_role", claim, value=dict(row), ordinal=ordinal))
@@ -123,14 +121,7 @@ def _flatten_locations(claim: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
-    """Project existing source-backed claims into explicit evaluator-facing facts.
-
-    This is zero-network and lossless with respect to published current facts: it never
-    relaxes company identity checks, invents missing values, or replaces the original
-    claims/evidence envelope. Historical/inactive role rows remain in the source claim
-    but are not mislabeled as current people facts. Official BRREG change events remain
-    explicitly typed as registry changes and are never relabeled as company-authored news.
-    """
+    """Project existing source-backed claims into explicit evaluator-facing facts."""
 
     index = _claim_index(contract)
     facts: list[dict[str, Any]] = []
@@ -184,6 +175,8 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         facts.append(_fact("contact_email", claim))
     for claim in index.get("external.workforce_snapshot") or []:
         facts.append(_fact("workforce_snapshot", claim))
+    for claim in index.get("external.careers_signal") or []:
+        facts.append(_fact("careers_signal", claim))
     for claim in index.get("external.job_posting") or []:
         facts.append(_fact("job_posting", claim))
     for claim in index.get("external.company_update") or []:
@@ -207,6 +200,7 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "registry_change",
     }
     website_keys = {"website", "company_description", "contact_email"}
+    hiring_keys = {"careers_signal", "job_posting"}
     activity_keys = {"social_profile", "company_update"}
 
     canonical = {
@@ -217,7 +211,7 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "people": [item for item in facts if item["type"] == "person_role"],
         "locations": [item for item in facts if item["type"] == "registered_location"],
         "company_website": [item for item in facts if item["type"] in website_keys],
-        "jobs": [item for item in facts if item["type"] == "job_posting"],
+        "jobs": [item for item in facts if item["type"] in hiring_keys],
         "public_activity": [item for item in facts if item["type"] in activity_keys],
     }
     canonical["data_areas"] = {
