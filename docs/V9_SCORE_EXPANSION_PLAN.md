@@ -6,6 +6,23 @@ Goal: maximize verified recall without weakening exact-company precision, while 
 
 Builderr's current scoring weights are 50 recall/coverage, 30 precision/evidence, 12 synthesis and 8 UX. The latest internal V7 qualification already has near-complete official/structured coverage but only 7/100 verified company sites and 4/100 companies with hiring/public-activity coverage. V9 therefore prioritizes external-company recall.
 
+## Current milestone status
+
+- M0 baseline + scoring guardrails: **complete**
+- M1a diversified search nomination: **implemented; exact-head full CI green**
+- M1b bounded multi-candidate independent verification: **implemented; exact-head full CI green**
+- M1c 20-company live screen: **ready, blocked only on evaluator-reproducible provider credential/budget confirmation**
+- M1d fresh 100 qualification: pending M1c GO
+- M1e production integration: pending M1d GO
+- M2-M6: pending earlier gates
+
+Two experiment providers now exist off the production evaluator path:
+
+1. the historical SerpApi adapter, retained for comparative experimentation only;
+2. an optional OpenAI Responses API web-search adapter compatible with a Builderr-supplied model key if Builderr confirms that provider/path for scoring.
+
+The model-search adapter treats every model/search citation as an **untrusted URL nomination only**. Model text, titles and ranking never prove identity and are never company evidence. Only the independently fetched destination page can pass the existing exact-company publication gate.
+
 ## Global invariants
 
 - Exact-company publication gate remains stricter than candidate-discovery logic.
@@ -18,7 +35,7 @@ Builderr's current scoring weights are 50 recall/coverage, 30 precision/evidence
 
 ## M0 — baseline and scoring guardrails
 
-Status: ACTIVE
+Status: COMPLETE
 
 Baseline to preserve:
 
@@ -38,6 +55,8 @@ Target outcome for V9: materially increase company-level coverage in website, hi
 
 ### M1a — diversified search nomination
 
+Status: IMPLEMENTED / CI GREEN
+
 Reuse the existing H1b safety architecture but improve recall before any production integration:
 
 1. generate multiple bounded query variants per unresolved company;
@@ -56,7 +75,9 @@ Offline gate:
 
 ### M1b — current exact-company verifier integration
 
-Each nominated candidate must be independently fetched using the current bounded website path and then pass exact-company proof.
+Status: IMPLEMENTED / CI GREEN
+
+Each nominated candidate is independently fetched using the current bounded website path and then must pass exact-company proof.
 
 Preferred proof order:
 
@@ -67,15 +88,30 @@ Preferred proof order:
 
 Parent pages, namesakes, directory records and conflicting explicit organisation numbers remain hard rejects.
 
+Additional V9 boundary: a quarantined/ambiguous candidate page is not persisted under the target company at all. Only an independently verified exact-company page may enter company evidence.
+
 ### M1c — 20-company live screen
 
+Status: READY / EXTERNAL PROVIDER GATE
+
 Use a fresh unresolved cohort, not a previously tuned set.
+
+Preferred live provider: Builderr-supplied model credential with web search, if Builderr confirms a reproducible provider/API and official-run external API budget. A personal SerpApi credential is not acceptable for production because Builderr explicitly requires evaluator-reproducible credentials.
+
+The optional model-web-search experiment currently defaults to one web-search response per queried unresolved company and at most two independently fetched candidate domains. Provider output remains transient.
+
+Before running M1c for promotion evidence, confirm:
+
+1. which model provider/key Builderr supplies for Signalpost scoring;
+2. whether OpenAI Responses API web search is allowed under that supplied key;
+3. the external API cost ceiling for the current official batch;
+4. whether the evaluator injects a standard environment variable or expects a documented custom variable.
 
 GO threshold:
 
 - at least 5 net-new verified sites out of 20 queried companies (>=25% yield);
 - zero wrong-company publications after manual audit;
-- no persisted provider snippets/raw results;
+- no persisted provider snippets/raw results/model response text;
 - bounded requests/runtime;
 - declared external API cost remains within Builderr's official-run budget.
 
