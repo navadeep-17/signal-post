@@ -1,0 +1,217 @@
+name: V7 Release Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/v7-m4c3-release-qualification"
+    paths:
+      - ".github/workflows/v7-release-qualification.yml"
+      - "scripts/run_signalpost_v7.py"
+      - "scripts/build_v6_ui.py"
+      - "scripts/ui_v6/**"
+      - "scripts/v6_payload_adapter.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v7-release-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify-v7-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+
+      - name: Sync focused release regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_v7_m4c1_evaluator_wrapper.py \
+            tests/test_v7_m4b1_decision_brief_ui.py \
+            tests/test_v7_m4b2_careers_signal_ui.py \
+            tests/test_v6_payload_performance.py
+
+      - name: Download current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Freeze reproducible release-path 100 from certified manifest
+        run: |
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  submission/final-release-1000.jsonl' | sha256sum -c -
+          head -n 100 submission/final-release-1000.jsonl > v7-release-100.jsonl
+          test "$(wc -l < v7-release-100.jsonl)" -eq 100
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(line) for line in Path('v7-release-100.jsonl').read_text().splitlines() if line.strip()]
+          assert len(rows)==100
+          assert len({str(row['organisation_number']) for row in rows})==100
+          PY
+          sha256sum v7-release-100.jsonl > v7-release-100.sha256
+
+      - name: Run actual one-command V7 evaluator path
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_v7.py \
+            --organisations v7-release-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/v7-release-100-output.jsonl \
+            --report out/v7-release-100-report.json \
+            --product-output out/signalpost-v7.html \
+            --work-dir out/v7-release-work \
+            --run-id v7-release-qualification-100 \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Verify V7 output, evidence model, UI and operating gates
+        env:
+          QUALIFICATION_SHA: ${{ github.sha }}
+        run: |
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
+          from norway_company_agent.synthesis import validate_company_synthesis
+
+          input_path = Path('v7-release-100.jsonl')
+          release_manifest_path = Path('submission/final-release-1000.jsonl')
+          output_path = Path('out/v7-release-100-output.jsonl')
+          report_path = Path('out/v7-release-100-report.json')
+          product_path = Path('out/signalpost-v7.html')
+          rows = [json.loads(line) for line in output_path.read_text(encoding='utf-8').splitlines() if line.strip()]
+          report = json.loads(report_path.read_text(encoding='utf-8'))
+          html = product_path.read_text(encoding='utf-8')
+
+          assert report['passed'] is True, report
+          assert len(rows) == 100
+          assert len({str(row['organisation_number']) for row in rows}) == 100
+          assert all((row.get('run') or {}).get('terminal_status') == 'completed' for row in rows)
+          assert not report['canonical_projection']['validation_errors'], report['canonical_projection']
+          assert not report['synthesis']['validation_errors'], report['synthesis']
+          assert report['request_budget']['observed_conservative_challenge_request_charge'] <= 2000
+          assert report['request_budget']['theoretical_challenge_request_charge_ceiling'] <= 2000
+          assert report['source_policy']['third_party_cost_usd'] == 0.0
+          assert report['source_policy']['search_api_requests'] == 0
+          assert report['runtime']['wall_runtime_seconds'] <= 2400
+
+          canonical_errors = []
+          synthesis_errors = []
+          decision_brief_companies = 0
+          for row in rows:
+              canonical = project_canonical_profile(row)
+              canonical_errors.extend(validate_canonical_projection(canonical))
+              synthesis_errors.extend(validate_company_synthesis(row))
+              decision_brief = (row.get('synthesis') or {}).get('decision_brief') or {}
+              decision_brief_companies += int(bool(decision_brief))
+          assert not canonical_errors, canonical_errors[:5]
+          assert not synthesis_errors, synthesis_errors[:5]
+          assert decision_brief_companies == 100
+
+          required_markers = [
+              'signalpost-ui-v6-pooled-evidence',
+              'Ask Signalpost',
+              'Decision brief',
+              'Evidence drawer',
+              'Compare companies',
+              'Recent changes',
+              'spCareersInstallFilter',
+              'This does not establish an active vacancy.',
+          ]
+          missing = [marker for marker in required_markers if marker not in html]
+          assert not missing, missing
+          assert len(html.encode('utf-8')) > 1_000_000
+          assert str(rows[0]['organisation_number']) in html
+
+          def digest(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          summary = {
+              'schema_version': 'signalpost-v7-release-qualification-v1',
+              'repository_sha': os.environ['QUALIFICATION_SHA'],
+              'certified_release_manifest_sha256': digest(release_manifest_path),
+              'input_sha256': digest(input_path),
+              'companies': len(rows),
+              'unique_organisation_numbers': len({str(row['organisation_number']) for row in rows}),
+              'terminal_completed': sum((row.get('run') or {}).get('terminal_status') == 'completed' for row in rows),
+              'canonical_validation_errors': len(canonical_errors),
+              'synthesis_validation_errors': len(synthesis_errors),
+              'decision_brief_companies': decision_brief_companies,
+              'observed_conservative_request_charge': report['request_budget']['observed_conservative_challenge_request_charge'],
+              'theoretical_conservative_request_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
+              'wall_runtime_seconds': report['runtime']['wall_runtime_seconds'],
+              'third_party_api_cost_usd': report['source_policy']['third_party_cost_usd'],
+              'search_api_requests': report['source_policy']['search_api_requests'],
+              'product_bytes': len(html.encode('utf-8')),
+              'product_markers_verified': required_markers,
+              'output_sha256': digest(output_path),
+              'report_sha256': digest(report_path),
+              'product_sha256': digest(product_path),
+              'passed': True,
+          }
+          Path('out/v7-release-qualification-summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Hash qualification deliverables
+        run: |
+          sha256sum \
+            out/v7-release-100-output.jsonl \
+            out/v7-release-100-report.json \
+            out/signalpost-v7.html \
+            out/v7-release-qualification-summary.json \
+            > out/v7-release-qualification.sha256
+
+      - name: Upload V7 release qualification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v7-release-qualification-100
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            v7-release-100.jsonl
+            v7-release-100.sha256
+            brreg-enheter.sha256
+            out/v7-release-100-output.jsonl
+            out/v7-release-100-report.json
+            out/signalpost-v7.html
+            out/v7-release-qualification-summary.json
+            out/v7-release-qualification.sha256
