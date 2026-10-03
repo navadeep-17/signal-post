@@ -1,0 +1,224 @@
+name: V7 M2C Homepage Careers Links Transfer Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v7-m2c-homepage-careers-links"
+    paths:
+      - ".github/workflows/v7-m2c-homepage-careers-transfer.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  unseen-transfer-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      BASELINE_SHA: af194ec4806a48431375b84fa3c8c00064caa066
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and M2C regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v7_m2c_homepage_careers_links.py
+
+      - name: Install OCR runtime and download public inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical manifests through V6i transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen archived/v4narrative archived/v5 archived/v6rejected archived/v6c archived/v6ddev archived/v6dtransfer archived/v6e archived/v6i
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
+          gh run download 36912683196 --repo navadeep-17/signal-post --name v6-domain-recall-development --dir archived/v6rejected
+          gh run download 36963913555 --repo navadeep-17/signal-post --name v6c-candidate-ranking-development --dir archived/v6c
+          gh run download 36967544569 --repo navadeep-17/signal-post --name v6d-first-party-depth-development --dir archived/v6ddev
+          gh run download 36978734059 --repo navadeep-17/signal-post --name v6d-first-party-depth-transfer --dir archived/v6dtransfer
+          gh run download 36995728296 --repo navadeep-17/signal-post --name v6e-zero-network-social-transfer --dir archived/v6e
+          gh run download 37050077407 --repo navadeep-17/signal-post --name v6i-registry-contact-transfer --dir archived/v6i
+          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          test -s archived/v6i/v6i-transfer-100.jsonl
+
+      - name: Recreate 7920-company exclusion chain
+        run: |
+          set -euo pipefail
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered historical-h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl --count 100 --seed 20261003 --evaluation-split v3a --sample-slice v3a --output v3a.jsonl --report v3a.json
+          cat exclude-6900.jsonl v3a.jsonl > exclude-7000.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl --count 100 --seed 20261004 --evaluation-split v3b --sample-slice v3b --output v3b.jsonl --report v3b.json
+          cat exclude-7000.jsonl v3b.jsonl > exclude-7100.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl --count 100 --seed 20261005 --evaluation-split v3c --sample-slice v3c --output v3c.jsonl --report v3c.json
+          cat exclude-7100.jsonl v3c.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          cat exclude-7220.jsonl archived/v4narrative/v4-registry-fresh-100.jsonl > exclude-7320.jsonl
+          cat exclude-7320.jsonl archived/v5/v5-change-fresh-100.jsonl > exclude-7420.jsonl
+          cat exclude-7420.jsonl archived/v6rejected/v6-dev-50.jsonl > exclude-7470.jsonl
+          cat exclude-7470.jsonl archived/v6c/v6c-dev-50.jsonl > exclude-7520.jsonl
+          cat exclude-7520.jsonl archived/v6ddev/v6d-dev-100.jsonl > exclude-7620.jsonl
+          cat exclude-7620.jsonl archived/v6dtransfer/v6d-transfer-100.jsonl > exclude-7720.jsonl
+          cat exclude-7720.jsonl archived/v6e/v6e-transfer-100.jsonl > exclude-7820.jsonl
+          cat exclude-7820.jsonl archived/v6i/v6i-transfer-100.jsonl > exclude-7920.jsonl
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('exclude-7920.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(r['organisation_number']) for r in rows]
+          assert len(rows)==7920 and len(set(orgs))==7920, (len(rows),len(set(orgs)))
+          print({'excluded':len(rows),'unique':len(set(orgs))})
+          PY
+
+      - name: Freeze genuinely unseen M2C transfer 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-7920.jsonl \
+            --count 100 --seed 20261015 \
+            --evaluation-split v7_m2c_homepage_careers_transfer \
+            --sample-slice unseen_after_v6i \
+            --output v7-m2c-transfer-100.jsonl --report v7-m2c-transfer-100-selection.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('v7-m2c-transfer-100-selection.json').read_text())
+          assert report['count']==100 and report['overlap_count']==0 and report['excluded_rows']==7920, report
+          print(json.dumps(report,indent=2))
+          PY
+          sha256sum v7-m2c-transfer-100.jsonl > v7-m2c-transfer-100.sha256
+
+      - name: Run current M1 main on transfer cohort
+        run: |
+          git worktree add baseline "$BASELINE_SHA"
+          (cd baseline && uv sync --locked)
+          mkdir -p out/incumbent
+          (cd baseline && uv run python scripts/run_signalpost_v2.py \
+            --organisations "$GITHUB_WORKSPACE/v7-m2c-transfer-100.jsonl" \
+            --bulk "$GITHUB_WORKSPACE/brreg-enheter.csv" \
+            --output "$GITHUB_WORKSPACE/out/incumbent/output.jsonl" \
+            --report "$GITHUB_WORKSPACE/out/incumbent/report.json" \
+            --work-dir "$GITHUB_WORKSPACE/out/incumbent/work" \
+            --run-id v7-m2c-transfer100-incumbent \
+            --expected-count 100 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110)
+
+      - name: Compute safe M2C request headroom
+        id: budget
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          r=json.load(open('out/incumbent/report.json'))
+          charge=int((r.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0)
+          # Each added logical request is conservatively charged x2 by the production accounting model.
+          headroom=max(0,(2000-charge)//2)
+          logical=min(100,headroom)
+          if logical < 2:
+              raise SystemExit(f'No M2C headroom at incumbent charge {charge}')
+          print(f'baseline_charge={charge}')
+          print(f'added_logical={logical}')
+          PY
+
+      - name: Run M2C transfer screen on exact incumbent profiles
+        run: |
+          mkdir -p out/m2c
+          uv run python scripts/run_v7_m2c_homepage_careers_links.py \
+            --profiles out/incumbent/work/profiles.jsonl \
+            --report out/m2c/report.json \
+            --facts out/m2c/facts.jsonl \
+            --timeout 6 \
+            --max-added-logical-requests '${{ steps.budget.outputs.added_logical }}'
+
+      - name: Enforce transfer boundary and summarize
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          incumbent=json.load(open('out/incumbent/report.json'))
+          report=json.load(open('out/m2c/report.json'))
+          baseline_charge=int('${{ steps.budget.outputs.baseline_charge }}')
+          combined=baseline_charge+int(report['conservative_request_charge_added'])
+          assert combined <= 2000, (baseline_charge,report)
+          assert report['companies']==100
+          assert report['third_party_api_cost_usd']==0.0
+          assert report['wrong_company_publications']==0
+          facts=[json.loads(x) for x in Path('out/m2c/facts.jsonl').read_text().splitlines() if x.strip()]
+          for fact in facts:
+              assert fact['fact_type']=='careers_signal'
+              assert fact['url'].startswith(('http://','https://'))
+              assert len(fact['homepage_content_sha256'])==64
+              assert 'does not assert an active vacancy' in fact['claim_scope']
+          summary={
+              'cohort_sha256':Path('v7-m2c-transfer-100.sha256').read_text().split()[0],
+              'historical_exclusions':7920,
+              'overlap':0,
+              'exact_verified_sites_eligible':report['exact_verified_sites_eligible'],
+              'careers_signal_companies':report['careers_signal_companies'],
+              'careers_links':report['careers_links'],
+              'baseline_conservative_charge':baseline_charge,
+              'm2c_added_logical_requests':report['logical_requests_added'],
+              'm2c_added_conservative_charge':report['conservative_request_charge_added'],
+              'combined_conservative_charge':combined,
+              'm2c_wall_runtime_seconds':report['wall_runtime_seconds'],
+              'third_party_api_cost_usd':0.0,
+              'wrong_company_publications':0,
+          }
+          Path('out/m2c-transfer-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload immutable transfer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v7-m2c-homepage-careers-transfer
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            v7-m2c-transfer-100.jsonl
+            v7-m2c-transfer-100.sha256
+            v7-m2c-transfer-100-selection.json
+            out/incumbent/output.jsonl
+            out/incumbent/report.json
+            out/m2c/report.json
+            out/m2c/facts.jsonl
+            out/m2c-transfer-summary.json
