@@ -34,17 +34,19 @@ jobs:
         shell: bash
         run: |
           set +e
-          uv run --with pytest pytest -q tests/test_v7_m2c_production.py > m2c-focused.log 2>&1
+          mkdir -p docs
+          uv run --with pytest pytest -q tests/test_v7_m2c_production.py > docs/m2c-focused-failure.txt 2>&1
           status=$?
-          cat m2c-focused.log
+          cat docs/m2c-focused-failure.txt
           if [ "$status" -ne 0 ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add m2c-focused.log
+            git add -f docs/m2c-focused-failure.txt
             git commit -m "test(v7-m2c): capture focused regression failure"
             git push origin HEAD:feature/v7-m2c-careers-production
             exit "$status"
           fi
+          rm -f docs/m2c-focused-failure.txt
 
       - name: Run full repository regression suite
         run: uv run --with pytest pytest -q
