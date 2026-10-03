@@ -1,0 +1,145 @@
+name: V9 M5 Reused Site Contact Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-m5-zero-network-contact-recovery
+    paths:
+      - 'src/norway_company_agent/zero_network_contact_recovery.py'
+      - 'scripts/run_zero_network_contact_recovery_screen.py'
+      - 'tests/test_v9_m5_zero_network_contact_recovery.py'
+      - 'data/v9-m2-reused-verified-sites-7.jsonl'
+      - 'data/v9-m4-extra-reused-verified-sites-2.jsonl'
+      - '.github/workflows/v9-m5-reused-site-contact-screen.yml'
+
+concurrency:
+  group: v9-m5-reused-site-contact-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  reused-site-contact-screen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused M5 regressions
+        run: |
+          uv run --with pytest pytest -q tests/test_v9_m5_zero_network_contact_recovery.py
+
+      - name: Build reused verified-site input
+        run: |
+          mkdir -p out/v9-m5
+          cat data/v9-m2-reused-verified-sites-7.jsonl \
+              data/v9-m4-extra-reused-verified-sites-2.jsonl \
+              > out/v9-m5/reused-verified-sites-9.jsonl
+          test "$(wc -l < out/v9-m5/reused-verified-sites-9.jsonl)" -eq 9
+
+      - name: Run reused-site contact recovery screen
+        run: |
+          uv run python scripts/run_zero_network_contact_recovery_screen.py \
+            --profiles out/v9-m5/reused-verified-sites-9.jsonl \
+            --output out/v9-m5/observations.jsonl \
+            --report out/v9-m5/report.json \
+            --limit 9 \
+            --timeout 6
+
+      - name: Build screen summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/v9-m5/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m5/observations.jsonl').read_text().splitlines() if line.strip()]
+          recovered = []
+          for row in rows:
+              for item in row.get('incremental_secondary_contact_emails') or []:
+                  recovered.append({
+                      'organisation_number': row.get('organisation_number'),
+                      'verified_website': row.get('verified_website'),
+                      **item,
+                  })
+          summary = {
+              'schema_version': 'signalpost-v9-m5-reused-site-contact-summary-v1',
+              'repository_sha': '${{ github.sha }}',
+              'reused_sites': report.get('verified_sites_attempted'),
+              'companies_with_secondary_identity_link': (report.get('counts') or {}).get('companies_with_secondary_identity_link', 0),
+              'companies_with_primary_contact_email': (report.get('counts') or {}).get('companies_with_primary_contact_email', 0),
+              'companies_with_incremental_secondary_email': (report.get('counts') or {}).get('companies_with_incremental_secondary_email', 0),
+              'incremental_secondary_emails': (report.get('counts') or {}).get('incremental_secondary_emails', 0),
+              'recovered': recovered,
+              'development_screen_requests': (report.get('operations') or {}).get('development_screen_logical_requests'),
+              'development_screen_request_ceiling': (report.get('operations') or {}).get('development_screen_request_ceiling'),
+              'production_requests_added_by_recovery': (report.get('operations') or {}).get('production_requests_added_by_recovery'),
+              'third_party_api_cost_usd': (report.get('operations') or {}).get('third_party_api_cost_usd'),
+              'fresh_cohort_consumed': False,
+              'production_integration': False,
+          }
+          Path('out/v9-m5/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Verify hard safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import tldextract
+
+          report = json.loads(Path('out/v9-m5/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m5/observations.jsonl').read_text().splitlines() if line.strip()]
+          assert report['verified_sites_attempted'] == 9, report
+          ops = report['operations']
+          assert ops['development_screen_logical_requests'] <= ops['development_screen_request_ceiling'], ops
+          assert ops['development_screen_request_ceiling'] == 36, ops
+          assert ops['production_requests_added_by_recovery'] == 0, ops
+          assert ops['third_party_api_cost_usd'] == 0.0, ops
+          assert report['production_integration'] is False
+          assert report['qualification'] == 'reused_sites_only_no_fresh_cohort_consumed'
+
+          def reg(url):
+              host = urlparse(url).hostname or ''
+              return tldextract.extract(host).top_domain_under_public_suffix
+
+          for row in rows:
+              primary = set(row.get('primary_contact_emails') or [])
+              verified = row.get('verified_website') or ''
+              for item in row.get('incremental_secondary_contact_emails') or []:
+                  email = str(item.get('contact_email') or '')
+                  assert email and email not in primary, (row, item)
+                  assert reg(item.get('source_url') or '') == reg(verified), (row, item)
+                  assert len(item.get('content_sha256') or '') == 64, item
+                  assert item.get('network_requests_added') == 0, item
+          PY
+
+      - name: Upload M5 screen artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m5-reused-site-contact-screen
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-m5/reused-verified-sites-9.jsonl
+            out/v9-m5/observations.jsonl
+            out/v9-m5/report.json
+            out/v9-m5/summary.json
