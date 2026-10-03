@@ -19,6 +19,14 @@ from v6_payload_adapter import compact_company_v6  # noqa: E402
 V6_UI_SCHEMA = "signalpost-ui-v6"
 V6_PAYLOAD_FORMAT = "signalpost-ui-v6-pooled-evidence"
 ASSET_DIR = ROOT / "scripts" / "ui_v6"
+DECISION_UI_KEYS = (
+    "what_is_this_company",
+    "what_does_it_do",
+    "how_big_is_it",
+    "who_runs_it",
+    "hiring",
+    "digital_footprint",
+)
 
 
 def _evidence_key(item: dict[str, Any]) -> str:
@@ -27,6 +35,32 @@ def _evidence_key(item: dict[str, Any]) -> str:
         return str(explicit)
     material = json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return "ui-ev-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
+
+
+def _trace_dates(rows: list[dict[str, Any]] | None) -> list[str]:
+    dates: list[str] = []
+
+    def add(label: str, value: Any) -> None:
+        text = str(value or "").strip()
+        if text:
+            item = f"{label} {text[:10]}"
+            if item not in dates:
+                dates.append(item)
+
+    for trace in rows or []:
+        if not isinstance(trace, dict):
+            continue
+        add("Published", trace.get("publishedDate"))
+        add("Effective", trace.get("effectiveAt"))
+        period = trace.get("reportingPeriod")
+        if isinstance(period, dict):
+            end = period.get("tilDato") or period.get("end") or period.get("end_date") or period.get("to") or period.get("year")
+            add("Period ending", end)
+        elif period:
+            add("Period", period)
+        if len(dates) >= 3:
+            break
+    return dates[:3]
 
 
 def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
@@ -44,6 +78,20 @@ def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
                 output.append(key)
         return output
 
+    def decision_refs(rows: list[dict[str, Any]] | None) -> list[str]:
+        shared_rows: list[dict[str, Any]] = []
+        for trace in rows or []:
+            if not isinstance(trace, dict):
+                continue
+            shared_rows.append(
+                {
+                    key: trace.get(key)
+                    for key in ("id", "url", "sourceClass", "retrievedAt", "span", "hash")
+                    if trace.get(key) is not None
+                }
+            )
+        return refs(shared_rows)
+
     for company in packed:
         for facts in (company.get("areas") or {}).values():
             for fact in facts or []:
@@ -55,11 +103,22 @@ def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
             if not isinstance(section, dict):
                 continue
             section["sourceRefs"] = refs(section.pop("sources", None))
-        # The imported V6 workspace renders legacy synthesis sections/unknowns only.
-        # M4a1 keeps the richer decision brief available at the adapter boundary, but
-        # shipping an unused copy here adds several MB to the 1,000-company HTML.
-        # M4b will add a compact representation when the UI actually renders it.
-        synthesis.pop("decisionBrief", None)
+
+        decision = synthesis.get("decisionBrief") or {}
+        if isinstance(decision, dict):
+            for key in list(decision):
+                if key not in DECISION_UI_KEYS:
+                    decision.pop(key, None)
+                    continue
+                item = decision.get(key)
+                if not isinstance(item, dict):
+                    decision.pop(key, None)
+                    continue
+                traces = item.pop("evidence", None)
+                item["evidenceRefs"] = decision_refs(traces)
+                dates = _trace_dates(traces)
+                if dates:
+                    item["dates"] = dates
 
     return {
         "format": V6_PAYLOAD_FORMAT,
@@ -79,7 +138,7 @@ def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evide
     )
     js = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
-        for filename in ("payload_hydrate.js", "app_core.js", "app_views.js", "app_polish.js")
+        for filename in ("payload_hydrate.js", "app_core.js", "app_views.js", "app_decision_brief.js", "app_polish.js")
     )
     js = js.replace("const DATA=__PAYLOAD__;", "const DATA=hydrateSignalpostPayload(__PAYLOAD__);")
     return (
@@ -127,6 +186,7 @@ def main() -> None:
         "changes_timeline": True,
         "grounded_ask": True,
         "responsive": True,
+        "decision_brief": True,
     }, indent=2))
 
 
