@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .registry_contact import project_registry_contact_email
 from .registry_narrative import project_registry_narrative_claims
 
 
@@ -41,14 +42,15 @@ def _registry_value(profile: dict[str, Any], field: str) -> Any:
 
 
 def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Attach evaluator-facing BRREG registry claims without changing the V1 adapter.
+    """Attach evaluator-facing exact-org BRREG facts without changing the V1 adapter.
 
     The base collector/output adapter remains the immutable V1 behavior. V2 reads the
     exact-org registry profile already retained by that collector and adds only fields that
     were present there but not reliably surfaced in the V1 claims envelope. V4 additionally
-    reuses the same retained registry row for literal activity/purpose narrative through
-    :func:`project_registry_narrative_claims`. No network access, identity relaxation, or
-    value inference occurs here.
+    reuses the same retained registry row for literal activity/purpose narrative. The V7
+    registered-contact fallback reuses that same exact row only when no stronger first-party
+    contact email is already published. No network access, identity relaxation, or value
+    inference occurs here.
     """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
@@ -66,8 +68,6 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
 
-    # V2 owns these four field names. Remove an older/broader representation first so the
-    # output is deterministic and idempotent.
     removed_ids = {
         evidence_id
         for claim in claims
@@ -88,7 +88,6 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
 
     for field in MANAGED_FIELDS:
         value = _registry_value(profile, field)
-        # False is a meaningful official value; only None/empty strings are absent.
         if value is None or value == "":
             continue
         evidence_id = _evidence_id(org, field, registry)
@@ -118,4 +117,5 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
         "claims": claims,
         "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
     }
-    return project_registry_narrative_claims(projected, profile)
+    with_narrative = project_registry_narrative_claims(projected, profile)
+    return project_registry_contact_email(with_narrative, profile)

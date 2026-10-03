@@ -5,12 +5,15 @@ on:
   push:
     branches:
       - "feature/v7-m4c3-release-qualification"
+      - "feature/v7-registry-contact-production"
     paths:
       - ".github/workflows/v7-release-qualification.yml"
       - "scripts/run_signalpost_v7.py"
       - "scripts/build_v6_ui.py"
       - "scripts/ui_v6/**"
       - "scripts/v6_payload_adapter.py"
+      - "src/norway_company_agent/registry_contact.py"
+      - "src/norway_company_agent/v2_registry_projection.py"
 
 permissions:
   contents: read
@@ -47,6 +50,7 @@ jobs:
         run: |
           uv sync --locked
           uv run --with pytest pytest -q \
+            tests/test_v7_registry_contact.py \
             tests/test_v7_m4c1_evaluator_wrapper.py \
             tests/test_v7_m4b1_decision_brief_ui.py \
             tests/test_v7_m4b2_careers_signal_ui.py \
@@ -135,15 +139,25 @@ jobs:
           canonical_errors = []
           synthesis_errors = []
           decision_brief_companies = 0
+          registry_contact_companies = 0
           for row in rows:
               canonical = project_canonical_profile(row)
               canonical_errors.extend(validate_canonical_projection(canonical))
               synthesis_errors.extend(validate_company_synthesis(row))
               decision_brief = (row.get('synthesis') or {}).get('decision_brief') or {}
               decision_brief_companies += int(bool(decision_brief))
+              has_registry_contact = any(
+                  claim.get('field') == 'external.contact_email'
+                  and claim.get('availability') == 'available'
+                  and claim.get('signal_type') == 'official_registry_contact'
+                  and claim.get('platform') == 'brreg_registry'
+                  for claim in (row.get('claims') or [])
+              )
+              registry_contact_companies += int(has_registry_contact)
           assert not canonical_errors, canonical_errors[:5]
           assert not synthesis_errors, synthesis_errors[:5]
           assert decision_brief_companies == 100
+          assert registry_contact_companies > 0, 'qualified exact-org registry contact fallback produced no facts'
 
           required_markers = [
               'signalpost-ui-v6-pooled-evidence',
@@ -174,6 +188,7 @@ jobs:
               'canonical_validation_errors': len(canonical_errors),
               'synthesis_validation_errors': len(synthesis_errors),
               'decision_brief_companies': decision_brief_companies,
+              'registry_contact_companies': registry_contact_companies,
               'observed_conservative_request_charge': report['request_budget']['observed_conservative_challenge_request_charge'],
               'theoretical_conservative_request_ceiling': report['request_budget']['theoretical_challenge_request_charge_ceiling'],
               'wall_runtime_seconds': report['runtime']['wall_runtime_seconds'],
