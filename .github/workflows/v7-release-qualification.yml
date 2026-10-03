@@ -52,33 +52,27 @@ jobs:
             tests/test_v7_m4b2_careers_signal_ui.py \
             tests/test_v6_payload_performance.py
 
-      - name: Download frozen Builderr universe and current BRREG snapshot
+      - name: Download current BRREG snapshot
         run: |
-          curl --fail --location --retry 3 --retry-delay 2 \
-            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
-            --output signalpost-universe.jsonl.gz
-          test -s signalpost-universe.jsonl.gz
-          gzip -t signalpost-universe.jsonl.gz
-          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
-
-          curl --fail --location --retry 3 --retry-delay 2 \
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
             --output brreg-enheter.csv
           test -s brreg-enheter.csv
           sha256sum brreg-enheter.csv > brreg-enheter.sha256
 
-      - name: Recreate reproducible release-path 100
+      - name: Freeze reproducible release-path 100 from certified manifest
         run: |
-          uv run python select_entry_batch.py \
-            --universe signalpost-universe.jsonl.gz \
-            --count 1000 \
-            --seed 20260823 \
-            --output entry-companies.jsonl
-          head -n 100 entry-companies.jsonl > v7-release-100.jsonl
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  submission/final-release-1000.jsonl' | sha256sum -c -
+          head -n 100 submission/final-release-1000.jsonl > v7-release-100.jsonl
           test "$(wc -l < v7-release-100.jsonl)" -eq 100
-          INPUT_SHA="$(sha256sum v7-release-100.jsonl | cut -d' ' -f1)"
-          test "$INPUT_SHA" = '51a96f25f79532b9ba285304d540887e0f17410907909dbe6c85c0b41b8341d3'
-          printf '%s  %s\n' "$INPUT_SHA" v7-release-100.jsonl > v7-release-100.sha256
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(line) for line in Path('v7-release-100.jsonl').read_text().splitlines() if line.strip()]
+          assert len(rows)==100
+          assert len({str(row['organisation_number']) for row in rows})==100
+          PY
+          sha256sum v7-release-100.jsonl > v7-release-100.sha256
 
       - name: Run actual one-command V7 evaluator path
         run: |
@@ -117,6 +111,8 @@ jobs:
           from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
           from norway_company_agent.synthesis import synthesize_company, validate_synthesis
 
+          input_path = Path('v7-release-100.jsonl')
+          release_manifest_path = Path('submission/final-release-1000.jsonl')
           output_path = Path('out/v7-release-100-output.jsonl')
           report_path = Path('out/v7-release-100-report.json')
           product_path = Path('out/signalpost-v7.html')
@@ -170,7 +166,8 @@ jobs:
           summary = {
               'schema_version': 'signalpost-v7-release-qualification-v1',
               'repository_sha': os.environ['QUALIFICATION_SHA'],
-              'input_sha256': digest(Path('v7-release-100.jsonl')),
+              'certified_release_manifest_sha256': digest(release_manifest_path),
+              'input_sha256': digest(input_path),
               'companies': len(rows),
               'unique_organisation_numbers': len({str(row['organisation_number']) for row in rows}),
               'terminal_completed': sum((row.get('run') or {}).get('terminal_status') == 'completed' for row in rows),
@@ -213,7 +210,6 @@ jobs:
             v7-release-100.jsonl
             v7-release-100.sha256
             brreg-enheter.sha256
-            signalpost-universe.sha256
             out/v7-release-100-output.jsonl
             out/v7-release-100-report.json
             out/signalpost-v7.html
