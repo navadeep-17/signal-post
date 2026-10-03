@@ -53,7 +53,6 @@ def test_sitemap_index_keeps_only_same_registered_domain_nested_sitemaps():
     assert parsed["nested_sitemaps"] == [
         "https://example.no/news-sitemap.xml",
         "https://www.example.no/jobs-sitemap.xml",
-        "https://evil.example.com/sitemap.xml",
     ]
     assert parsed["surface_candidates"] == []
 
