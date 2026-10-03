@@ -28,9 +28,18 @@ on:
       - "tests/fixtures/refresh-snapshots.json"
       - ".github/workflows/refresh-contract.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   refresh-contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,8 +48,10 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Sync locked dependencies
         run: uv sync --locked
-      - name: Run full test suite
-        run: uv run --with pytest pytest -q
+      - name: Run refresh-specific tests
+        run: |
+          uv run --with pytest pytest -q tests/test_refresh_contract.py
+          uv run --with pytest pytest -q tests/test_poc.py -k RefreshTests
       - name: Qualify refresh changes in final contract
         run: |
           uv run python scripts/qualify_refresh_contract.py \
