@@ -15,6 +15,17 @@ function hydrateSignalpostPayload(raw){
         delete section.sourceRefs;
       }
     });
+    Object.values(company?.synthesis?.decisionBrief||{}).forEach(item=>{
+      if(!item||Array.isArray(item)||typeof item!=='object')return;
+      if(Array.isArray(item.e)){
+        item.evidence=item.e.map(id=>pool[id]).filter(Boolean);
+        delete item.e;
+      }
+      if(Array.isArray(item.d)){
+        item.dates=item.d;
+        delete item.d;
+      }
+    });
   });
   return companies;
 }

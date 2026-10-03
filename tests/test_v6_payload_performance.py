@@ -48,9 +48,24 @@ def test_v6_pools_evidence_without_changing_runtime_contract() -> None:
         for section in company["synthesis"]["sections"]:
             assert "sources" not in section
             assert "sourceRefs" in section
-        # The imported V6 workspace does not render the V7 decision brief yet.
-        # Keep the adapter boundary rich, but do not ship dead payload bytes until M4b.
-        assert "decisionBrief" not in company["synthesis"]
+        decision = company["synthesis"]["decisionBrief"]
+        assert set(decision).issubset(
+            {
+                "what_is_this_company",
+                "what_does_it_do",
+                "how_big_is_it",
+                "who_runs_it",
+                "hiring",
+                "digital_footprint",
+            }
+        )
+        for item in decision.values():
+            assert "key" not in item
+            assert "evidence" not in item
+            assert "evidenceRefs" not in item
+            assert "dates" not in item
+            for evidence_id in item.get("e", []):
+                assert evidence_id in pooled["evidence"]
 
 
 def test_v6_full_certified_workspace_is_materially_smaller_than_v2() -> None:
@@ -60,8 +75,7 @@ def test_v6_full_certified_workspace_is_materially_smaller_than_v2() -> None:
     v6_bytes = len(body.encode("utf-8"))
     v2_bytes = V2_HTML.stat().st_size
 
-    # This is a UX guard, not a canonical-data constraint: V6 should materially
-    # reduce the initial HTML transfer/parse burden compared with the existing V2.
+    # This remains a hard UX guard while adding the compact decision brief.
     assert v6_bytes < v2_bytes * 0.80, (
         f"V6 HTML is {v6_bytes:,} bytes vs V2 {v2_bytes:,}; expected at least 20% reduction"
     )
