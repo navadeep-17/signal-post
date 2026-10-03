@@ -1,4 +1,5 @@
 from datetime import date
+import json
 from pathlib import Path
 import sys
 
@@ -39,28 +40,37 @@ def job_html(
     valid_through="2026-10-31",
     include_apply=True,
 ):
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "title": title,
+        "url": job_url,
+        "datePosted": date_posted,
+        "validThrough": valid_through,
+        "employmentType": "FULL_TIME",
+        "hiringOrganization": {"@type": "Organization", "name": hiring_name},
+        "jobLocation": {
+            "@type": "Place",
+            "address": {
+                "@type": "PostalAddress",
+                "addressLocality": "Oslo",
+                "addressCountry": "NO",
+            },
+        },
+        "description": "<p>Build reliable systems.</p>",
+    }
     apply = (
         '<a href="https://example.teamtailor.com/jobs/123-backend-engineer/apply">Apply now</a>'
         if include_apply
         else ""
     )
-    return f"""<html><body>
-    {apply}
-    <script type="application/ld+json">
-    {{
-      "@context":"https://schema.org",
-      "@type":"JobPosting",
-      "title":{title!r},
-      "url":{job_url!r},
-      "datePosted":{date_posted!r},
-      "validThrough":{valid_through!r},
-      "employmentType":"FULL_TIME",
-      "hiringOrganization":{{"@type":"Organization","name":{hiring_name!r}}},
-      "jobLocation":{{"@type":"Place","address":{{"@type":"PostalAddress","addressLocality":"Oslo","addressCountry":"NO"}}}},
-      "description":"<p>Build reliable systems.</p>"
-    }}
-    </script>
-    </body></html>""".replace("'Backend Engineer'", '"Backend Engineer"').replace("'Example Bedrift AS'", '"Example Bedrift AS"').replace("'https://example.teamtailor.com/jobs/123-backend-engineer'", '"https://example.teamtailor.com/jobs/123-backend-engineer"').replace("'2026-10-01'", '"2026-10-01"').replace("'2026-10-31'", '"2026-10-31"')
+    return (
+        "<html><body>"
+        + apply
+        + '<script type="application/ld+json">'
+        + json.dumps(payload)
+        + "</script></body></html>"
+    )
 
 
 def test_known_ats_hosts_are_recognised_conservatively():
