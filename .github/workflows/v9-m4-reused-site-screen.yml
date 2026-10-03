@@ -1,0 +1,156 @@
+name: V9 M4 Reused Site Update Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-m4-dated-first-party-updates
+    paths:
+      - 'src/norway_company_agent/first_party_updates.py'
+      - 'scripts/run_dated_first_party_update_screen.py'
+      - 'scripts/run_structured_first_party_discovery.py'
+      - 'tests/test_first_party_updates.py'
+      - 'tests/test_first_party_update_screen.py'
+      - 'data/v9-m2-reused-verified-sites-7.jsonl'
+      - 'data/v9-m4-extra-reused-verified-sites-2.jsonl'
+      - '.github/workflows/v9-m4-reused-site-screen.yml'
+
+concurrency:
+  group: v9-m4-reused-site-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  reused-site-update-screen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused M4 regressions
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_first_party_updates.py \
+            tests/test_first_party_update_screen.py
+
+      - name: Build reused verified-site input
+        run: |
+          mkdir -p out/v9-m4
+          cat data/v9-m2-reused-verified-sites-7.jsonl \
+              data/v9-m4-extra-reused-verified-sites-2.jsonl \
+              > out/v9-m4/reused-verified-sites-9.jsonl
+          test "$(wc -l < out/v9-m4/reused-verified-sites-9.jsonl)" -eq 9
+
+      - name: Run reused-site dated update screen
+        run: |
+          uv run python scripts/run_dated_first_party_update_screen.py \
+            --profiles out/v9-m4/reused-verified-sites-9.jsonl \
+            --output out/v9-m4/observations.jsonl \
+            --report out/v9-m4/report.json \
+            --limit 9 \
+            --timeout 6 \
+            --as-of 2026-10-03
+
+      - name: Build development screen summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/v9-m4/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m4/observations.jsonl').read_text().splitlines() if line.strip()]
+          published = []
+          for row in rows:
+              for item in row.get('publishable_updates') or []:
+                  published.append({
+                      'organisation_number': row.get('organisation_number'),
+                      'verified_website': row.get('verified_website'),
+                      'title': item.get('title'),
+                      'page_url': item.get('page_url'),
+                      'date_published': item.get('date_published'),
+                      'date_method': item.get('date_method'),
+                      'content_sha256': item.get('content_sha256'),
+                  })
+
+          summary = {
+              'schema_version': 'signalpost-v9-m4-reused-site-summary-v1',
+              'repository_sha': '${{ github.sha }}',
+              'reused_sites': report.get('verified_sites_attempted'),
+              'companies_with_article_candidates': (report.get('counts') or {}).get('companies_with_article_candidates', 0),
+              'companies_with_publishable_updates': (report.get('counts') or {}).get('companies_with_publishable_updates', 0),
+              'publishable_updates': len(published),
+              'published': published,
+              'requests': (report.get('operations') or {}).get('requests'),
+              'request_ceiling': (report.get('operations') or {}).get('request_ceiling'),
+              'third_party_api_cost_usd': (report.get('operations') or {}).get('third_party_api_cost_usd'),
+              'fresh_cohort_consumed': False,
+              'production_integration': False,
+          }
+          Path('out/v9-m4/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Verify hard safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import tldextract
+
+          report = json.loads(Path('out/v9-m4/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m4/observations.jsonl').read_text().splitlines() if line.strip()]
+          assert report['verified_sites_attempted'] == 9, report
+          ops = report['operations']
+          assert ops['third_party_api_cost_usd'] == 0.0, ops
+          assert ops['requests'] <= ops['request_ceiling'], ops
+          assert ops['request_ceiling'] <= 81, ops
+          assert report['production_integration'] is False
+          assert report['qualification'] == 'reused_sites_only_no_fresh_cohort_consumed'
+
+          def reg(url):
+              host = urlparse(url).hostname or ''
+              return tldextract.extract(host).top_domain_under_public_suffix
+
+          for row in rows:
+              verified = row['verified_website']
+              for item in row.get('publishable_updates') or []:
+                  assert item['status'] == 'exact_dated_update', item
+                  assert item['publishable'] is True, item
+                  assert item.get('date_published'), item
+                  assert item.get('date_method'), item
+                  assert len(item.get('content_sha256') or '') == 64, item
+                  assert item.get('evidence_span'), item
+                  assert reg(item['page_url']) == reg(verified), (item, verified)
+          PY
+
+      - name: Upload M4 screen artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m4-reused-site-update-screen
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-m4/reused-verified-sites-9.jsonl
+            out/v9-m4/observations.jsonl
+            out/v9-m4/report.json
+            out/v9-m4/summary.json
