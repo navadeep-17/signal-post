@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 from bs4 import BeautifulSoup
 
-from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
-from norway_company_agent.homepage_careers_signal import extract_careers_links
-from norway_company_agent.output_contract import project_terminal_envelope, validate_contract_object
-from norway_company_agent.synthesis import build_company_synthesis, validate_company_synthesis
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection  # noqa: E402
+from norway_company_agent.homepage_careers_signal import extract_careers_links  # noqa: E402
+from norway_company_agent.output_contract import project_terminal_envelope, validate_contract_object  # noqa: E402
+from norway_company_agent.synthesis import build_company_synthesis, validate_company_synthesis  # noqa: E402
 
 
 def _careers_rows(html: str) -> list[dict]:
