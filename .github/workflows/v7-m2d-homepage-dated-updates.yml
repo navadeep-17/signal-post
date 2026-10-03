@@ -1,0 +1,98 @@
+name: V7 M2D Homepage Dated Updates Development Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "experiment/v7-m2d-homepage-dated-updates"
+    paths:
+      - "src/norway_company_agent/homepage_dated_updates.py"
+      - "scripts/run_v7_m2d_homepage_dated_updates.py"
+      - "tests/test_v7_m2d_homepage_dated_updates.py"
+      - ".github/workflows/v7-m2d-homepage-dated-updates.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-v5-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v7_m2d_homepage_dated_updates.py
+
+      - name: Restore already-consumed V5 fresh-100 profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/v5
+          gh run download 36892430561 \
+            --repo navadeep-17/signal-post \
+            --name v5-brreg-change-production-qualification \
+            --dir archived/v5
+          PROFILE_PATH="$(find archived/v5 -type f -path '*v5-change-fresh-work/profiles.jsonl' -print -quit)"
+          test -n "$PROFILE_PATH"
+          test -s "$PROFILE_PATH"
+          echo "PROFILE_PATH=$PROFILE_PATH" >> "$GITHUB_ENV"
+
+      - name: Re-fetch exact verified homepages and extract dated updates
+        run: |
+          mkdir -p out/v7-m2d
+          uv run python scripts/run_v7_m2d_homepage_dated_updates.py \
+            --profiles "$PROFILE_PATH" \
+            --report out/v7-m2d/report.json \
+            --facts out/v7-m2d/facts.jsonl \
+            --timeout 6 \
+            --max-added-logical-requests 80
+
+      - name: Validate development boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('out/v7-m2d/report.json').read_text())
+          assert report['companies']==100, report
+          assert report['third_party_api_cost_usd']==0.0, report
+          assert report['wrong_company_publications']==0, report
+          assert report['logical_requests_added'] <= 80, report
+          facts=[json.loads(x) for x in Path('out/v7-m2d/facts.jsonl').read_text().splitlines() if x.strip()]
+          for fact in facts:
+              assert fact['fact_type']=='company_update'
+              assert fact['published_date']
+              assert fact['url'].startswith(('http://','https://'))
+              assert len(fact['homepage_content_sha256'])==64
+          print(json.dumps({
+              'eligible_verified_sites':report['exact_verified_sites_eligible'],
+              'dated_update_companies':report['dated_update_companies'],
+              'dated_updates':report['dated_updates'],
+              'logical_requests_added':report['logical_requests_added'],
+          },indent=2))
+          PY
+
+      - name: Upload development evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v7-m2d-homepage-dated-updates-development
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            out/v7-m2d/report.json
+            out/v7-m2d/facts.jsonl
