@@ -10,6 +10,8 @@ Signalpost resolves companies by Norwegian organisation number, gathers official
 >
 > V8 derives the evaluator batch size from the supplied organisation file and delegates to the already-qualified V7/V5 evidence and product pipeline. It does not weaken any identity or publication gate.
 
+Compatibility lineage remains explicit: V8 delegates through `scripts/run_signalpost_v7.py` to the certified `scripts/run_signalpost_v2.py` data/evidence wrapper and the pinned V1 base runner. The older filenames are retained intentionally for reproducibility; they are not the recommended top-level evaluator command.
+
 ## What Signalpost provides
 
 - exact-company resolution anchored on organisation number;
