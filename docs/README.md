@@ -1,58 +1,77 @@
 # Signalpost documentation
 
-This directory contains the engineering evidence behind the current Signalpost submission. The documents are intentionally split between **current evaluator-facing material**, **qualification evidence**, and **historical experiments** so the production path remains easy to review without losing auditability.
+This directory contains the engineering evidence and design history behind Signalpost. The repository intentionally keeps **current evaluator guidance**, **qualified production evidence**, and **historical experiments** separate so reviewers can find the active path quickly without losing auditability.
 
 ## Start here
 
-- `../SUBMISSION.md` — current evaluator guide, run command, production boundaries, current explorer/compare UX and qualification evidence.
-- `../submission/manifest.json` — machine-readable current V5 submission declaration, pinned evaluator/product identities and product boundaries.
-- `../submission/v5-smoke-100-run-report.json` — concise current 100-company smoke-test result required for evaluator handoff.
-- `REQUIREMENTS_MATRIX.md` — current challenge requirements mapped to implementation and evidence, including the evidence-linked company comparison surface.
-- `SUBMISSION_SOURCE_RIGHTS.md` — source, licence, acquisition and retention boundaries.
-- `V5_BRREG_CHANGE_PRODUCTION.md` — current BRREG registry-change production qualification.
-- `FINAL_RELEASE_1000_AUDIT.md` — certified 1,000-company historical evidence baseline.
+1. [`../README.md`](../README.md) — concise project overview, architecture and quick start.
+2. [`../SUBMISSION.md`](../SUBMISSION.md) — evaluator-facing guide for the submitted V8 release.
+3. [`../submission/V8_EVALUATOR_PATH.md`](../submission/V8_EVALUATOR_PATH.md) — current batch-adaptive evaluator wrapper.
+4. [`../OUTPUT_CONTRACT.md`](../OUTPUT_CONTRACT.md) — source envelope, canonical projection and evidence contract.
+5. [`REQUIREMENTS_MATRIX.md`](REQUIREMENTS_MATRIX.md) — challenge requirements mapped to implementation/evidence.
+6. [`SUBMISSION_SOURCE_RIGHTS.md`](SUBMISSION_SOURCE_RIGHTS.md) — source, licence, acquisition and retention boundaries.
+7. [`FINAL_RELEASE_1000_AUDIT.md`](FINAL_RELEASE_1000_AUDIT.md) — certified large-batch historical baseline.
 
-The current evaluator generates its HTML product through `../scripts/build_current_product.py`. Explore and Compare companies share one payload derived from the final JSONL; compare adds no source requests or new facts and does not rank companies. The historical `../submission/signalpost-v2.html` remains the preserved certified V2 artifact.
+The Builderr-submitted V8 evaluator revision remains pinned separately from later documentation-only cleanup commits. See `../SUBMISSION.md` for the exact release SHA and release ref.
 
 ## Current production lineage
 
-- `V3_IMPLEMENTATION_PLAN.md` — score-driven V3 implementation plan.
-- `V4_OFFICIAL_SOURCE_SCREEN.md` — measured source-screen results and rejected connectors.
-- `V4_KEYED_SOURCE_ACCESS.md` — keyed-source access findings.
-- `V5_BRREG_CHANGE_SCREEN.md` — BRREG change-feed source screen.
-- `V5_BRREG_CHANGE_PRODUCTION.md` — promoted V5 implementation and fresh qualification.
+Signalpost evolved incrementally. The current V8 path delegates to previously qualified evidence/product layers rather than replacing them:
 
-## Historical audit material
+- V1 — frozen certified source/output baseline;
+- V2 — canonical/product compatibility layer;
+- V3/V4 — conservative company-description improvements;
+- V5 — exact-org BRREG registry-change production layer;
+- V6 — evidence workspace and zero-network recovery work;
+- V7 — decision brief, careers semantics and evaluator-facing product qualification;
+- V8 — dynamic evaluator-batch wrapper over the qualified V7/V5 path.
 
-Documents prefixed `H1*` and `H2*`, together with the earlier baseline/source-landscape/design notes, record experiments that informed the current precision and source-selection rules. They are retained for reproducibility and audit history; they are **not separate production entry points**.
+Relevant production/qualification records include:
 
-Key historical records include:
+- [`V3_IMPLEMENTATION_PLAN.md`](V3_IMPLEMENTATION_PLAN.md)
+- [`V4_OFFICIAL_SOURCE_SCREEN.md`](V4_OFFICIAL_SOURCE_SCREEN.md)
+- [`V5_BRREG_CHANGE_SCREEN.md`](V5_BRREG_CHANGE_SCREEN.md)
+- [`V5_BRREG_CHANGE_PRODUCTION.md`](V5_BRREG_CHANGE_PRODUCTION.md)
+- [`FINAL_RELEASE_AUDIT.md`](FINAL_RELEASE_AUDIT.md)
+- [`FINAL_RELEASE_1000_AUDIT.md`](FINAL_RELEASE_1000_AUDIT.md)
 
-- `BASELINE_100.md`
-- `H1_DOMAIN_DISCOVERY.md`
-- `H1C_SECONDARY_IDENTITY.md`
-- `H2A_SOCIAL_QUALIFICATION.md`
-- `H2C_CONTACT_EMAIL_QUALIFICATION.md`
-- `H2G_ANNUAL_REPORT_WORKFORCE.md`
-- `ZERO_OVERLAP_VALIDATION.md`
-- `FINAL_SOURCE_LANDSCAPE_AUDIT.md`
+## Historical experiments and audit trail
 
-## Workflow cleanup policy
+Documents prefixed `H1*`, `H2*`, older V6/V7 source screens, and source-landscape/design notes record experiments that informed current precision, provenance and source-selection rules. They are retained for reproducibility and **are not separate production entry points**.
 
-The active `.github/workflows/` directory is intentionally limited to current CI, evaluator/release validation, refresh/snapshot regressions and the qualified V3–V5 production checks. Early H1/H2 experiment and source-screen workflow definitions were retired from the default branch after their conclusions were captured in these documents and immutable Git history.
+Examples:
 
-Past GitHub Actions run IDs cited in the qualification documents remain part of the repository's audit trail even when the original experimental workflow file is no longer active on `main`.
+- [`H1_DOMAIN_DISCOVERY.md`](H1_DOMAIN_DISCOVERY.md)
+- [`H1C_SECONDARY_IDENTITY.md`](H1C_SECONDARY_IDENTITY.md)
+- [`H2A_SOCIAL_QUALIFICATION.md`](H2A_SOCIAL_QUALIFICATION.md)
+- [`H2C_CONTACT_EMAIL_QUALIFICATION.md`](H2C_CONTACT_EMAIL_QUALIFICATION.md)
+- [`H2G_ANNUAL_REPORT_WORKFORCE.md`](H2G_ANNUAL_REPORT_WORKFORCE.md)
+- [`FINAL_SOURCE_LANDSCAPE_AUDIT.md`](FINAL_SOURCE_LANDSCAPE_AUDIT.md)
+
+Low-yield or failed experiments are deliberately preserved when they explain why a source/strategy was not promoted.
+
+## Current V9 R&D boundary
+
+Post-V8 score-expansion work is isolated from the submitted evaluator until it passes explicit GO/NO-GO gates.
+
+The active high-impact experiment is Website Discovery 2.0. Model/search-assisted nomination is not part of V8 production and remains blocked on evaluator-reproducible provider/key/budget confirmation plus fresh-cohort precision/coverage qualification.
+
+Supporting V9 experiments for structured first-party discovery, ATS jobs, dated updates and zero-network contact recovery have been measured separately and are not productionized merely because code exists.
+
+## Workflows
+
+See [`../.github/workflows/README.md`](../.github/workflows/README.md) for the workflow inventory and the distinction between baseline CI and retained qualification/replay workflows.
 
 ## Source-of-truth order
 
-When documents differ because the project evolved, use this order:
+When older documents differ because the project evolved, use this order:
 
-1. the current Builderr challenge page for official rules and scoring;
-2. `../SUBMISSION.md` for this repository's evaluator instructions;
-3. `../submission/manifest.json` and `../submission/v5-smoke-100-run-report.json` for machine-readable revision/run evidence;
-4. `REQUIREMENTS_MATRIX.md`;
-5. current V5 qualification documents;
+1. the current Builderr challenge/evaluator contract for official rules;
+2. `../SUBMISSION.md` for this repository's submitted evaluator instructions;
+3. `../submission/V8_EVALUATOR_PATH.md` for V8 wrapper behavior;
+4. `../OUTPUT_CONTRACT.md` and `../submission/manifest.json` for contract/lineage details;
+5. `REQUIREMENTS_MATRIX.md` and current qualification documents;
 6. certified historical release audits;
 7. historical experiment/design notes.
 
-Builderr's checked collection and evaluator remain authoritative for the official score.
+Builderr remains authoritative for the checked company collection, infrastructure limits and official score.

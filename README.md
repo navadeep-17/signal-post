@@ -202,9 +202,11 @@ Post-V8 score-expansion work is intentionally isolated from production. Website 
 ## Key documentation
 
 - [`SUBMISSION.md`](SUBMISSION.md) — current evaluator/release guide
+- [`docs/README.md`](docs/README.md) — documentation map: current vs qualification vs historical
 - [`OUTPUT_CONTRACT.md`](OUTPUT_CONTRACT.md) — output and evidence contract
 - [`submission/V8_EVALUATOR_PATH.md`](submission/V8_EVALUATOR_PATH.md) — V8 batch-adaptive wrapper
 - [`submission/V7_EVALUATOR_PATH.md`](submission/V7_EVALUATOR_PATH.md) — qualified V7 evidence/product delegation path
+- [`.github/workflows/README.md`](.github/workflows/README.md) — workflow inventory and qualification policy
 - [`docs/REQUIREMENTS_MATRIX.md`](docs/REQUIREMENTS_MATRIX.md) — challenge requirement coverage
 - [`docs/SUBMISSION_SOURCE_RIGHTS.md`](docs/SUBMISSION_SOURCE_RIGHTS.md) — source/licence/acquisition policy
 - [`submission/manifest.json`](submission/manifest.json) — certified machine-readable lineage
