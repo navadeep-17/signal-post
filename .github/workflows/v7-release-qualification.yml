@@ -109,7 +109,7 @@ jobs:
           from pathlib import Path
 
           from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection
-          from norway_company_agent.synthesis import synthesize_company, validate_synthesis
+          from norway_company_agent.synthesis import validate_company_synthesis
 
           input_path = Path('v7-release-100.jsonl')
           release_manifest_path = Path('submission/final-release-1000.jsonl')
@@ -138,9 +138,9 @@ jobs:
           for row in rows:
               canonical = project_canonical_profile(row)
               canonical_errors.extend(validate_canonical_projection(canonical))
-              synthesis = synthesize_company(canonical)
-              synthesis_errors.extend(validate_synthesis(synthesis, canonical))
-              decision_brief_companies += int(bool(synthesis.get('decision_brief')))
+              synthesis_errors.extend(validate_company_synthesis(row))
+              decision_brief = (row.get('synthesis') or {}).get('decision_brief') or {}
+              decision_brief_companies += int(bool(decision_brief))
           assert not canonical_errors, canonical_errors[:5]
           assert not synthesis_errors, synthesis_errors[:5]
           assert decision_brief_companies == 100
