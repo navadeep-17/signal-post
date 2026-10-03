@@ -69,7 +69,7 @@ def _clean_candidate(raw: str, *, base_url: str, verified_url: str) -> str | Non
 
 
 def fetch_document(url: str, *, timeout: float, accept: str) -> tuple[str | None, dict[str, Any]]:
-    """Fetch one public document with same redirect safety as the existing website path."""
+    """Fetch one public document with the existing SSRF-safe redirect handler."""
     started = time.monotonic()
     try:
         assert_public_url(url)
@@ -163,13 +163,16 @@ def discover_profile(profile: dict[str, Any], *, timeout: float = 6.0) -> tuple[
     robots_url = _robots_url(verified_url)
     robots_text, robots_op = fetch_document(robots_url, timeout=timeout, accept="text/plain,*/*;q=0.5")
     charge(robots_op)
+    robots_final = str(robots_op.get("final_url") or robots_url)
+    if not _same_registered_domain(robots_final, verified_url):
+        robots_text = None
+        robots_op = {**robots_op, "error": "redirected_outside_verified_domain"}
     robots_parser, declared_sitemaps = parse_robots(robots_text, robots_url=robots_url, verified_url=verified_url)
-    sources.append({"kind": "robots", "url": robots_url, "status": robots_op.get("status"), "content_sha256": robots_op.get("content_sha256")})
+    sources.append({"kind": "robots", "url": robots_final, "status": robots_op.get("status"), "content_sha256": robots_op.get("content_sha256"), "error": robots_op.get("error")})
 
     if metrics["requests"] >= MAX_REQUESTS_PER_VERIFIED_SITE:
         raise AssertionError("M2 request ceiling exhausted before homepage")
 
-    homepage_text: str | None = None
     if robots_text is None or robots_parser.can_fetch(USER_AGENT, verified_url):
         homepage_text, homepage_op = fetch_document(verified_url, timeout=timeout, accept="text/html,application/xhtml+xml")
         charge(homepage_op)
@@ -179,10 +182,12 @@ def discover_profile(profile: dict[str, Any], *, timeout: float = 6.0) -> tuple[
             feed_links = discover_feed_links(homepage_text, page_url=final_homepage, verified_url=verified_url)
         else:
             feed_links = []
-        sources.append({"kind": "homepage", "url": final_homepage, "status": homepage_op.get("status"), "content_sha256": homepage_op.get("content_sha256")})
+            if homepage_text is not None:
+                homepage_op = {**homepage_op, "error": "redirected_outside_verified_domain"}
+        sources.append({"kind": "homepage", "url": final_homepage, "status": homepage_op.get("status"), "content_sha256": homepage_op.get("content_sha256"), "error": homepage_op.get("error")})
     else:
         feed_links = []
-        sources.append({"kind": "homepage", "url": verified_url, "status": "robots_disallowed", "content_sha256": None})
+        sources.append({"kind": "homepage", "url": verified_url, "status": "robots_disallowed", "content_sha256": None, "error": None})
 
     sitemap_queue = list(declared_sitemaps)
     fallback_sitemap = urllib.parse.urljoin(verified_url, "/sitemap.xml")
@@ -201,10 +206,14 @@ def discover_profile(profile: dict[str, Any], *, timeout: float = 6.0) -> tuple[
         sitemap_text, sitemap_op = fetch_document(sitemap_url, timeout=timeout, accept="application/xml,text/xml,*/*;q=0.5")
         charge(sitemap_op)
         fetched_sitemaps += 1
-        sources.append({"kind": "sitemap", "url": sitemap_url, "status": sitemap_op.get("status"), "content_sha256": sitemap_op.get("content_sha256")})
+        final_sitemap = str(sitemap_op.get("final_url") or sitemap_url)
+        if not _same_registered_domain(final_sitemap, verified_url):
+            sitemap_text = None
+            sitemap_op = {**sitemap_op, "error": "redirected_outside_verified_domain"}
+        sources.append({"kind": "sitemap", "url": final_sitemap, "status": sitemap_op.get("status"), "content_sha256": sitemap_op.get("content_sha256"), "error": sitemap_op.get("error")})
         if sitemap_text is None:
             continue
-        parsed = parse_sitemap_xml(sitemap_text, sitemap_url=sitemap_url, verified_url=verified_url)
+        parsed = parse_sitemap_xml(sitemap_text, sitemap_url=final_sitemap, verified_url=verified_url)
         surfaces.extend(parsed.get("surface_candidates") or [])
         for nested in parsed.get("nested_sitemaps") or []:
             if nested not in seen_sitemaps and nested not in sitemap_queue:
@@ -215,9 +224,13 @@ def discover_profile(profile: dict[str, Any], *, timeout: float = 6.0) -> tuple[
         if robots_text is None or robots_parser.can_fetch(USER_AGENT, feed_url):
             feed_text, feed_op = fetch_document(feed_url, timeout=timeout, accept="application/rss+xml,application/atom+xml,application/xml,text/xml,*/*;q=0.5")
             charge(feed_op)
-            sources.append({"kind": "feed", "url": feed_url, "status": feed_op.get("status"), "content_sha256": feed_op.get("content_sha256")})
+            final_feed = str(feed_op.get("final_url") or feed_url)
+            if not _same_registered_domain(final_feed, verified_url):
+                feed_text = None
+                feed_op = {**feed_op, "error": "redirected_outside_verified_domain"}
+            sources.append({"kind": "feed", "url": final_feed, "status": feed_op.get("status"), "content_sha256": feed_op.get("content_sha256"), "error": feed_op.get("error")})
             if feed_text is not None:
-                surfaces.extend(parse_feed_xml(feed_text, feed_url=feed_url, verified_url=verified_url))
+                surfaces.extend(parse_feed_xml(feed_text, feed_url=final_feed, verified_url=verified_url))
 
     assert metrics["requests"] <= MAX_REQUESTS_PER_VERIFIED_SITE, metrics
     surfaces = _dedupe_records(surfaces)
