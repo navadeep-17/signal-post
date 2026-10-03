@@ -23,7 +23,7 @@ Compatibility lineage remains explicit: V8 delegates through `scripts/run_signal
 - bounded official BRREG registry-change history;
 - canonical facts linked back to source evidence;
 - deterministic evidence-linked decision briefs;
-- a static evaluator workspace with company search, evidence inspection, recent changes, descriptive comparison and grounded Ask Signalpost answers;
+- a static evaluator workspace with company search, evidence inspection, recent changes, **Compare companies**, and grounded Ask Signalpost answers;
 - conservative careers-page semantics that never equate a careers surface with an active vacancy.
 
 Production V8 uses **no LLM API, paid search API, sentiment model or social-platform scraper** and requires **no API secrets**.
@@ -71,7 +71,7 @@ deterministic synthesis / decision brief
                ├── company explorer
                ├── evidence drawer / verification
                ├── recent changes
-               ├── descriptive comparison
+               ├── Compare companies
                └── grounded Ask Signalpost
 ```
 
