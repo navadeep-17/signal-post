@@ -59,8 +59,9 @@ def test_decision_brief_payload_is_compact_and_keeps_temporal_context() -> None:
 
     assert set(decision) == {"how_big_is_it"}
     item = decision["how_big_is_it"]
-    assert item["evidenceRefs"] == ["ev-financial"]
-    assert item["dates"] == ["Period ending 2025-12-31"]
+    assert "key" not in item
+    assert item["e"] == ["ev-financial"]
+    assert item["d"] == ["Period ending 2025-12-31"]
     assert "evidence" not in item
     assert payload["evidence"]["ev-financial"]["url"] == "https://example.test/report"
     assert "reportingPeriod" not in payload["evidence"]["ev-financial"]
@@ -77,6 +78,8 @@ def test_v6_ui_promotes_v7_decision_brief_as_primary_company_brief() -> None:
     assert "Digital footprint" in body
     assert "sourceButtons(item.evidence||[],'Evidence')" in body
     assert '"decisionBrief":' in body
+    assert "item.evidence=item.e.map" in body
+    assert "item.dates=item.d" in body
 
 
 def test_decision_brief_keeps_existing_legacy_sections_as_fallback() -> None:
