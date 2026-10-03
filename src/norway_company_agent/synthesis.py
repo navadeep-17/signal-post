@@ -36,18 +36,6 @@ def _latest(contract: dict[str, Any], fact_type: str) -> dict[str, Any] | None:
     return sorted(rows, key=lambda fact: (_period_end(fact), str(fact.get("value"))), reverse=True)[0]
 
 
-def _evidence_ids(*facts: dict[str, Any] | None) -> list[str]:
-    values: list[str] = []
-    for fact in facts:
-        if not fact:
-            continue
-        for evidence_id in fact.get("evidence_ids") or []:
-            text = str(evidence_id)
-            if text and text not in values:
-                values.append(text)
-    return values
-
-
 def _industry_text(value: Any) -> str | None:
     if isinstance(value, dict):
         description = str(value.get("description") or value.get("beskrivelse") or "").strip()
@@ -126,6 +114,58 @@ def _registry_change_sort_key(fact: dict[str, Any]) -> tuple[str, str]:
     return (str(value.get("effective_at") or ""), str(value.get("event_id") or ""))
 
 
+def _fact_trace(
+    fact: dict[str, Any] | None,
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not fact:
+        return []
+    traces: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for evidence_id in fact.get("evidence_ids") or []:
+        key = str(evidence_id)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        evidence = evidence_by_id.get(key) or {}
+        traces.append(
+            {
+                "evidence_id": key,
+                "source_url": evidence.get("source_url"),
+                "source_class": evidence.get("source_class"),
+                "retrieved_at": evidence.get("retrieved_at"),
+                "effective_at": fact.get("effective_at"),
+                "reporting_period": fact.get("reporting_period"),
+                "claim_span": evidence.get("claim_span"),
+                "content_sha256": evidence.get("content_sha256"),
+            }
+        )
+    return traces
+
+
+def _decision_item(
+    key: str,
+    text: str,
+    facts: list[dict[str, Any]],
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    traces: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for fact in facts:
+        for trace in _fact_trace(fact, evidence_by_id):
+            evidence_id = str(trace.get("evidence_id") or "")
+            if evidence_id and evidence_id in seen:
+                continue
+            if evidence_id:
+                seen.add(evidence_id)
+            traces.append(trace)
+    return {
+        "key": key,
+        "text": text,
+        "evidence": traces,
+    }
+
+
 def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     """Build a deterministic, zero-network brief from already-published canonical facts.
 
@@ -153,6 +193,11 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         key=_registry_change_sort_key,
         reverse=True,
     )
+    evidence_by_id = {
+        str(item.get("id")): item
+        for item in (contract.get("evidence") or [])
+        if isinstance(item, dict) and item.get("id")
+    }
 
     identity_bits: list[str] = []
     identity_facts: list[dict[str, Any]] = []
@@ -301,9 +346,6 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         "change_count": effective_change_count,
         "changes": changes,
     }
-    # Preserve the exact pre-V5 synthesis shape for historical/certified contracts that do
-    # not contain registry-change facts. This keeps the committed certified product artifact
-    # byte-for-byte reproducible while exposing the richer provenance only on new V5 output.
     if registry_change_values:
         what_changed.update(
             {
@@ -315,6 +357,58 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    company_name = str((name or {}).get("value") or contract.get("organisation_number") or "Unknown company")
+    industry_text = _industry_text((industry or {}).get("value"))
+    company_intro = f"{company_name} (Org.nr {contract.get('organisation_number')})"
+    if industry_text:
+        company_intro += f" is registered in {industry_text}"
+    if municipality:
+        company_intro += f" in {municipality.get('value')}"
+    company_intro += "."
+
+    size_parts: list[str] = []
+    if workforce_text:
+        size_parts.append(f"workforce {workforce_text}")
+    if revenue_text:
+        size_parts.append(f"revenue {revenue_text}")
+    if operating_text:
+        size_parts.append(f"operating result {operating_text}")
+    size_text = "; ".join(size_parts).capitalize() + "." if size_parts else "No qualified size metric is published."
+
+    leader_text = organisation_bits[0] if leader else "No qualified current leadership fact is published."
+    hiring_text = (
+        f"{len(jobs)} strict job posting(s) are published."
+        if jobs
+        else "No strict job posting is published for this run."
+    )
+    footprint_parts: list[str] = []
+    if website:
+        footprint_parts.append(f"verified website {website.get('value')}")
+    if social:
+        footprint_parts.append(f"{len(social)} company-declared social profile(s)")
+    if updates:
+        footprint_parts.append(f"{len(updates)} dated company update(s)")
+    digital_text = "; ".join(footprint_parts).capitalize() + "." if footprint_parts else "No qualified external digital-footprint fact is published."
+
+    decision_brief = {
+        "what_is_this_company": _decision_item("what_is_this_company", company_intro, [fact for fact in [name, industry, municipality] if fact], evidence_by_id),
+        "what_does_it_do": _decision_item("what_does_it_do", " ".join(identity_bits), identity_facts, evidence_by_id),
+        "how_big_is_it": _decision_item("how_big_is_it", size_text, [fact for fact in [workforce, revenue, operating] if fact], evidence_by_id),
+        "who_runs_it": _decision_item("who_runs_it", leader_text, [leader] if leader else [], evidence_by_id),
+        "hiring": _decision_item("hiring", hiring_text, jobs, evidence_by_id),
+        "digital_footprint": _decision_item("digital_footprint", digital_text, [fact for fact in [website, *social, *updates] if fact], evidence_by_id),
+        "what_changed": {
+            "key": "what_changed",
+            "text": change_text,
+            "evidence": [
+                trace
+                for fact in registry_changes[:3]
+                for trace in _fact_trace(fact, evidence_by_id)
+            ],
+        },
+        "what_is_unknown": list(dict.fromkeys(unknowns)),
+    }
+
     return {
         "schema_version": SYNTHESIS_SCHEMA_VERSION,
         "organisation_number": str(contract.get("organisation_number") or ""),
@@ -322,6 +416,7 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         "sections": sections,
         "what_changed": what_changed,
         "unknowns": unknowns,
+        "decision_brief": decision_brief,
         "evidence_ids": all_evidence,
         "generation": {
             "mode": "deterministic_zero_network",
@@ -365,4 +460,28 @@ def validate_company_synthesis(contract: dict[str, Any]) -> list[str]:
     for evidence_id in synthesis.get("evidence_ids") or []:
         if str(evidence_id) not in available_evidence:
             errors.append(f"synthesis evidence list references missing evidence {evidence_id}")
+
+    decision_brief = synthesis.get("decision_brief") or {}
+    required_keys = {
+        "what_is_this_company",
+        "what_does_it_do",
+        "how_big_is_it",
+        "who_runs_it",
+        "hiring",
+        "digital_footprint",
+        "what_changed",
+        "what_is_unknown",
+    }
+    if not isinstance(decision_brief, dict) or not required_keys.issubset(decision_brief):
+        errors.append("synthesis decision_brief is incomplete")
+    else:
+        for key in required_keys - {"what_is_unknown"}:
+            item = decision_brief.get(key)
+            if not isinstance(item, dict) or not item.get("text"):
+                errors.append(f"synthesis decision_brief {key} missing text")
+                continue
+            for trace in item.get("evidence") or []:
+                evidence_id = str((trace or {}).get("evidence_id") or "")
+                if evidence_id and evidence_id not in available_evidence:
+                    errors.append(f"synthesis decision_brief references missing evidence {evidence_id}")
     return errors
