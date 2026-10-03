@@ -16,7 +16,6 @@ on:
   push:
     branches:
       - main
-      - "feature/**"
     paths:
       - "src/norway_company_agent/refresh.py"
       - "src/norway_company_agent/refresh_contract.py"
