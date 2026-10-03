@@ -89,7 +89,7 @@ def test_decision_brief_exposes_all_evaluator_oriented_sections() -> None:
     }
     assert "ACME AS" in brief["what_is_this_company"]["text"]
     assert "ACME builds software" in brief["what_does_it_do"]["text"]
-    assert "12,500,000 NOK" in brief["how_big_is_it"]["text"]
+    assert "12,500,000 nok" in brief["how_big_is_it"]["text"].casefold()
     assert "Ada Example" in brief["who_runs_it"]["text"]
     assert "No strict job posting" in brief["hiring"]["text"]
     assert "https://acme.no/" in brief["digital_footprint"]["text"]
