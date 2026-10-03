@@ -1,0 +1,136 @@
+name: V9 M2 Reused Site Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-m2-structured-first-party
+    paths:
+      - '.github/workflows/v9-m2-reused-site-screen.yml'
+      - 'src/norway_company_agent/structured_first_party.py'
+      - 'scripts/run_structured_first_party_discovery.py'
+      - 'tests/test_structured_first_party.py'
+      - 'tests/test_structured_first_party_runner.py'
+      - 'data/v9-m2-reused-verified-sites-7.jsonl'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v9-m2-reused-site-screen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reused-site-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused M2 regressions
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_structured_first_party.py \
+            tests/test_structured_first_party_runner.py
+
+      - name: Run reused verified-site M2 screen
+        run: |
+          mkdir -p out/v9-m2
+          uv run python scripts/run_structured_first_party_discovery.py \
+            --profiles data/v9-m2-reused-verified-sites-7.jsonl \
+            --output out/v9-m2/observations.jsonl \
+            --report out/v9-m2/report.json \
+            --limit 7 \
+            --timeout 6
+
+      - name: Build development screen summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/v9-m2/report.json').read_text(encoding='utf-8'))
+          observations = [
+              json.loads(line)
+              for line in Path('out/v9-m2/observations.jsonl').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
+          rows = []
+          for item in observations:
+              surfaces = item.get('surface_candidates') or []
+              rows.append({
+                  'organisation_number': item.get('organisation_number'),
+                  'verified_website': item.get('verified_website'),
+                  'surface_count': len(surfaces),
+                  'surface_kinds': sorted({str(row.get('surface_kind') or '') for row in surfaces}),
+                  'sample_urls': [str(row.get('url') or '') for row in surfaces[:5]],
+                  'source_statuses': [
+                      {
+                          'kind': source.get('kind'),
+                          'url': source.get('url'),
+                          'status': source.get('status'),
+                          'error': source.get('error'),
+                      }
+                      for source in item.get('sources') or []
+                  ],
+              })
+          summary = {
+              'schema_version': 'signalpost-v9-m2-reused-site-screen-v1',
+              'source_qualification_run_id': 37107505656,
+              'fresh_qualification_cohort_consumed': False,
+              'verified_sites_attempted': report['verified_sites_attempted'],
+              'companies_with_surfaces': report['counts'].get('companies_with_surfaces', 0),
+              'counts': report['counts'],
+              'operations': report['operations'],
+              'companies': rows,
+              'promotion_decision': 'measurement_only',
+          }
+          Path('out/v9-m2/summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Verify hard safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path('out/v9-m2/summary.json').read_text(encoding='utf-8'))
+          operations = summary['operations']
+          assert summary['fresh_qualification_cohort_consumed'] is False
+          assert summary['verified_sites_attempted'] == 7, summary
+          assert operations['requests'] <= operations['request_ceiling'], summary
+          assert operations['request_ceiling'] == 35, summary
+          assert float(operations['third_party_api_cost_usd']) == 0.0, summary
+          for company in summary['companies']:
+              verified = company['verified_website']
+              for source in company['source_statuses']:
+                  assert source['kind'] in {'robots', 'homepage', 'sitemap', 'feed'}
+          print('M2 reused-site hard safety invariants passed.')
+          PY
+
+      - name: Upload M2 screen artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m2-reused-site-screen
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-m2/observations.jsonl
+            out/v9-m2/report.json
+            out/v9-m2/summary.json
