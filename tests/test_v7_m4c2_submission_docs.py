@@ -22,7 +22,7 @@ def test_v8_evaluator_addendum_is_batch_size_adaptive() -> None:
 
     assert "scripts/run_signalpost_v8.py" in body
     assert "scripts/run_signalpost_v7.py" in body
-    assert "derive the exact company count" in body
+    assert "derives the exact company count" in body
     assert "Do not hard-code `--expected-count`" in body
     assert "max(2000, 20 × company_count)" in body
     assert "Builderr's evaluator/harness remains authoritative" in body
