@@ -38,6 +38,17 @@ JOB_DETAIL_MARKERS = (
     "position",
     "stilling",
 )
+CAREERS_SIGNAL_MARKERS = (
+    "careers",
+    "career opportunities",
+    "join our team",
+    "work with us",
+    "karriere",
+    "jobb hos oss",
+    "jobbe hos oss",
+    "ledige stillinger",
+    "bli med på laget",
+)
 GENERIC_JOB_TITLES = {
     "jobs",
     "job",
@@ -118,9 +129,6 @@ def _specific_title(title: str, *, generic: set[str]) -> bool:
     folded = _fold(title)
     if not folded or folded in generic:
         return False
-    # A generic section title frequently appears as "Careers — Company" or
-    # "News | Company". The appended brand must not turn that index into a specific
-    # role/article. Reject a generic leading segment separated from a site/brand suffix.
     segments = re.split(r"\s*(?:\||–|—|:)\s*|\s+-\s+", folded, maxsplit=1)
     if len(segments) > 1 and segments[0].strip() in generic:
         return False
@@ -137,15 +145,9 @@ def _detail_page_url(url: str, *, generic_segments: set[str], allow_query_keys: 
     segments = [segment.casefold() for segment in parsed.path.split("/") if segment]
     if not segments:
         return False
-
-    # Locate the right-most section marker. A real detail URL needs a later path segment,
-    # e.g. /careers/software-engineer or /news/product-launch. Locale prefixes are fine.
     generic_positions = [index for index, segment in enumerate(segments) if segment in generic_segments]
     if generic_positions and generic_positions[-1] < len(segments) - 1:
         return True
-
-    # Some ATS detail pages use /jobs?jobid=123. Only explicit role-id style query keys are
-    # accepted; generic language/year/filter parameters do not turn an index into a fact.
     if allow_query_keys:
         query_keys = {key.casefold() for key in parse_qs(parsed.query, keep_blank_values=False)}
         if query_keys & allow_query_keys:
@@ -158,6 +160,18 @@ def _first_date(text: str) -> str | None:
         match = pattern.search(text)
         if match:
             return match.group(1)
+    return None
+
+
+def _marker_excerpt(text: str, markers: tuple[str, ...], *, radius: int = 120) -> tuple[str, str] | None:
+    for marker in markers:
+        match = re.search(re.escape(marker), text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        start = max(0, match.start() - radius)
+        end = min(len(text), match.end() + radius)
+        excerpt = " ".join(text[start:end].split())
+        return marker, excerpt[:500]
     return None
 
 
@@ -174,12 +188,60 @@ def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, li
     return {"record": website, "final_url": final_url}, pages
 
 
+def extract_careers_signals(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return broad but truthful company-owned careers/hiring signals with zero network.
+
+    A careers signal means the exact verified company site explicitly exposes careers/hiring
+    language. It does *not* mean an active vacancy exists. This intentionally stays separate
+    from strict job postings.
+    """
+    context, pages = _website_context(profile)
+    if not context:
+        return []
+    verified_url = str(context["final_url"])
+    signals: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for page in pages:
+        url = str(page.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")) or not _same_verified_site(url, verified_url):
+            continue
+        title = str(page.get("title") or "").strip()
+        text = " ".join(
+            part
+            for part in (
+                title,
+                str(page.get("main_text_excerpt") or ""),
+                str(page.get("identity_text_excerpt") or ""),
+            )
+            if part
+        )
+        marker = _marker_excerpt(text, CAREERS_SIGNAL_MARKERS)
+        path_signal = any(value in _fold(url) for value in JOB_PATH_MARKERS)
+        if not marker and not path_signal:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        marker_name, excerpt = marker or ("careers-path", title or url)
+        signals.append(
+            {
+                "url": url,
+                "title": title,
+                "marker": marker_name,
+                "content_sha256": str(page.get("content_sha256") or "").strip(),
+                "evidence_span": excerpt[:500],
+            }
+        )
+    signals.sort(key=lambda item: (item["url"], item["marker"]))
+    return signals
+
+
 def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Extract only explicit job detail/apply pages and dated company update details.
 
     This function performs no network access. It operates only on pages retained by the
     already-qualified company-site crawl and only when the website identity assessment is
-    publishable. A generic careers/news index never becomes a fact by itself.
+    publishable. A generic careers/news index never becomes a job posting or dated update.
     """
 
     context, pages = _website_context(profile)
@@ -277,9 +339,9 @@ def project_first_party_activity_claims(
     contract: dict[str, Any],
     profile: dict[str, Any],
 ) -> dict[str, Any]:
-    """Attach strict first-party jobs/updates to an OUTPUT_CONTRACT object idempotently."""
+    """Attach truthful first-party careers, strict jobs and dated updates idempotently."""
 
-    managed_fields = {"external.job_posting", "external.company_update"}
+    managed_fields = {"external.careers_signal", "external.job_posting", "external.company_update"}
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
 
@@ -301,10 +363,34 @@ def project_first_party_activity_claims(
         if item.get("id") and item.get("id") not in (removed_ids - still_referenced)
     }
 
+    careers = extract_careers_signals(profile)
     extracted = extract_strict_first_party_facts(profile)
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     website = ((profile.get("evidence") or {}).get("website") or {})
     retrieved_at = website.get("retrieved_at")
+
+    for item in careers:
+        evidence_id = _evidence_id(org, "careers", item)
+        evidence_by_id[evidence_id] = {
+            "id": evidence_id,
+            "source_url": item["url"],
+            "source_class": "company_owned",
+            "retrieved_at": retrieved_at,
+            "content_sha256": item.get("content_sha256"),
+            "claim_span": item["evidence_span"],
+        }
+        claims.append(
+            {
+                "field": "external.careers_signal",
+                "value": {"url": item["url"], "marker": item["marker"]},
+                "availability": "available",
+                "confidence": 0.99,
+                "evidence_ids": [evidence_id],
+                "platform": "company_site",
+                "signal_type": "careers_signal",
+                "claim_scope": "Exact verified company-owned site exposes explicit careers/hiring language. This is a hiring-presence signal only and does not assert any active vacancy.",
+            }
+        )
 
     for item in extracted["jobs"]:
         evidence_id = _evidence_id(org, "job", item)
@@ -325,7 +411,7 @@ def project_first_party_activity_claims(
                 "evidence_ids": [evidence_id],
                 "platform": "company_site",
                 "signal_type": "job_posting",
-                "claim_scope": "Verified company-owned role detail page with a specific title, job detail marker and explicit apply action; generic careers pages excluded.",
+                "claim_scope": "Verified company-owned role detail page with a specific title, job detail marker and explicit apply action; generic careers pages excluded from job postings.",
             }
         )
 
