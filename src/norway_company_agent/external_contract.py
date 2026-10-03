@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .careers_contract import project_careers_page_claims
 from .external_footprint import publishable_observation
 
 
@@ -81,11 +82,16 @@ def project_profile_handle_observations(
     handle identity gate survive. The source evidence remains the exact company page that
     declared the URL; no social-platform page is represented as fetched evidence.
 
+    The same already-verified homepage snapshot may also carry V7 careers links. Those are
+    projected by the dedicated careers projector before social-handle projection so the
+    frozen V1 output-contract projector does not need to change.
+
     Projection is deliberately idempotent: any prior H2a-managed `social_links` and
     `external.profile_handle` claims are removed before the current validated observations
     are projected again.
     """
 
+    contract = project_careers_page_claims(contract, profile)
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
