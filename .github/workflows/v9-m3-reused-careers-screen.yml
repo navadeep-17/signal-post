@@ -1,0 +1,104 @@
+name: V9 M3 Reused Careers Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-m3-verified-ats-jobs
+    paths:
+      - '.github/workflows/v9-m3-reused-careers-screen.yml'
+      - 'src/norway_company_agent/ats_jobs.py'
+      - 'scripts/run_verified_ats_screen.py'
+      - 'tests/test_ats_jobs.py'
+      - 'data/v9-m3-reused-careers-2.jsonl'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v9-m3-reused-careers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reused-careers-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Run focused ATS regressions
+        run: uv run --with pytest pytest -q tests/test_ats_jobs.py
+      - name: Run reused careers ATS screen
+        run: |
+          mkdir -p out/v9-m3
+          uv run python scripts/run_verified_ats_screen.py \
+            --input data/v9-m3-reused-careers-2.jsonl \
+            --output out/v9-m3/results.jsonl \
+            --report out/v9-m3/report.json \
+            --timeout 6
+      - name: Build screen summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/v9-m3/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m3/results.jsonl').read_text().splitlines() if line.strip()]
+          summary = {
+            'schema_version': 'signalpost-v9-m3-reused-careers-summary-v1',
+            'fresh_qualification_cohort_consumed': False,
+            'report': report,
+            'companies': [
+              {
+                'organisation_number': row.get('organisation_number'),
+                'name': row.get('name'),
+                'status': row.get('status'),
+                'careers_url': row.get('careers_url'),
+                'final_url': row.get('final_url'),
+                'ats_candidates': [
+                  {'provider': item.get('provider'), 'url': item.get('url'), 'anchor_text': item.get('anchor_text')}
+                  for item in row.get('ats_candidates') or []
+                ],
+              }
+              for row in rows
+            ],
+            'promotion_decision': 'measurement_only',
+          }
+          Path('out/v9-m3/summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
+      - name: Verify hard safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('out/v9-m3/summary.json').read_text())
+          report = summary['report']
+          assert summary['fresh_qualification_cohort_consumed'] is False
+          assert report['reused_careers_surfaces'] == 2, report
+          assert report['operations']['requests'] <= report['operations']['request_ceiling'], report
+          assert report['operations']['request_ceiling'] == 4, report
+          assert float(report['operations']['third_party_api_cost_usd']) == 0.0, report
+          assert report['production_integration'] is False
+          print('M3 reused-careers hard safety invariants passed.')
+          PY
+      - name: Upload M3 screen artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m3-reused-careers-screen
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/v9-m3/results.jsonl
+            out/v9-m3/report.json
+            out/v9-m3/summary.json
