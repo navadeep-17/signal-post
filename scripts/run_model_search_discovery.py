@@ -34,9 +34,14 @@ from run_search_discovery import (  # noqa: E402
     write_jsonl,
 )
 
+# Current public OpenAI pricing for the default gpt-6-luna experiment path.
+# The hosted web-search tool is $10 / 1k calls; gpt-6-luna text is
+# $0.10 / 1M input tokens and $0.50 / 1M output tokens. Builderr's own
+# official-run external API ceiling remains authoritative and must be confirmed
+# before M1 is eligible for production promotion.
 DEFAULT_WEB_SEARCH_USD_PER_CALL = 0.01
-DEFAULT_INPUT_USD_PER_MILLION = 0.05
-DEFAULT_OUTPUT_USD_PER_MILLION = 0.25
+DEFAULT_INPUT_USD_PER_MILLION = 0.10
+DEFAULT_OUTPUT_USD_PER_MILLION = 0.50
 
 
 def _estimated_cost_usd(
@@ -135,7 +140,10 @@ def main() -> None:
         provider_requests += 1
         provider_latencies.append(int(operation.get("latency_ms") or 0))
         provider_bytes += int(operation.get("bytes") or 0)
-        web_search_tool_calls += int(operation.get("web_search_tool_calls") or 0)
+        tool_calls = int(operation.get("web_search_tool_calls") or 0)
+        if tool_calls > 1:
+            raise RuntimeError(f"Model provider exceeded one-call web-search ceiling: {tool_calls}>1")
+        web_search_tool_calls += tool_calls
         provider_input_tokens += int(operation.get("input_tokens") or 0)
         provider_output_tokens += int(operation.get("output_tokens") or 0)
         if operation.get("error"):
@@ -150,7 +158,9 @@ def main() -> None:
             "provider_status": operation.get("status"),
             "citation_url_count": len(results),
             "selected_candidate_count": len(selected),
-            "web_search_tool_calls": int(operation.get("web_search_tool_calls") or 0),
+            "web_search_tool_calls": tool_calls,
+            "max_web_search_tool_calls": 1,
+            "web_search_required": True,
             "raw_provider_response_persisted": False,
             "provider_response_text_persisted": False,
             "provider_citation_titles_persisted": False,
@@ -262,6 +272,7 @@ def main() -> None:
             "provider_latency_p50_ms": percentile(provider_latencies, 0.50),
             "provider_latency_p95_ms": percentile(provider_latencies, 0.95),
             "web_search_tool_calls": web_search_tool_calls,
+            "web_search_tool_calls_per_profile_ceiling": 1,
             "provider_input_tokens": provider_input_tokens,
             "provider_output_tokens": provider_output_tokens,
             "independent_crawl_requests": crawl_requests,
@@ -278,7 +289,7 @@ def main() -> None:
         "provider_response_text_persisted": False,
         "quarantined_candidate_pages_persisted": False,
         "promote_verified_enabled": args.promote_verified,
-        "qualification": "experiment_only_pending_builderr_model_key_and_external_api_budget_confirmation",
+        "qualification": "experiment_only_pending_builderr_supplied_model_key_and_exact_external_api_budget",
     }
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
