@@ -44,23 +44,6 @@ def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
                 output.append(key)
         return output
 
-    def decision_refs(rows: list[dict[str, Any]] | None) -> tuple[list[str], dict[str, dict[str, Any]]]:
-        output: list[str] = []
-        meta: dict[str, dict[str, Any]] = {}
-        trace_only_fields = ("effectiveAt", "publishedDate", "reportingPeriod")
-        for item in rows or []:
-            if not isinstance(item, dict):
-                continue
-            key = _evidence_key(item)
-            shared = {field: value for field, value in item.items() if field not in trace_only_fields}
-            pool.setdefault(key, shared)
-            if key not in output:
-                output.append(key)
-            trace_meta = {field: item.get(field) for field in trace_only_fields if item.get(field) is not None}
-            if trace_meta:
-                meta[key] = trace_meta
-        return output, meta
-
     for company in packed:
         for facts in (company.get("areas") or {}).values():
             for fact in facts or []:
@@ -72,13 +55,11 @@ def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
             if not isinstance(section, dict):
                 continue
             section["sourceRefs"] = refs(section.pop("sources", None))
-        for item in (synthesis.get("decisionBrief") or {}).values():
-            if not isinstance(item, dict):
-                continue
-            evidence_refs, evidence_meta = decision_refs(item.pop("evidence", None))
-            item["evidenceRefs"] = evidence_refs
-            if evidence_meta:
-                item["evidenceMeta"] = evidence_meta
+        # The imported V6 workspace renders legacy synthesis sections/unknowns only.
+        # M4a1 keeps the richer decision brief available at the adapter boundary, but
+        # shipping an unused copy here adds several MB to the 1,000-company HTML.
+        # M4b will add a compact representation when the UI actually renders it.
+        synthesis.pop("decisionBrief", None)
 
     return {
         "format": V6_PAYLOAD_FORMAT,
