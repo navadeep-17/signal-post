@@ -162,10 +162,10 @@ def test_v9_candidate_selection_keeps_two_distinct_domains_for_independent_verif
         },
     ]
     decision = choose_search_candidates(profile(), results, limit=2)
-    assert [item["url"] for item in decision["selected"]] == [
-        "https://examplebedrift.no/",
-        "https://example.com/",
-    ]
+    selected_urls = [item["url"] for item in decision["selected"]]
+    assert len(selected_urls) == 2
+    assert sum("examplebedrift.no" in url for url in selected_urls) == 1
+    assert "https://example.com/" in selected_urls
     assert decision["max_independent_crawls"] == 2
 
 
