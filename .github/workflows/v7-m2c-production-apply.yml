@@ -5,14 +5,13 @@ on:
     branches:
       - feature/v7-m2c-careers-production
     paths:
-      - scripts/apply_v7_m2c_production_patch.py
       - .github/workflows/v7-m2c-production-apply.yml
 
 permissions:
   contents: write
 
 jobs:
-  apply-and-test:
+  diagnose-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -31,27 +30,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Apply isolated M2C production patch
-        run: python scripts/apply_v7_m2c_production_patch.py
-
-      - name: Preserve generated patch on feature branch
+      - name: Run focused M2C regressions and capture output
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/norway_company_agent/homepage_careers_signal.py \
-            src/norway_company_agent/final_site_discovery.py \
-            src/norway_company_agent/output_contract.py \
-            src/norway_company_agent/canonical_projection.py \
-            src/norway_company_agent/synthesis.py \
-            tests/test_v7_m2c_production.py \
-            docs/V7_M2C_CAREERS_PRODUCTION.md
-          git diff --cached --check
-          git commit -m "feat(v7-m2c): promote zero-request careers signals"
-          git push origin HEAD:feature/v7-m2c-careers-production
-
-      - name: Run focused M2C regressions
-        run: uv run --with pytest pytest -q tests/test_v7_m2c_production.py
+          set +e
+          uv run --with pytest pytest -q tests/test_v7_m2c_production.py > m2c-focused.log 2>&1
+          status=$?
+          cat m2c-focused.log
+          if [ "$status" -ne 0 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add m2c-focused.log
+            git commit -m "test(v7-m2c): capture focused regression failure"
+            git push origin HEAD:feature/v7-m2c-careers-production
+            exit "$status"
+          fi
 
       - name: Run full repository regression suite
         run: uv run --with pytest pytest -q
