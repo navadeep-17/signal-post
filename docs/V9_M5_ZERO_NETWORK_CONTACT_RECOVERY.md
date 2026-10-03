@@ -58,9 +58,9 @@ Run: `37115777126`
 
 Artifact: `11271615413` (`v9-m5-h1c-contact-replay`)
 
-Head: `d58339adb5998b6c962e5c71feeb37cbccd2c037`
+Replay head: `d58339adb5998b6c962e5c71feeb37cbccd2c037`
 
-Full Baseline CI on the same head: run `37115780324` — **success**.
+Full Baseline CI on that replay head: run `37115780324` — **success**.
 
 Replay result:
 
@@ -85,3 +85,7 @@ The extraction logic is precise and can recover real same-domain emails when a s
 Do not add this recovery to V8/V9 production solely because it is zero-network. Extra code and fact types still carry maintenance/evidence risk, and the current measured incremental company coverage is zero.
 
 Revisit only if a future website-discovery milestone materially increases the number of exact websites whose publication genuinely depends on retained secondary identity pages.
+
+Final experiment head before PR closure: `299a503045f7571718c3b6747593ce3f6581e8d3`.
+
+Final Baseline CI: run `37115876569` — **success**.
