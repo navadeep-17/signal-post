@@ -1,0 +1,229 @@
+# V7 micro-milestone execution plan
+
+This document narrows `docs/V7_SCORE_LIFT_IMPLEMENTATION_PLAN.md` into a serial execution process so we do not combine multiple uncertain features into one long-running branch.
+
+## Operating rule
+
+From this point onward:
+
+1. **One production milestone at a time.** Do not start the next production integration until the current production PR is merged or dropped.
+2. **One scoring hypothesis per milestone.** A milestone may improve hiring, evidence, recall, or UX, but not several unrelated surfaces at once.
+3. **Experiment before integration.** New data strategies start on consumed/small data. Spend a fresh cohort only after the small screen shows useful yield.
+4. **Fresh qualification is immutable.** Once a cohort is used, it is consumed. Fix generic bugs and validate on a new cohort when needed.
+5. **No merge on partial CI.** Required CI and milestone-specific checks must all pass on the exact PR head.
+6. **Drop low-yield work quickly.** A clean NO-GO is a successful milestone result.
+7. **Do not weaken identity for recall.** Exact-company evidence remains a hard publication boundary.
+8. **Keep temporary qualification code out of production PRs.** Final production PRs contain only production code, permanent tests, and permanent documentation.
+
+## Size limit for a micro milestone
+
+A normal micro milestone should aim for:
+
+- one branch;
+- one PR;
+- one primary fact/surface;
+- a small permanent diff (preferably <= 8 production/test/doc files);
+- focused tests first, then full CI;
+- one explicit KEEP / HARDEN / DROP decision.
+
+If a milestone starts requiring a second independent feature, split it before continuing.
+
+---
+
+## M0 — finish the active careers production gate
+
+**Status:** active now.
+
+Production PR: `#63 feat(v7-m2c): publish verified company-owned careers signals`
+
+Scope only:
+
+- exact verified homepage;
+- same-domain declared careers link;
+- `external.careers_page`;
+- canonical `hiring.careers_page`;
+- never reinterpret a careers page as an active job posting;
+- zero added production network requests.
+
+Already qualified on a fresh 100-company cohort:
+
+- 2 careers-signal companies;
+- 0 wrong-company publications;
+- 1,392 / 2,000 observed conservative request charge;
+- $0 third-party API cost.
+
+**Remaining gate:**
+
+1. Baseline CI passes on exact PR head.
+2. Refresh Contract Qualification passes on exact PR head.
+3. Merge PR #63 with expected-head SHA.
+4. Verify post-merge Baseline CI.
+5. Close the superseded experiment PR #61.
+
+**Stop rule:** do not start another production integration until M0 is complete.
+
+---
+
+## M1 — evidence polish, one field family at a time
+
+Goal: improve evaluator recoverability/traceability without new network sources.
+
+Split this into separate PRs if more than one change is needed:
+
+### M1a — date completeness audit
+
+- audit summary-visible facts for missing reporting/effective/publication dates;
+- add dates only where already present in source evidence;
+- no new collectors.
+
+Gate: zero orphan references, no invented dates, full contract/canonical tests.
+
+### M1b — evidence-span completeness audit
+
+- ensure summary-visible positive facts have source URL, retrieval time, span/hash where applicable;
+- do not rewrite unrelated claim schemas.
+
+Gate: deterministic evidence validator + full CI.
+
+Proceed to M1b only after M1a is merged or dropped.
+
+---
+
+## M2 — next recall source: screen before building
+
+Do **not** immediately create a production connector.
+
+### M2a — source shortlist only
+
+Compare at most three candidates using existing docs/public contracts:
+
+- exact identity route;
+- reuse/publication rights;
+- expected company reach;
+- request economics;
+- scored fact family unlocked.
+
+Output: one chosen source or a documented decision that none is worth implementing.
+
+### M2b — 10–20 company feasibility screen
+
+For the single chosen source:
+
+- no production integration;
+- exact-org identity only;
+- record requests, errors, candidate reach and publishable fact yield.
+
+Promotion threshold: enough non-zero company-level yield to justify a fresh qualification cohort.
+
+### M2c — fresh transfer qualification
+
+Only if M2b passes:
+
+- fresh zero-overlap cohort;
+- manual audit of every newly published fact/company;
+- zero material identity errors;
+- full request/cost accounting.
+
+### M2d — production integration
+
+Only after M2c passes:
+
+- minimal production diff;
+- permanent regressions;
+- exact-head CI;
+- merge and post-merge CI.
+
+---
+
+## M3 — website discovery revisit only with a genuinely new signal
+
+Do not repeat previously rejected strategies unchanged (`.com` guessing, tested ML/rule ranking, annual-report domain nomination, BRREG subunit website hints).
+
+### M3a — candidate-set proof
+
+Prove offline/on consumed data that the new signal produces candidate domains not already generated by production.
+
+### M3b — strict probe screen
+
+Independently fetch a small set and apply the unchanged exact-company publication gate.
+
+### M3c — fresh qualification
+
+Spend a fresh cohort only if M3b shows useful verified-site yield per charged request.
+
+If any stage is zero-yield, close the branch and stop.
+
+---
+
+## M4 — V6 UI integration, also split
+
+Do not merge the entire UI branch and backend changes together blindly.
+
+### M4a — rebase/compatibility
+
+- rebase `feature/v6-ui` onto current backend;
+- no visual redesign;
+- make the UI consume the current canonical/synthesis payload unchanged.
+
+### M4b — scoring surfaces
+
+Verify individually:
+
+- search/discovery;
+- company profile;
+- evidence drawer;
+- comparison;
+- changes;
+- explicit unknowns;
+- grounded Ask Signalpost.
+
+### M4c — browser verification
+
+- desktop;
+- 390px mobile;
+- no horizontal overflow;
+- no console errors;
+- primary interactions work.
+
+Only then open the final UI integration PR.
+
+---
+
+## M5 — final release freeze
+
+No feature development during this milestone.
+
+1. Freeze exact application SHA.
+2. Run evaluator-shaped 100-company qualification.
+3. Run final release-scale replay if required by the revision package.
+4. Verify output contract, canonical facts, synthesis, refresh, evidence, request budget, runtime, and $0 declaration.
+5. Build final product surface from the same outputs.
+6. Update submission manifest and revision email.
+7. Submit the pinned SHA.
+
+---
+
+## Current execution queue
+
+```text
+M0  careers production PR #63                 <- NOW
+    merge/drop + post-merge CI
+
+M1a date completeness audit
+M1b evidence-span completeness audit
+
+M2a choose exactly one next recall source
+M2b tiny source screen
+M2c fresh qualification (only if M2b passes)
+M2d production integration (only if M2c passes)
+
+M3  website discovery only if a genuinely new signal exists
+
+M4a UI rebase
+M4b UI scoring surfaces
+M4c browser verification
+
+M5  final freeze + revision submission
+```
+
+The core rule is simple: **finish or kill the current milestone before opening the next production milestone.**
