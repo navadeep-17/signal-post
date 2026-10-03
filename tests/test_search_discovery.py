@@ -5,8 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.discovery import (  # noqa: E402
+    build_company_search_queries,
     build_company_search_query,
     choose_search_candidate,
+    choose_search_candidates,
     parse_serpapi_web_results,
     qualify_search_discovered_website,
     score_search_candidate,
@@ -75,6 +77,24 @@ def test_search_query_requires_legal_name_and_org_number():
     assert build_company_search_query(profile()) == '"EXAMPLE BEDRIFT AS" 123456789 OSLO'
 
 
+def test_v9_search_queries_are_bounded_deterministic_and_keep_primary_first():
+    queries = build_company_search_queries(profile())
+    assert queries == [
+        '"EXAMPLE BEDRIFT AS" 123456789 OSLO',
+        '"EXAMPLE BEDRIFT AS" OSLO hjemmeside',
+        '"123456789" "EXAMPLE BEDRIFT AS"',
+    ]
+    assert build_company_search_queries(profile(), max_queries=1) == [queries[0]]
+
+
+def test_v9_search_queries_without_municipality_stay_unique():
+    queries = build_company_search_queries(profile(municipality=""))
+    assert queries == [
+        '"EXAMPLE BEDRIFT AS" 123456789',
+        '"123456789" "EXAMPLE BEDRIFT AS"',
+    ]
+
+
 def test_directory_result_is_never_a_company_site_candidate():
     item = score_search_candidate(
         profile(),
@@ -112,6 +132,64 @@ def test_candidate_selection_prefers_exact_company_hostname_and_search_evidence(
     ]
     decision = choose_search_candidate(profile(), results)
     assert decision["selected"]["url"] == "https://examplebedrift.no/"
+
+
+def test_v9_candidate_selection_keeps_two_distinct_domains_for_independent_verification():
+    results = [
+        {
+            "url": "https://examplebedrift.no/",
+            "title": "Example Bedrift AS",
+            "snippet": "Org nr 123 456 789 Oslo",
+            "rank": 2,
+            "provider": "serpapi_google",
+            "query": "q1",
+        },
+        {
+            "url": "https://www.examplebedrift.no/kontakt",
+            "title": "Example Bedrift AS",
+            "snippet": "Org nr 123 456 789 Oslo",
+            "rank": 1,
+            "provider": "serpapi_google",
+            "query": "q2",
+        },
+        {
+            "url": "https://example.com/",
+            "title": "Example Bedrift AS",
+            "snippet": "Org nr 123 456 789 Oslo",
+            "rank": 3,
+            "provider": "serpapi_google",
+            "query": "q3",
+        },
+    ]
+    decision = choose_search_candidates(profile(), results, limit=2)
+    selected_urls = [item["url"] for item in decision["selected"]]
+    assert len(selected_urls) == 2
+    assert sum("examplebedrift.no" in url for url in selected_urls) == 1
+    assert "https://example.com/" in selected_urls
+    assert decision["max_independent_crawls"] == 2
+
+
+def test_v9_search_rank_only_breaks_ties_after_identity_scoring():
+    results = [
+        {
+            "url": "https://example.com/",
+            "title": "Example Bedrift AS",
+            "snippet": "Org nr 123 456 789 Oslo",
+            "rank": 1,
+            "provider": "serpapi_google",
+            "query": "q",
+        },
+        {
+            "url": "https://examplebedrift.no/",
+            "title": "Example Bedrift AS",
+            "snippet": "Org nr 123 456 789 Oslo",
+            "rank": 9,
+            "provider": "serpapi_google",
+            "query": "q",
+        },
+    ]
+    decision = choose_search_candidates(profile(), results, limit=1)
+    assert decision["selected"][0]["url"] == "https://examplebedrift.no/"
 
 
 def test_exact_org_and_full_name_can_nominate_acronym_domain_for_crawl():

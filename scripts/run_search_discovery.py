@@ -17,14 +17,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.discovery import (  # noqa: E402
+    build_company_search_queries,
     build_company_search_query,
-    choose_search_candidate,
+    choose_search_candidates,
     parse_serpapi_web_results,
     qualify_search_discovered_website,
 )
 from norway_company_agent.evidence import evidence, utc_now  # noqa: E402
+from norway_company_agent.final_site_discovery import (  # noqa: E402
+    _has_conflicting_explicit_org_number,
+    fetch_bounded_homepage,
+)
 from norway_company_agent.identity import apply_website_identity_gate  # noqa: E402
-from norway_company_agent.website import fetch_website  # noqa: E402
 
 SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
 USER_AGENT = "builderr-signalpost-poc/0.1 (+https://builderr.ai)"
@@ -56,9 +60,10 @@ def serpapi_search(
     *,
     timeout: float,
     count: int,
+    query: str | None = None,
 ) -> tuple[list[dict], dict]:
     """Run one live search and return normalized results for in-memory scoring only."""
-    query = build_company_search_query(profile)
+    query = query or build_company_search_query(profile)
     params = {
         "engine": "google",
         "q": query,
@@ -123,15 +128,32 @@ def unresolved_for_search(profile: dict) -> bool:
     return not (website.get("status") == "available" and assessment.get("publishable"))
 
 
+def _conflict_quarantine(assessment: dict | None) -> dict:
+    base = dict(assessment or {})
+    return {
+        **base,
+        "status": "review",
+        "score": min(float(base.get("score") or 0.8), 0.8),
+        "publishable": False,
+        "reasons": [
+            *list(base.get("reasons") or []),
+            "V9 search candidate page contains an explicit organisation number for another entity without the target organisation number",
+        ],
+        "method": "v9_search_candidate_conflicting_org_guard_v1",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="H1b transient search discovery followed by independent exact-company site verification."
+        description="V9 transient search nomination followed by bounded independent exact-company site verification."
     )
-    parser.add_argument("--input", required=True, help="Profile JSONL, ideally after baseline/H1a")
+    parser.add_argument("--input", required=True, help="Profile JSONL, ideally after the current baseline website path")
     parser.add_argument("--output", required=True, help="Enriched profile JSONL")
     parser.add_argument("--report", required=True)
     parser.add_argument("--limit", type=int, default=20, help="Maximum unresolved profiles to query")
     parser.add_argument("--count", type=int, default=10, choices=range(1, 11), metavar="1..10")
+    parser.add_argument("--queries-per-company", type=int, default=2, choices=range(1, 4), metavar="1..3")
+    parser.add_argument("--candidate-crawls", type=int, default=2, choices=range(1, 3), metavar="1..2")
     parser.add_argument("--provider-timeout", type=float, default=10.0)
     parser.add_argument("--crawl-timeout", type=float, default=8.0)
     parser.add_argument("--min-interval", type=float, default=0.05)
@@ -181,24 +203,40 @@ def main() -> None:
             continue
 
         queried += 1
-        results, operation = serpapi_search(row, api_key, timeout=args.provider_timeout, count=args.count)
-        provider_requests += 1
-        provider_latencies.append(int(operation.get("latency_ms") or 0))
-        provider_bytes += int(operation.get("bytes") or 0)
-        if operation.get("error"):
-            counts["provider_errors"] += 1
-        elif int(operation.get("status") or 0) == 200:
-            provider_successes += 1
+        all_results: list[dict] = []
+        query_hashes: list[str] = []
+        provider_statuses: list[int] = []
+        queries = build_company_search_queries(row, max_queries=args.queries_per_company)
+        for query in queries:
+            results, operation = serpapi_search(
+                row,
+                api_key,
+                timeout=args.provider_timeout,
+                count=args.count,
+                query=query,
+            )
+            provider_requests += 1
+            provider_latencies.append(int(operation.get("latency_ms") or 0))
+            provider_bytes += int(operation.get("bytes") or 0)
+            query_hashes.append(str(operation.get("query_sha256") or ""))
+            provider_statuses.append(int(operation.get("status") or 0))
+            if operation.get("error"):
+                counts["provider_errors"] += 1
+            elif int(operation.get("status") or 0) == 200:
+                provider_successes += 1
+            all_results.extend(results)
+            time.sleep(args.min_interval)
 
-        decision = choose_search_candidate(row, results)
-        selected = decision.get("selected")
+        decision = choose_search_candidates(row, all_results, limit=args.candidate_crawls)
+        selected = list(decision.get("selected") or [])
         discovery_summary = {
             "provider": "serpapi_google",
             "provider_endpoint": SERPAPI_ENDPOINT,
-            "query_sha256": operation["query_sha256"],
-            "result_count": len(results),
-            "selected_for_independent_crawl": bool(selected),
-            "provider_status": operation["status"],
+            "query_sha256": query_hashes,
+            "query_count": len(queries),
+            "result_count": len(all_results),
+            "selected_candidate_count": len(selected),
+            "provider_statuses": provider_statuses,
             "raw_search_results_persisted": False,
             "retention_policy": "Provider title/snippet/rank/query text and raw response are transient and are not persisted as company evidence.",
         }
@@ -208,64 +246,88 @@ def main() -> None:
             row.setdefault("evidence", {})["website_search_discovery"] = evidence(
                 "website_search_discovery",
                 "not_found",
-                "transient_serpapi_search",
+                "transient_serpapi_search_v9",
                 SERPAPI_ENDPOINT,
                 value=discovery_summary,
                 note="No search result passed the crawl-candidate gate; provider result content was discarded.",
             )
-            time.sleep(args.min_interval)
             continue
 
-        website, web_ops = fetch_website(selected["url"], timeout=args.crawl_timeout)
-        crawl_requests += int(web_ops.get("requests") or 0)
-        crawl_bytes += int(web_ops.get("bytes") or 0)
-        crawl_latencies.extend(int(value) for value in web_ops.get("latencies_ms", []) if value is not None)
-        gated = apply_website_identity_gate(row, website)
-        website = gated["website"]
-        base_assessment = gated.get("assessment")
-        assessment = qualify_search_discovered_website(row, website, base_assessment)
-        if assessment is not base_assessment and assessment is not None:
-            (website.get("value") or {})["identity_assessment"] = assessment
+        verified_website: dict | None = None
+        verified_assessment: dict | None = None
+        independent_url: str | None = None
+        attempted_crawls = 0
 
-        website["source_type"] = "search_discovered_company_website"
-        website["source_class"] = "company_owned_candidate"
-        publishable = bool(assessment and assessment.get("publishable") and website.get("status") == "available")
-        independent_url = (website.get("value") or {}).get("final_url") or website.get("source_url")
+        for candidate in selected:
+            attempted_crawls += 1
+            website, web_ops = fetch_bounded_homepage(
+                candidate["url"],
+                source_type="search_discovered_company_website",
+                timeout=args.crawl_timeout,
+            )
+            crawl_requests += int(web_ops.get("requests") or 0)
+            crawl_bytes += int(web_ops.get("bytes") or 0)
+            crawl_latencies.extend(int(value) for value in web_ops.get("latencies_ms", []) if value is not None)
+
+            gated = apply_website_identity_gate(row, website)
+            website = gated["website"]
+            base_assessment = gated.get("assessment")
+            assessment = qualify_search_discovered_website(row, website, base_assessment)
+            if assessment and assessment.get("publishable") and _has_conflicting_explicit_org_number(row, website):
+                assessment = _conflict_quarantine(assessment)
+            if assessment is not None:
+                (website.get("value") or {})["identity_assessment"] = assessment
+
+            website["source_type"] = "search_discovered_company_website"
+            website["source_class"] = "company_owned_candidate"
+            publishable = bool(assessment and assessment.get("publishable") and website.get("status") == "available")
+            counts["independent_crawls"] += 1
+            if publishable:
+                verified_website = website
+                verified_assessment = assessment
+                independent_url = (website.get("value") or {}).get("final_url") or website.get("source_url")
+                counts["verified_sites"] += 1
+                break
+            counts["quarantined_sites"] += 1
+            time.sleep(args.min_interval)
+
+        discovery_summary["independent_crawl_attempts"] = attempted_crawls
+        discovery_summary["verified_after_independent_crawl"] = verified_website is not None
+        if verified_website is not None:
+            discovery_summary["independent_page_url"] = independent_url
+            discovery_summary["independent_identity_status"] = (verified_assessment or {}).get("status")
+            discovery_summary["independent_identity_score"] = (verified_assessment or {}).get("score")
+
         row.setdefault("evidence", {})["website_search_discovery"] = evidence(
             "website_search_discovery",
-            "available" if publishable else "not_found",
-            "transient_serpapi_search_then_independent_crawl",
+            "available" if verified_website is not None else "not_found",
+            "transient_serpapi_search_then_independent_bounded_crawl_v9",
             SERPAPI_ENDPOINT,
-            value={
-                **discovery_summary,
-                "independent_page_url": independent_url if publishable else None,
-                "independent_identity_status": (assessment or {}).get("status"),
-                "independent_identity_score": (assessment or {}).get("score"),
-            },
+            value=discovery_summary,
             note="Search output was transient. Publication depends only on independently fetched exact-company page evidence.",
         )
-        row["evidence"]["website_search_candidate"] = website
-        counts["independent_crawls"] += 1
-        if publishable:
-            counts["verified_sites"] += 1
+
+        # Do not persist quarantined candidate pages under the target company. Only an
+        # independently verified exact-company page is eligible to enter profile evidence.
+        if verified_website is not None:
+            row["evidence"]["website_search_candidate"] = verified_website
             if args.promote_verified:
-                row["evidence"]["website"] = website
+                row["evidence"]["website"] = verified_website
                 row["website"] = independent_url or ""
                 counts["promoted_sites"] += 1
-        else:
-            counts["quarantined_sites"] += 1
-        time.sleep(args.min_interval)
 
     write_jsonl(Path(args.output), rows)
     declared_cost = round(provider_successes * cost_per_search, 6)
     report = {
         "generated_at": utc_now(),
         "started_at": started_at,
-        "method": "H1b transient SerpApi candidate search -> independent crawl -> page-level exact-company gate",
+        "method": "V9 bounded transient SerpApi query set -> domain-deduped candidates -> independent bounded crawl -> exact-company gate",
         "provider": "SerpApi Google Search API",
         "provider_endpoint": SERPAPI_ENDPOINT,
         "input_profiles": len(rows),
         "queried_unresolved_profiles": queried,
+        "queries_per_company_max": args.queries_per_company,
+        "candidate_crawls_per_company_max": args.candidate_crawls,
         "counts": dict(sorted(counts.items())),
         "operations": {
             "provider_requests": provider_requests,
@@ -282,8 +344,9 @@ def main() -> None:
             "wall_runtime_ms": int((time.monotonic() - wall_started) * 1000),
         },
         "raw_search_results_persisted": False,
+        "quarantined_candidate_pages_persisted": False,
         "promote_verified_enabled": args.promote_verified,
-        "qualification": "experiment_only_pending_live_frozen_audit_and_provider-plan-rights_record",
+        "qualification": "experiment_only_pending_fresh_live_20_company_audit_and_provider_credentials",
     }
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)

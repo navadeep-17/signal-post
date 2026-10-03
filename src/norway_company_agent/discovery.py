@@ -5,7 +5,7 @@ import unicodedata
 import urllib.parse
 from typing import Any
 
-from .website import normalize_homepage
+from .website import _registered_domain, normalize_homepage
 
 
 BLOCKED_DISCOVERY_HOSTS = {
@@ -25,6 +25,41 @@ def build_company_search_query(profile: dict[str, Any]) -> str:
         raise ValueError("Company discovery requires a legal name and organisation number")
     location = f" {municipality}" if municipality else ""
     return f'"{name}" {org}{location}'
+
+
+def build_company_search_queries(profile: dict[str, Any], *, max_queries: int = 3) -> list[str]:
+    """Build a small deterministic query set for transient candidate nomination only.
+
+    The first query preserves the original exact-name + organisation-number strategy.
+    Additional queries deliberately trade search-result strictness for discovery recall;
+    they never weaken publication because every nominated destination still requires an
+    independent fetch and exact-company page proof.
+    """
+    if max_queries < 1:
+        raise ValueError("max_queries must be positive")
+
+    name = " ".join(str(profile.get("name") or "").split())
+    org = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    municipality = " ".join(str(profile.get("municipality") or "").split())
+    if not name or not org:
+        raise ValueError("Company discovery requires a legal name and organisation number")
+
+    candidates = [build_company_search_query(profile)]
+    if municipality:
+        candidates.append(f'"{name}" {municipality} hjemmeside')
+    candidates.append(f'"{org}" "{name}"')
+
+    queries: list[str] = []
+    seen: set[str] = set()
+    for query in candidates:
+        normalized = " ".join(query.split())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        queries.append(normalized)
+        if len(queries) >= max_queries:
+            break
+    return queries
 
 
 def _normalized_result(
@@ -187,25 +222,74 @@ def score_search_candidate(profile: dict[str, Any], result: dict[str, Any]) -> d
     }
 
 
-def choose_search_candidate(profile: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
-    assessed = [score_search_candidate(profile, result) for result in results]
-    # Search rank is not an identity signal. When scores tie, prefer a legal-name-aligned
-    # hostname before the provider's rank; acronym domains remain eligible when they are
-    # the strongest exact-org/full-name result available.
-    assessed.sort(
-        key=lambda item: (
-            -item.get("score", 0.0),
-            -int(bool(item.get("host_name_match"))),
-            item.get("rank") or 10_000,
-            item.get("url") or "",
-        )
+def _candidate_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        -float(item.get("score") or 0.0),
+        -int(bool(item.get("host_name_match"))),
+        int(item.get("rank") or 10_000),
+        str(item.get("url") or ""),
     )
-    accepted = [item for item in assessed if item.get("publishable_candidate")]
+
+
+def _candidate_domain_key(item: dict[str, Any]) -> str:
+    normalized = normalize_homepage(item.get("url"))
+    if not normalized:
+        return ""
+    domain = _registered_domain(normalized)
+    if domain:
+        return domain.casefold()
+    return (urllib.parse.urlparse(normalized).hostname or "").casefold().removeprefix("www.")
+
+
+def choose_search_candidates(
+    profile: dict[str, Any],
+    results: list[dict[str, Any]],
+    *,
+    limit: int = 2,
+) -> dict[str, Any]:
+    """Choose a small domain-deduplicated set of independently crawlable candidates.
+
+    Search rank is only a deterministic tie-breaker after identity-oriented scoring. At
+    most one URL per registered domain survives, preventing repeated crawls of the same
+    company domain when several query variants return different pages.
+    """
+    if limit < 1:
+        raise ValueError("limit must be positive")
+
+    assessed = [score_search_candidate(profile, result) for result in results]
+    assessed.sort(key=_candidate_sort_key)
+
+    selected: list[dict[str, Any]] = []
+    seen_domains: set[str] = set()
+    for item in assessed:
+        if not item.get("publishable_candidate"):
+            continue
+        domain_key = _candidate_domain_key(item)
+        if not domain_key or domain_key in seen_domains:
+            continue
+        seen_domains.add(domain_key)
+        selected.append(item)
+        if len(selected) >= limit:
+            break
+
     return {
-        "selected": accepted[0] if accepted else None,
+        "selected": selected,
         "candidates": assessed,
-        "abstained": not accepted,
-        "policy": "A search result is only a crawl candidate. Publication still requires fetched-page exact-entity verification.",
+        "abstained": not selected,
+        "max_independent_crawls": limit,
+        "policy": "Search results are transient crawl candidates only. Publication still requires independently fetched exact-company verification.",
+    }
+
+
+def choose_search_candidate(profile: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Backward-compatible single-candidate view over the V9 bounded candidate selector."""
+    decision = choose_search_candidates(profile, results, limit=1)
+    selected = decision["selected"]
+    return {
+        "selected": selected[0] if selected else None,
+        "candidates": decision["candidates"],
+        "abstained": decision["abstained"],
+        "policy": decision["policy"],
     }
 
 
