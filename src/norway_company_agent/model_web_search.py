@@ -4,8 +4,12 @@ import hashlib
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
+
+from .discovery import BLOCKED_DISCOVERY_HOSTS
+from .website import _registered_domain, normalize_homepage
 
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 DEFAULT_WEB_SEARCH_MODEL = "gpt-6-luna"
@@ -64,6 +68,44 @@ def _citation_urls(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
                     }
                 )
     return results, "\n".join(texts)
+
+
+def choose_model_url_candidates(results: list[dict[str, Any]], *, limit: int = 2) -> list[dict[str, Any]]:
+    """Treat model citations as untrusted URL nominations and nothing more.
+
+    No model text, citation title, rank or search result is an identity signal. This stage
+    only validates HTTP(S), rejects known directory/social hosts and deduplicates by
+    registered domain. The independently fetched destination page must later prove the
+    exact legal entity before any website or downstream fact can be published.
+    """
+    if limit < 1:
+        raise ValueError("limit must be positive")
+
+    selected: list[dict[str, Any]] = []
+    seen_domains: set[str] = set()
+    for item in sorted(results, key=lambda value: (int(value.get("rank") or 10_000), str(value.get("url") or ""))):
+        normalized = normalize_homepage(item.get("url"))
+        if not normalized:
+            continue
+        host = (urllib.parse.urlparse(normalized).hostname or "").casefold().removeprefix("www.")
+        if any(host == blocked or host.endswith("." + blocked) for blocked in BLOCKED_DISCOVERY_HOSTS):
+            continue
+        domain = (_registered_domain(normalized) or host).casefold()
+        if not domain or domain in seen_domains:
+            continue
+        seen_domains.add(domain)
+        selected.append(
+            {
+                "url": normalized,
+                "host": host,
+                "rank": item.get("rank"),
+                "provider": item.get("provider") or "model_web_search",
+                "method": "untrusted_model_url_nomination_v1",
+            }
+        )
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def openai_web_search_candidates(
