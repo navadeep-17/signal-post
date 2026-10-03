@@ -71,9 +71,20 @@ def _robots_allowed(candidate_url: str, *, timeout: float) -> tuple[bool, dict[s
     except Exception as exc:
         metrics["latencies_ms"].append(int((time.monotonic() - started) * 1000))
         metrics["errors"].append(f"robots:{type(exc).__name__}:{str(exc)[:120]}")
-        # Match the current production website policy: an unavailable robots file does not
-        # by itself block one ordinary public GET.
         return True, metrics
+
+
+def _bounded_visible_text(soup: BeautifulSoup, *, limit: int = 20000) -> str:
+    """Return bounded page-visible text for robust section qualification.
+
+    Trafilatura is intentionally precision-biased and can omit navigation/hero text on
+    modern corporate pages. Careers-page qualification is a coarse presence signal, so a
+    bounded BeautifulSoup fallback is appropriate after the exact-site/domain gate has
+    already succeeded.
+    """
+    for node in soup(["script", "style", "noscript", "svg"]):
+        node.decompose()
+    return " ".join(soup.get_text(" ", strip=True).split())[:limit]
 
 
 def qualify_careers_html(
@@ -91,14 +102,15 @@ def qualify_careers_html(
     html = raw.decode("utf-8", errors="replace")
     soup = BeautifulSoup(html, "lxml")
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
-    text = trafilatura.extract(
+    article_text = trafilatura.extract(
         html,
         url=final_url,
         include_links=False,
         include_tables=False,
         favor_precision=True,
     ) or ""
-    searchable = " ".join((title, text))
+    visible_text = _bounded_visible_text(soup)
+    searchable = " ".join((title, article_text[:12000], visible_text))
     marker = next((item for item in CAREERS_MARKERS if re.search(re.escape(item), searchable, re.IGNORECASE)), None)
     if not marker:
         return None
