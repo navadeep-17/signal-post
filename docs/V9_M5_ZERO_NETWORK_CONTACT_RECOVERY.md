@@ -86,6 +86,6 @@ Do not add this recovery to V8/V9 production solely because it is zero-network. 
 
 Revisit only if a future website-discovery milestone materially increases the number of exact websites whose publication genuinely depends on retained secondary identity pages.
 
-Final experiment head before PR closure: `299a503045f7571718c3b6747593ce3f6581e8d3`.
+Final experiment head before closure verification: `925661afaf36cadf2cd41b23891bfda782378bbe`.
 
-Final Baseline CI: run `37115876569` — **success**.
+Final Baseline CI: run `37115998041` — **success**.
