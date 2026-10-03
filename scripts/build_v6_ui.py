@@ -145,7 +145,14 @@ def build_v6_html(rows: list[dict[str, Any]], title: str = "Signalpost — evide
     )
     js = "\n".join(
         (ASSET_DIR / filename).read_text(encoding="utf-8")
-        for filename in ("payload_hydrate.js", "app_core.js", "app_views.js", "app_decision_brief.js", "app_polish.js")
+        for filename in (
+            "payload_hydrate.js",
+            "app_core.js",
+            "app_views.js",
+            "app_decision_brief.js",
+            "app_careers_signal.js",
+            "app_polish.js",
+        )
     )
     js = js.replace("const DATA=__PAYLOAD__;", "const DATA=hydrateSignalpostPayload(__PAYLOAD__);")
     return (
@@ -194,6 +201,7 @@ def main() -> None:
         "grounded_ask": True,
         "responsive": True,
         "decision_brief": True,
+        "careers_signal_ui": True,
     }, indent=2))
 
 
