@@ -62,7 +62,9 @@ def test_v6_pools_evidence_without_changing_runtime_contract() -> None:
         for item in decision.values():
             assert "key" not in item
             assert "evidence" not in item
-            for evidence_id in item.get("evidenceRefs", []):
+            assert "evidenceRefs" not in item
+            assert "dates" not in item
+            for evidence_id in item.get("e", []):
                 assert evidence_id in pooled["evidence"]
 
 
