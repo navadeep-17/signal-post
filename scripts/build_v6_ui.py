@@ -44,16 +44,41 @@ def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
                 output.append(key)
         return output
 
+    def decision_refs(rows: list[dict[str, Any]] | None) -> tuple[list[str], dict[str, dict[str, Any]]]:
+        output: list[str] = []
+        meta: dict[str, dict[str, Any]] = {}
+        trace_only_fields = ("effectiveAt", "publishedDate", "reportingPeriod")
+        for item in rows or []:
+            if not isinstance(item, dict):
+                continue
+            key = _evidence_key(item)
+            shared = {field: value for field, value in item.items() if field not in trace_only_fields}
+            pool.setdefault(key, shared)
+            if key not in output:
+                output.append(key)
+            trace_meta = {field: item.get(field) for field in trace_only_fields if item.get(field) is not None}
+            if trace_meta:
+                meta[key] = trace_meta
+        return output, meta
+
     for company in packed:
         for facts in (company.get("areas") or {}).values():
             for fact in facts or []:
                 if not isinstance(fact, dict):
                     continue
                 fact["evidenceRefs"] = refs(fact.pop("evidence", None))
-        for section in ((company.get("synthesis") or {}).get("sections") or []):
+        synthesis = company.get("synthesis") or {}
+        for section in synthesis.get("sections") or []:
             if not isinstance(section, dict):
                 continue
             section["sourceRefs"] = refs(section.pop("sources", None))
+        for item in (synthesis.get("decisionBrief") or {}).values():
+            if not isinstance(item, dict):
+                continue
+            evidence_refs, evidence_meta = decision_refs(item.pop("evidence", None))
+            item["evidenceRefs"] = evidence_refs
+            if evidence_meta:
+                item["evidenceMeta"] = evidence_meta
 
     return {
         "format": V6_PAYLOAD_FORMAT,
