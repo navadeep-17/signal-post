@@ -7,6 +7,9 @@ on:
     paths:
       - .github/workflows/v7-m2c-debug.yml
 
+permissions:
+  contents: write
+
 jobs:
   isolate:
     runs-on: ubuntu-latest
@@ -20,27 +23,23 @@ jobs:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
-      # Re-run the exact compatibility slice after removing network-capable PSL lookup from M2C.
-      - name: output contract
-        continue-on-error: true
-        run: uv run --with pytest pytest -q tests/test_output_contract.py
-      - name: canonical projection
-        continue-on-error: true
-        run: uv run --with pytest pytest -q tests/test_canonical_projection.py
-      - name: synthesis
-        continue-on-error: true
-        run: uv run --with pytest pytest -q tests/test_synthesis.py
-      - name: v7 synthesis decision brief
-        continue-on-error: true
-        run: uv run --with pytest pytest -q tests/test_v7_synthesis_decision_brief.py
-      - name: m2c focused
-        continue-on-error: true
-        run: uv run --with pytest pytest -q tests/test_v7_m2c_production.py
-      - name: Finish with explicit compatibility gate
+      - name: Capture combined compatibility failure
+        shell: bash
         run: |
+          set +e
           uv run --with pytest pytest -q \
             tests/test_output_contract.py \
             tests/test_canonical_projection.py \
             tests/test_synthesis.py \
             tests/test_v7_synthesis_decision_brief.py \
-            tests/test_v7_m2c_production.py
+            tests/test_v7_m2c_production.py > docs/m2c-combined-failure.txt 2>&1
+          status=$?
+          cat docs/m2c-combined-failure.txt
+          if [ "$status" -ne 0 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -f docs/m2c-combined-failure.txt
+            git commit -m "test(v7-m2c): capture combined compatibility failure"
+            git push origin HEAD:feature/v7-m2c-careers-production
+            exit "$status"
+          fi
