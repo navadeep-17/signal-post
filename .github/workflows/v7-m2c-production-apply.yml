@@ -34,13 +34,7 @@ jobs:
       - name: Apply isolated M2C production patch
         run: python scripts/apply_v7_m2c_production_patch.py
 
-      - name: Run focused M2C regressions
-        run: uv run --with pytest pytest -q tests/test_v7_m2c_production.py
-
-      - name: Run full repository regression suite
-        run: uv run --with pytest pytest -q
-
-      - name: Commit verified production changes
+      - name: Preserve generated patch on feature branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -55,3 +49,9 @@ jobs:
           git diff --cached --check
           git commit -m "feat(v7-m2c): promote zero-request careers signals"
           git push origin HEAD:feature/v7-m2c-careers-production
+
+      - name: Run focused M2C regressions
+        run: uv run --with pytest pytest -q tests/test_v7_m2c_production.py
+
+      - name: Run full repository regression suite
+        run: uv run --with pytest pytest -q
