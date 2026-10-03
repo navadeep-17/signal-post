@@ -6,8 +6,6 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from .website import _registered_domain
-
 CAREERS_TERMS = (
     "career",
     "careers",
@@ -24,13 +22,27 @@ CAREERS_TERMS = (
 )
 
 
-def _same_registered_domain(left: str, right: str) -> bool:
+def _normalized_host(url: str) -> str:
     try:
-        a = _registered_domain(left)
-        b = _registered_domain(right)
-    except Exception:
+        host = (urllib.parse.urlparse(url).hostname or "").casefold().rstrip(".")
+    except ValueError:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _same_company_host(left: str, right: str) -> bool:
+    """Conservatively compare already-verified first-party hosts without PSL/network I/O.
+
+    Exact root/www matches and direct parent/subdomain relationships are accepted. Sibling
+    subdomains intentionally abstain rather than requiring a public-suffix lookup.
+    """
+    a = _normalized_host(left)
+    b = _normalized_host(right)
+    if not a or not b:
         return False
-    return bool(a and b and a == b)
+    return a == b or a.endswith("." + b) or b.endswith("." + a)
 
 
 def extract_careers_links(
@@ -40,12 +52,12 @@ def extract_careers_links(
     soup: BeautifulSoup,
     homepage_content_sha256: str,
 ) -> list[dict[str, Any]]:
-    """Return explicit same-domain careers surfaces declared by a verified homepage.
+    """Return explicit same-company-host careers surfaces declared by a verified homepage.
 
     This is a narrow hiring-presence signal only. It never claims an active vacancy and
     never follows or fetches the careers link. External ATS/job-board links are excluded.
     """
-    if not _same_registered_domain(final_url, verified_url):
+    if not _same_company_host(final_url, verified_url):
         return []
 
     seen: set[str] = set()
@@ -64,7 +76,7 @@ def extract_careers_links(
         normalized = urllib.parse.urlunparse(
             (parsed.scheme, parsed.netloc, parsed.path or "/", "", parsed.query, "")
         )
-        if normalized in seen or not _same_registered_domain(normalized, verified_url):
+        if normalized in seen or not _same_company_host(normalized, verified_url):
             continue
         anchor_text = " ".join(anchor.get_text(" ", strip=True).split())
         haystack = urllib.parse.unquote(f"{parsed.path} {anchor_text}").casefold()
@@ -84,7 +96,7 @@ def extract_careers_links(
                 "homepage_content_sha256": homepage_content_sha256,
                 "evidence_span": f"Homepage link: {anchor_text or normalized}"[:500],
                 "claim_scope": (
-                    "Exact verified company homepage explicitly links to a same-domain careers/hiring surface. "
+                    "Exact verified company homepage explicitly links to a same-company-host careers/hiring surface. "
                     "This is a hiring-presence signal only and does not assert an active vacancy."
                 ),
             }
