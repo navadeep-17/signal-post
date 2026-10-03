@@ -31,6 +31,8 @@ def _rows(limit: int | None = None) -> list[dict]:
 
 def test_v6_pools_evidence_without_changing_runtime_contract() -> None:
     companies = [compact_company_v6(row) for row in _rows(4)]
+    assert all("decisionBrief" in company["synthesis"] for company in companies)
+
     raw_bytes = len(json.dumps(companies, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
     pooled = _pool_evidence_payload(companies)
     pooled_bytes = len(json.dumps(pooled, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -46,13 +48,9 @@ def test_v6_pools_evidence_without_changing_runtime_contract() -> None:
         for section in company["synthesis"]["sections"]:
             assert "sources" not in section
             assert "sourceRefs" in section
-        for item in company["synthesis"]["decisionBrief"].values():
-            if not isinstance(item, dict):
-                continue
-            assert "evidence" not in item
-            assert "evidenceRefs" in item
-            for evidence_id in item["evidenceRefs"]:
-                assert evidence_id in pooled["evidence"]
+        # The imported V6 workspace does not render the V7 decision brief yet.
+        # Keep the adapter boundary rich, but do not ship dead payload bytes until M4b.
+        assert "decisionBrief" not in company["synthesis"]
 
 
 def test_v6_full_certified_workspace_is_materially_smaller_than_v2() -> None:
