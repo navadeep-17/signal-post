@@ -1,0 +1,289 @@
+name: V9 M1c Model Search Qualification
+
+# Intentionally manual-only. Do not trigger until Builderr confirms the evaluator
+# provider/key contract and exact external API budget.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Must equal BUILDR_PROVIDER_AND_BUDGET_CONFIRMED'
+        required: true
+        default: 'NOT_CONFIRMED'
+        type: string
+      model:
+        description: 'Builderr-confirmed OpenAI Responses web-search model'
+        required: true
+        default: 'UNCONFIRMED'
+        type: string
+      api_key_secret_name:
+        description: 'Repository secret containing the temporary qualification API key'
+        required: true
+        default: 'SIGNALPOST_MODEL_API_KEY'
+        type: string
+      max_external_cost_usd:
+        description: 'Builderr-confirmed max external API cost for this qualification run'
+        required: true
+        default: '0'
+        type: string
+      web_search_usd_per_call:
+        description: 'Confirmed provider price per web-search tool call'
+        required: true
+        default: '0.01'
+        type: string
+      input_usd_per_million:
+        description: 'Confirmed model input-token price per 1M tokens'
+        required: true
+        default: '0.05'
+        type: string
+      output_usd_per_million:
+        description: 'Confirmed model output-token price per 1M tokens'
+        required: true
+        default: '0.25'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m1c-model-search-qualification
+  cancel-in-progress: false
+
+jobs:
+  fresh-model-search-20:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      MODEL_API_KEY: ${{ secrets[inputs.api_key_secret_name] }}
+      HISTORICAL_EXCLUDE_SHA256: 5f5560498fa22a15a24a74ab05ebbba820cc20cf9a164cd5fa007ee898deb17c
+      CAREERS_TRANSFER_SHA256: 1d50c3eddb91004c6413ffd263e25b166b9ec822cceae9c9bb8c0908edd997b3
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce explicit provider and budget confirmation
+        run: |
+          set -euo pipefail
+          test '${{ inputs.confirmation }}' = 'BUILDR_PROVIDER_AND_BUDGET_CONFIRMED'
+          test '${{ inputs.model }}' != 'UNCONFIRMED'
+          test -n "$MODEL_API_KEY"
+          python - <<'PY'
+          values = {
+              'max_external_cost_usd': '${{ inputs.max_external_cost_usd }}',
+              'web_search_usd_per_call': '${{ inputs.web_search_usd_per_call }}',
+              'input_usd_per_million': '${{ inputs.input_usd_per_million }}',
+              'output_usd_per_million': '${{ inputs.output_usd_per_million }}',
+          }
+          parsed = {key: float(value) for key, value in values.items()}
+          assert parsed['max_external_cost_usd'] > 0, parsed
+          assert min(parsed.values()) >= 0, parsed
+          print({'provider_contract_confirmed': True, **parsed})
+          PY
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies and run focused readiness regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_v9_model_web_search.py \
+            tests/test_v9_search_runner_safety.py \
+            tests/test_v9_m1c_unresolved_cohort.py \
+            tests/test_v9_m1c_qualification_summary.py
+
+      - name: Download public universe and current BRREG bulk
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Restore historical manifests through V6i
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p archived/h2e archived/h2g1 archived/h2g2 archived/v4screen archived/v4narrative archived/v5 archived/v6rejected archived/v6c archived/v6ddev archived/v6dtransfer archived/v6e archived/v6i archived/m2c
+          gh run download 35051402737 --repo navadeep-17/signal-post --name h2e-registry-workforce-qualification --dir archived/h2e
+          gh run download 35092456045 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification --dir archived/h2g1
+          gh run download 35104937900 --repo navadeep-17/signal-post --name h2g-annual-workforce-qualification-v2 --dir archived/h2g2
+          gh run download 36873654739 --repo navadeep-17/signal-post --name v4-official-source-screen --dir archived/v4screen
+          gh run download 36884650475 --repo navadeep-17/signal-post --name v4-registry-narrative-fresh-qualification --dir archived/v4narrative
+          gh run download 36892430561 --repo navadeep-17/signal-post --name v5-brreg-change-production-qualification --dir archived/v5
+          gh run download 36912683196 --repo navadeep-17/signal-post --name v6-domain-recall-development --dir archived/v6rejected
+          gh run download 36963913555 --repo navadeep-17/signal-post --name v6c-candidate-ranking-development --dir archived/v6c
+          gh run download 36967544569 --repo navadeep-17/signal-post --name v6d-first-party-depth-development --dir archived/v6ddev
+          gh run download 36978734059 --repo navadeep-17/signal-post --name v6d-first-party-depth-transfer --dir archived/v6dtransfer
+          gh run download 36995728296 --repo navadeep-17/signal-post --name v6e-zero-network-social-transfer --dir archived/v6e
+          gh run download 37050077407 --repo navadeep-17/signal-post --name v6i-registry-contact-transfer --dir archived/v6i
+          gh run download 37094118245 --repo navadeep-17/signal-post --name v7-m2c-homepage-careers-transfer --dir archived/m2c
+          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          test -s archived/m2c/v7-m2c-transfer-100.jsonl
+          echo "$CAREERS_TRANSFER_SHA256  archived/m2c/v7-m2c-transfer-100.jsonl" | sha256sum -c -
+
+      - name: Recreate exact 7920-company historical exclusion chain
+        run: |
+          set -euo pipefail
+          uv run python scripts/freeze_final_release_1000.py \
+            --universe signalpost-universe.jsonl.gz \
+            --h1e-recovered historical-h1e-fresh-300-exclusion.jsonl \
+            --h2e archived/h2e/fresh-h2e-300.jsonl \
+            --h2g1 archived/h2g1/fresh-h2g-300.jsonl \
+            --h2g2 archived/h2g2/fresh-h2g-v2-300.jsonl \
+            --output-dir release-freeze --release-seed 20261002
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  release-freeze/final-release-1000.jsonl' | sha256sum -c -
+          cat release-freeze/exclude-5900.jsonl release-freeze/final-release-1000.jsonl > exclude-6900.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-6900.jsonl --count 100 --seed 20261003 --evaluation-split v3a --sample-slice v3a --output v3a.jsonl --report v3a.json
+          cat exclude-6900.jsonl v3a.jsonl > exclude-7000.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7000.jsonl --count 100 --seed 20261004 --evaluation-split v3b --sample-slice v3b --output v3b.jsonl --report v3b.json
+          cat exclude-7000.jsonl v3b.jsonl > exclude-7100.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py --universe signalpost-universe.jsonl.gz --exclude exclude-7100.jsonl --count 100 --seed 20261005 --evaluation-split v3c --sample-slice v3c --output v3c.jsonl --report v3c.json
+          cat exclude-7100.jsonl v3c.jsonl > exclude-7200.jsonl
+          cat exclude-7200.jsonl archived/v4screen/v4-source-screen-20.jsonl > exclude-7220.jsonl
+          cat exclude-7220.jsonl archived/v4narrative/v4-registry-fresh-100.jsonl > exclude-7320.jsonl
+          cat exclude-7320.jsonl archived/v5/v5-change-fresh-100.jsonl > exclude-7420.jsonl
+          cat exclude-7420.jsonl archived/v6rejected/v6-dev-50.jsonl > exclude-7470.jsonl
+          cat exclude-7470.jsonl archived/v6c/v6c-dev-50.jsonl > exclude-7520.jsonl
+          cat exclude-7520.jsonl archived/v6ddev/v6d-dev-100.jsonl > exclude-7620.jsonl
+          cat exclude-7620.jsonl archived/v6dtransfer/v6d-transfer-100.jsonl > exclude-7720.jsonl
+          cat exclude-7720.jsonl archived/v6e/v6e-transfer-100.jsonl > exclude-7820.jsonl
+          cat exclude-7820.jsonl archived/v6i/v6i-transfer-100.jsonl > exclude-7920.jsonl
+          echo "$HISTORICAL_EXCLUDE_SHA256  exclude-7920.jsonl" | sha256sum -c -
+
+      - name: Extend exclusion through frozen V7 careers cohort
+        run: |
+          set -euo pipefail
+          cat exclude-7920.jsonl archived/m2c/v7-m2c-transfer-100.jsonl > exclude-8020.jsonl
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          path=Path('exclude-8020.jsonl')
+          rows=[json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+          orgs=[str(row['organisation_number']) for row in rows]
+          assert len(rows)==8020 and len(set(orgs))==8020, (len(rows),len(set(orgs)))
+          digest=hashlib.sha256(path.read_bytes()).hexdigest()
+          Path('exclude-8020.sha256').write_text(digest+'  exclude-8020.jsonl\n')
+          print({'historical_exclusions':8020,'unique':8020,'sha256':digest})
+          PY
+
+      - name: Freeze fresh disjoint 40-company screening pool
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude exclude-8020.jsonl \
+            --count 40 --seed 20261016 \
+            --evaluation-split v9_m1c_model_search_pool \
+            --sample-slice unseen_after_v7_m2c \
+            --output v9-m1c-fresh-pool-40.jsonl \
+            --report v9-m1c-fresh-pool-40-selection.json
+          uv run python - <<'PY'
+          import json
+          report=json.load(open('v9-m1c-fresh-pool-40-selection.json'))
+          assert report['count']==40 and report['overlap_count']==0 and report['excluded_rows']==8020, report
+          print(json.dumps(report,indent=2))
+          PY
+          sha256sum v9-m1c-fresh-pool-40.jsonl > v9-m1c-fresh-pool-40.sha256
+
+      - name: Run incumbent website-only screen and freeze 20 unresolved companies
+        run: |
+          mkdir -p out/v9-m1c
+          uv run python scripts/prepare_v9_m1c_unresolved_cohort.py \
+            --organisations v9-m1c-fresh-pool-40.jsonl \
+            --bulk brreg-enheter.csv \
+            --baseline-profiles out/v9-m1c/incumbent-pool-40.jsonl \
+            --unresolved-output out/v9-m1c/unresolved-20.jsonl \
+            --report out/v9-m1c/cohort-report.json \
+            --target-unresolved 20 \
+            --site-timeout 6 \
+            --wikidata-timeout 8
+          test "$(wc -l < out/v9-m1c/unresolved-20.jsonl)" -eq 20
+          sha256sum out/v9-m1c/unresolved-20.jsonl > out/v9-m1c/unresolved-20.sha256
+
+      - name: Run Builderr-confirmed model web-search experiment
+        env:
+          SIGNALPOST_MODEL_API_KEY: ${{ env.MODEL_API_KEY }}
+        run: |
+          uv run python scripts/run_model_search_discovery.py \
+            --input out/v9-m1c/unresolved-20.jsonl \
+            --output out/v9-m1c/model-search-output.jsonl \
+            --report out/v9-m1c/model-search-report.json \
+            --limit 20 \
+            --candidate-crawls 2 \
+            --provider-candidates 5 \
+            --provider-timeout 20 \
+            --crawl-timeout 8 \
+            --min-interval 0.05 \
+            --promote-verified \
+            --api-key-env SIGNALPOST_MODEL_API_KEY \
+            --model '${{ inputs.model }}' \
+            --web-search-usd-per-call '${{ inputs.web_search_usd_per_call }}' \
+            --input-usd-per-million '${{ inputs.input_usd_per_million }}' \
+            --output-usd-per-million '${{ inputs.output_usd_per_million }}'
+
+      - name: Build provisional GO HOLD NO-GO result
+        run: |
+          uv run python scripts/summarize_v9_m1c_qualification.py \
+            --cohort-report out/v9-m1c/cohort-report.json \
+            --discovery-report out/v9-m1c/model-search-report.json \
+            --output out/v9-m1c/model-search-output.jsonl \
+            --summary out/v9-m1c/qualification-summary.json \
+            --manual-review out/v9-m1c/manual-accepted-site-review.jsonl \
+            --max-external-cost-usd '${{ inputs.max_external_cost_usd }}' \
+            --expected-queries 20
+
+      - name: Verify zero overlap and immutable safety boundaries
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          excluded={str(json.loads(x)['organisation_number']) for x in Path('exclude-8020.jsonl').read_text().splitlines() if x.strip()}
+          pool=[json.loads(x) for x in Path('v9-m1c-fresh-pool-40.jsonl').read_text().splitlines() if x.strip()]
+          unresolved=[json.loads(x) for x in Path('out/v9-m1c/unresolved-20.jsonl').read_text().splitlines() if x.strip()]
+          assert len(pool)==40 and len({str(x['organisation_number']) for x in pool})==40
+          assert len(unresolved)==20 and len({str(x['organisation_number']) for x in unresolved})==20
+          assert not ({str(x['organisation_number']) for x in pool} & excluded)
+          assert {str(x['organisation_number']) for x in unresolved} <= {str(x['organisation_number']) for x in pool}
+          discovery=json.load(open('out/v9-m1c/model-search-report.json'))
+          assert discovery['queried_unresolved_profiles']==20, discovery
+          assert discovery['raw_provider_response_persisted'] is False
+          assert discovery['provider_response_text_persisted'] is False
+          assert discovery['quarantined_candidate_pages_persisted'] is False
+          print(json.dumps(json.load(open('out/v9-m1c/qualification-summary.json')),indent=2))
+          PY
+
+      - name: Upload qualification evidence without raw provider output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m1c-model-search-qualification
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            exclude-8020.sha256
+            v9-m1c-fresh-pool-40.jsonl
+            v9-m1c-fresh-pool-40.sha256
+            v9-m1c-fresh-pool-40-selection.json
+            out/v9-m1c/incumbent-pool-40.jsonl
+            out/v9-m1c/unresolved-20.jsonl
+            out/v9-m1c/unresolved-20.sha256
+            out/v9-m1c/cohort-report.json
+            out/v9-m1c/model-search-output.jsonl
+            out/v9-m1c/model-search-report.json
+            out/v9-m1c/qualification-summary.json
+            out/v9-m1c/manual-accepted-site-review.jsonl
