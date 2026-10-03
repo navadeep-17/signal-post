@@ -4,10 +4,32 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
-# Local environments
+# Packaging / build output
+build/
+dist/
+*.egg-info/
+
+# Local environments and secrets
 .venv/
 venv/
+.env
+.env.*
+!.env.example
+
+# Editors / operating-system noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
 
 # Generated evaluator / validation output
 out/
