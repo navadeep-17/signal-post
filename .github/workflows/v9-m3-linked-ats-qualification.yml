@@ -1,0 +1,100 @@
+name: V9 M3 Linked ATS Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-m3-verified-ats-jobs
+    paths:
+      - '.github/workflows/v9-m3-linked-ats-qualification.yml'
+      - 'src/norway_company_agent/ats_jobs.py'
+      - 'scripts/run_linked_ats_job_qualification.py'
+      - 'tests/test_ats_jobs.py'
+      - 'data/v9-m3-reused-linked-ats-1.jsonl'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v9-m3-linked-ats-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linked-ats-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Run focused ATS regressions
+        run: uv run --with pytest pytest -q tests/test_ats_jobs.py
+      - name: Qualify reused linked ATS target
+        run: |
+          mkdir -p out/v9-m3c
+          uv run python scripts/run_linked_ats_job_qualification.py \
+            --input data/v9-m3-reused-linked-ats-1.jsonl \
+            --output out/v9-m3c/results.jsonl \
+            --report out/v9-m3c/report.json \
+            --as-of 2026-10-03 \
+            --timeout 8
+      - name: Build qualification summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/v9-m3c/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m3c/results.jsonl').read_text().splitlines() if line.strip()]
+          summary = {
+            'schema_version': 'signalpost-v9-m3c-linked-ats-summary-v1',
+            'source_screen_run_id': 37113791875,
+            'fresh_qualification_cohort_consumed': False,
+            'report': report,
+            'results': rows,
+            'promotion_decision': 'measurement_only',
+          }
+          Path('out/v9-m3c/summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
+          print(json.dumps(summary, indent=2, ensure_ascii=False))
+          PY
+      - name: Verify hard safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('out/v9-m3c/summary.json').read_text())
+          report = summary['report']
+          assert summary['fresh_qualification_cohort_consumed'] is False
+          assert report['targets'] == 1, report
+          assert report['operations']['requests'] <= 2, report
+          assert report['operations']['request_ceiling'] == 2, report
+          assert float(report['operations']['third_party_api_cost_usd']) == 0.0, report
+          assert report['production_integration'] is False
+          for result in summary['results']:
+              for job in result.get('jobs') or []:
+                  if job.get('publishable'):
+                      assert job.get('status') == 'exact_active', job
+                      assert job.get('hiring_organisation_name'), job
+                      assert job.get('date_posted'), job
+                      assert job.get('valid_through'), job
+          print('M3c linked-ATS hard safety invariants passed.')
+          PY
+      - name: Upload M3c artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m3-linked-ats-qualification
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/v9-m3c/results.jsonl
+            out/v9-m3c/report.json
+            out/v9-m3c/summary.json
