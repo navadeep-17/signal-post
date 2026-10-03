@@ -23,10 +23,11 @@ Signalpost intentionally preserves its certified evidence-collection lineage:
 - V1 runner Git blob: `9be89b9827135b1ed703318e1d189d5d3b8ca604`;
 - V1 output-adapter Git blob: `c163f493017e39252ef200e68d53bcebc12930b4`;
 - certified V5 machine-readable lineage: `submission/manifest.json`;
+- certified V5/V2 data wrapper: `scripts/run_signalpost_v2.py`;
 - V7 evaluator/product path: `scripts/run_signalpost_v7.py`;
 - V8 compatibility wrapper: `scripts/run_signalpost_v8.py`.
 
-V8 does not introduce a new collector, source, identity heuristic, publication rule, model or UI behavior. It derives the actual evaluator batch size from the supplied organisation file, validates it, applies internal safety ceilings, and delegates once to the already-qualified V7/V5 path.
+V8 does not introduce a new collector, source, identity heuristic, publication rule, model or UI behavior. It derives the actual evaluator batch size from the supplied organisation file, validates it, applies internal safety ceilings, and delegates once through V7 to the already-qualified V5/V2 path.
 
 ## 3. Evaluator command
 
@@ -146,6 +147,8 @@ Production V8:
 - uses no social-platform API/scraper;
 - declares $0.00 third-party API cost for the qualified release path.
 
+Server-side secrets required: **none**.
+
 Any post-V8 model/search experimentation is isolated from the submitted evaluator and is not part of this release unless a later revision is separately qualified and submitted.
 
 ## 9. Output contract
@@ -185,7 +188,28 @@ The generated workspace includes:
 
 Comparison is descriptive only. Signalpost does not rank companies or select a winner.
 
-## 11. Verification
+## 11. Preserved compatibility and publication boundaries
+
+The V2 canonical/product layer remains part of the certified lineage beneath V8. The immutable certified 1,000-company projection contains **19,951 canonical facts** with zero canonical validation errors, including **3,932 current individual role facts**.
+
+Historical strict-activity diagnostics intentionally preserve the following result:
+
+| V2 diagnostic | Result |
+|---|---:|
+| Strict job-posting facts | **0** |
+| Strict dated company-update facts | **0** |
+
+Those zeroes are abstentions, not claims that the companies had no jobs or updates.
+
+A strict job posting requires the same verified company-owned site, a role/job **detail URL**, a specific title, a job-detail marker, and an **explicit apply/application action**.
+
+A strict company update requires the same verified company-owned site, a specific article/update **detail URL**, a non-generic title, and an **explicit publication date**.
+
+A **generic careers** page or section index is not an active-job fact. A company-declared social profile means only that the exact verified company page declared that URL; it does not imply that Signalpost fetched the platform or observed a current **follower** count. A retained contact email does not establish **mailbox deliverability**.
+
+The current public challenge qualification line is **65/100 overall on an official run**. Recall/coverage, precision/evidence, synthesis and UX are score dimensions; they are **not separate qualification thresholds**. Builderr owns the official matching and score.
+
+## 12. Verification
 
 Repository baseline:
 
@@ -199,7 +223,7 @@ Baseline CI additionally runs deterministic refresh replay and refresh-output ve
 
 The frozen V1 bundle verifier must remain unchanged and continue to reject drift in the pinned V1 runner/output-adapter blobs.
 
-## 12. Important repository references
+## 13. Important repository references
 
 - `README.md` — concise project overview and quick start;
 - `submission/V8_EVALUATOR_PATH.md` — current evaluator-wrapper contract;
