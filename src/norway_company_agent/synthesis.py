@@ -446,11 +446,12 @@ def validate_company_synthesis(contract: dict[str, Any]) -> list[str]:
     if generation.get("new_facts_created") is not False:
         errors.append("synthesis must not declare new facts")
 
-    available_evidence = {
-        str(item.get("id"))
+    evidence_by_id = {
+        str(item.get("id")): item
         for item in (contract.get("evidence") or [])
         if isinstance(item, dict) and item.get("id")
     }
+    available_evidence = set(evidence_by_id)
     for section in synthesis.get("sections") or []:
         if not isinstance(section, dict) or not section.get("text"):
             errors.append("synthesis section missing text")
@@ -487,6 +488,19 @@ def validate_company_synthesis(contract: dict[str, Any]) -> list[str]:
                 continue
             for trace in item.get("evidence") or []:
                 evidence_id = str((trace or {}).get("evidence_id") or "")
-                if evidence_id and evidence_id not in available_evidence:
+                if not evidence_id:
+                    errors.append(f"synthesis decision_brief {key} trace missing evidence_id")
+                    continue
+                backing = evidence_by_id.get(evidence_id)
+                if backing is None:
                     errors.append(f"synthesis decision_brief references missing evidence {evidence_id}")
+                    continue
+                for field in ("source_url", "retrieved_at", "claim_span"):
+                    if not trace.get(field):
+                        errors.append(f"synthesis decision_brief {key} trace missing {field}")
+                    elif trace.get(field) != backing.get(field):
+                        errors.append(f"synthesis decision_brief {key} trace {field} mismatch")
+                backing_hash = backing.get("content_sha256")
+                if backing_hash and trace.get("content_sha256") != backing_hash:
+                    errors.append(f"synthesis decision_brief {key} trace content_sha256 mismatch")
     return errors
