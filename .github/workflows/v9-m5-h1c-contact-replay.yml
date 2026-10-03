@@ -1,0 +1,135 @@
+name: V9 M5 H1c Contact Replay
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-m5-zero-network-contact-recovery
+    paths:
+      - 'src/norway_company_agent/zero_network_contact_recovery.py'
+      - 'scripts/run_v9_m5_h1c_contact_replay.py'
+      - 'data/v9-m5-reused-h1c-selected-4.jsonl'
+      - 'tests/test_v9_m5_zero_network_contact_recovery.py'
+      - '.github/workflows/v9-m5-h1c-contact-replay.yml'
+
+concurrency:
+  group: v9-m5-h1c-contact-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  h1c-contact-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused recovery regressions
+        run: uv run --with pytest pytest -q tests/test_v9_m5_zero_network_contact_recovery.py
+
+      - name: Replay production H1c on reused selected companies
+        run: |
+          mkdir -p out/v9-m5-h1c
+          uv run python scripts/run_v9_m5_h1c_contact_replay.py \
+            --profiles data/v9-m5-reused-h1c-selected-4.jsonl \
+            --output out/v9-m5-h1c/observations.jsonl \
+            --report out/v9-m5-h1c/report.json \
+            --timeout 6
+
+      - name: Build replay summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/v9-m5-h1c/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m5-h1c/observations.jsonl').read_text().splitlines() if line.strip()]
+          recovered = []
+          for row in rows:
+              for item in row.get('incremental_secondary_contact_emails') or []:
+                  recovered.append({
+                      'organisation_number': row.get('organisation_number'),
+                      'name': row.get('name'),
+                      'verified_website': row.get('verified_website'),
+                      **item,
+                  })
+          summary = {
+              'schema_version': 'signalpost-v9-m5-h1c-contact-replay-summary-v1',
+              'repository_sha': '${{ github.sha }}',
+              'reused_profiles': report.get('reused_profiles'),
+              'currently_h1c_publishable': (report.get('counts') or {}).get('currently_h1c_publishable', 0),
+              'h1c_secondary_attempted': (report.get('counts') or {}).get('h1c_secondary_attempted', 0),
+              'h1c_secondary_verified': (report.get('counts') or {}).get('h1c_secondary_verified', 0),
+              'retained_secondary_identity_page': (report.get('counts') or {}).get('retained_secondary_identity_page', 0),
+              'companies_with_incremental_secondary_email': (report.get('counts') or {}).get('companies_with_incremental_secondary_email', 0),
+              'incremental_secondary_emails': (report.get('counts') or {}).get('incremental_secondary_emails', 0),
+              'recovered': recovered,
+              'logical_requests': (report.get('operations') or {}).get('logical_requests'),
+              'request_ceiling': (report.get('operations') or {}).get('request_ceiling'),
+              'production_requests_added_by_recovery': (report.get('operations') or {}).get('production_requests_added_by_recovery'),
+              'third_party_api_cost_usd': (report.get('operations') or {}).get('third_party_api_cost_usd'),
+              'fresh_cohort_consumed': False,
+              'production_integration': False,
+          }
+          Path('out/v9-m5-h1c/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Verify hard safety invariants
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import tldextract
+
+          report = json.loads(Path('out/v9-m5-h1c/report.json').read_text())
+          rows = [json.loads(line) for line in Path('out/v9-m5-h1c/observations.jsonl').read_text().splitlines() if line.strip()]
+          assert report['reused_profiles'] == 4, report
+          ops = report['operations']
+          assert ops['logical_requests'] <= ops['request_ceiling'], ops
+          assert ops['request_ceiling'] == 16, ops
+          assert ops['production_requests_added_by_recovery'] == 0, ops
+          assert ops['third_party_api_cost_usd'] == 0.0, ops
+          assert report['production_integration'] is False
+
+          def reg(url):
+              host = urlparse(url).hostname or ''
+              return tldextract.extract(host).top_domain_under_public_suffix
+
+          for row in rows:
+              for item in row.get('incremental_secondary_contact_emails') or []:
+                  assert row['publishable'] is True, row
+                  assert row['h1c_secondary_verified'] is True, row
+                  assert row.get('secondary_identity_page'), row
+                  assert item.get('network_requests_added') == 0, item
+                  assert len(item.get('content_sha256') or '') == 64, item
+                  assert reg(item.get('source_url') or '') == reg(row.get('verified_website') or ''), (row, item)
+          PY
+
+      - name: Upload M5 H1c replay artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m5-h1c-contact-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-m5-h1c/observations.jsonl
+            out/v9-m5-h1c/report.json
+            out/v9-m5-h1c/summary.json
