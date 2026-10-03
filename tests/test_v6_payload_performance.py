@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
-from build_v2_product import compact_company  # noqa: E402
 from build_v6_ui import V6_PAYLOAD_FORMAT, _pool_evidence_payload, build_v6_html  # noqa: E402
 from norway_company_agent.canonical_projection import project_canonical_profile  # noqa: E402
+from v6_payload_adapter import compact_company_v6  # noqa: E402
 
 SOURCE = ROOT / "submission" / "final-release-1000-output.jsonl.gz"
 V2_HTML = ROOT / "submission" / "signalpost-v2.html"
@@ -30,7 +30,7 @@ def _rows(limit: int | None = None) -> list[dict]:
 
 
 def test_v6_pools_evidence_without_changing_runtime_contract() -> None:
-    companies = [compact_company(row) for row in _rows(4)]
+    companies = [compact_company_v6(row) for row in _rows(4)]
     raw_bytes = len(json.dumps(companies, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
     pooled = _pool_evidence_payload(companies)
     pooled_bytes = len(json.dumps(pooled, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -46,6 +46,13 @@ def test_v6_pools_evidence_without_changing_runtime_contract() -> None:
         for section in company["synthesis"]["sections"]:
             assert "sources" not in section
             assert "sourceRefs" in section
+        for item in company["synthesis"]["decisionBrief"].values():
+            if not isinstance(item, dict):
+                continue
+            assert "evidence" not in item
+            assert "evidenceRefs" in item
+            for evidence_id in item["evidenceRefs"]:
+                assert evidence_id in pooled["evidence"]
 
 
 def test_v6_full_certified_workspace_is_materially_smaller_than_v2() -> None:
