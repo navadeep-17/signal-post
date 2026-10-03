@@ -114,20 +114,18 @@ def _pool_evidence_payload(companies: list[dict[str, Any]]) -> dict[str, Any]:
                 if not isinstance(item, dict):
                     decision.pop(key, None)
                     continue
-                # The outer dictionary key already identifies this item, so carrying the
-                # same `key` string in every company is redundant transfer weight.
                 item.pop("key", None)
                 traces = item.pop("evidence", None)
                 evidence_refs = decision_refs(traces)
                 if evidence_refs:
-                    item["evidenceRefs"] = evidence_refs
+                    item["e"] = evidence_refs
                 else:
-                    item.pop("evidenceRefs", None)
+                    item.pop("e", None)
                 dates = _trace_dates(traces)
                 if dates:
-                    item["dates"] = dates
+                    item["d"] = dates
                 else:
-                    item.pop("dates", None)
+                    item.pop("d", None)
 
     return {
         "format": V6_PAYLOAD_FORMAT,
