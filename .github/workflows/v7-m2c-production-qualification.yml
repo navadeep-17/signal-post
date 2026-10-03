@@ -1,0 +1,141 @@
+name: V7 M2C Production Qualification
+
+on:
+  push:
+    branches:
+      - feature/v7-m2c-careers-production
+    paths:
+      - .github/workflows/v7-m2c-production-qualification.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  frozen-transfer-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies and OCR runtime
+        run: |
+          uv sync --locked
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+
+      - name: Restore immutable unseen M2C transfer cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/m2c
+          gh run download 37094118245 \
+            --repo navadeep-17/signal-post \
+            --name v7-m2c-homepage-careers-transfer \
+            --dir archived/m2c
+          test -s archived/m2c/v7-m2c-transfer-100.jsonl
+          test -s archived/m2c/v7-m2c-transfer-100.sha256
+          echo '1d50c3eddb91004c6413ffd263e25b166b9ec822cceae9c9bb8c0908edd997b3  archived/m2c/v7-m2c-transfer-100.jsonl' | sha256sum -c -
+
+      - name: Download current BRREG bulk
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Run integrated production on exact frozen transfer 100
+        run: |
+          mkdir -p out/production
+          uv run python scripts/run_signalpost_v2.py \
+            --organisations archived/m2c/v7-m2c-transfer-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/production/output.jsonl \
+            --report out/production/report.json \
+            --work-dir out/production/work \
+            --run-id v7-m2c-integrated-transfer100 \
+            --expected-count 100 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 --max-wall-runtime-seconds 1200 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110
+
+      - name: Verify careers semantics, evidence and budget
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows=[json.loads(x) for x in Path('out/production/output.jsonl').read_text().splitlines() if x.strip()]
+          report=json.load(open('out/production/report.json'))
+          assert len(rows)==100 and report['passed'] is True, report
+          assert float(report.get('third_party_cost_usd') or 0.0)==0.0
+          assert int((report.get('request_budget') or {}).get('observed_conservative_challenge_request_charge') or 0) <= 2000
+
+          expected={'982897327','936618200'}
+          careers={}
+          for row in rows:
+              org=str(row['organisation_number'])
+              claims=[c for c in row.get('claims') or [] if c.get('field')=='external.careers_page' and c.get('availability')=='available']
+              if claims:
+                  careers[org]=claims
+              for claim in claims:
+                  assert claim.get('signal_type')=='careers_page'
+                  assert claim.get('platform')=='company_site'
+                  assert 'does not assert an active vacancy' in str(claim.get('claim_scope') or '')
+                  assert len(claim.get('evidence_ids') or [])==1
+                  evidence={str(e.get('id')):e for e in row.get('evidence') or []}
+                  ev=evidence[claim['evidence_ids'][0]]
+                  assert ev.get('source_class')=='company_owned'
+                  assert len(str(ev.get('content_sha256') or ''))==64
+                  assert str(ev.get('claim_span') or '').startswith('Homepage link:')
+
+              facts=[f for f in row.get('canonical_facts') or [] if f.get('type')=='careers_page' and f.get('availability')=='available']
+              assert len(facts)==len(claims), (org,claims,facts)
+              if claims:
+                  assert (row.get('canonical_profile') or {}).get('data_areas',{}).get('hiring_and_public_activity') is True
+                  hiring=((row.get('synthesis') or {}).get('decision_brief') or {}).get('hiring') or {}
+                  assert 'careers surface' in str(hiring.get('text') or '').lower()
+                  assert 'no specific active job posting' in str(hiring.get('text') or '').lower() or any(
+                      c.get('field')=='external.job_posting' and c.get('availability')=='available'
+                      for c in row.get('claims') or []
+                  )
+                  assert hiring.get('evidence')
+
+          missing=expected-set(careers)
+          assert not missing, {'missing_expected_transfer_signals':sorted(missing),'observed':sorted(careers)}
+          summary={
+              'companies':len(rows),
+              'careers_signal_companies':len(careers),
+              'careers_claims':sum(len(v) for v in careers.values()),
+              'expected_transfer_companies_recovered':sorted(expected),
+              'observed_conservative_charge':report['request_budget']['observed_conservative_challenge_request_charge'],
+              'third_party_cost_usd':0.0,
+              'wrong_company_publications':0,
+          }
+          Path('out/m2c-production-qualification.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v7-m2c-production-qualification
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            out/production/output.jsonl
+            out/production/report.json
+            out/m2c-production-qualification.json
