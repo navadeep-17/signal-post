@@ -1,0 +1,30 @@
+name: V7 M2C Debug
+
+on:
+  push:
+    branches:
+      - feature/v7-m2c-careers-production
+    paths:
+      - .github/workflows/v7-m2c-debug.yml
+
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Contract canonical synthesis group
+        run: timeout 90s uv run --with pytest pytest -q tests/test_output_contract.py tests/test_canonical_projection.py tests/test_synthesis.py tests/test_v7_synthesis_decision_brief.py tests/test_v7_m2c_production.py
+      - name: Final orchestrator group
+        run: timeout 90s uv run --with pytest pytest -q tests/test_final_orchestrator.py tests/test_h1g_final_runner_integration.py tests/test_h2g_runner_integration.py
+      - name: Main crawler POC group
+        run: timeout 180s uv run --with pytest pytest -q tests/test_poc.py
+      - name: Discovery and website-adjacent group
+        run: timeout 120s uv run --with pytest pytest -q tests/test_domain_discovery.py tests/test_zero_cost_discovery.py tests/test_h1c_secondary_identity.py tests/test_h1e_wikidata_candidate.py tests/test_h1g_hyphenated_no_recall.py
