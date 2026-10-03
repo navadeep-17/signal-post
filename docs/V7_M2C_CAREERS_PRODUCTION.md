@@ -13,13 +13,15 @@ Builderr's official diagnostic explicitly cited company-owned careers pages as m
 - No careers URL is fetched by M2C.
 - The claim type is `external.careers_page`; it is never `external.job_posting`.
 - Canonical fact: `hiring.careers_page`.
-- Synthesis says hiring presence is known while explicitly stating when no specific active job is independently verified.
+- The historical V1 output-contract projector remains byte-for-byte frozen; careers is added by the existing post-contract external projection stage.
 - Incremental network requests: 0.
 - Third-party API cost: $0.
 
 ## Evidence
 
-The evidence is the exact verified homepage that declared the careers link, including its retrieval timestamp, content hash and bounded link text. Website discovery provenance may be registry-linked, deterministic-domain discovery, or another already-qualified production route. M2C performs its host check locally and deterministically; it does not consult a public-suffix service or make a new network request.
+The evidence is the exact verified homepage that declared the careers link, including its retrieval timestamp, content hash and bounded link text. The modular projector additionally requires the retained careers row to reference the same homepage URL and the same homepage content hash before it can publish.
+
+Website discovery provenance may be registry-linked, deterministic-domain discovery, or another already-qualified production route. M2C performs its host check locally and deterministically; it does not consult a public-suffix service or make a new network request.
 
 ## Qualification
 
@@ -40,10 +42,9 @@ The integrated production implementation was then replayed on the exact frozen t
 - `936618200` — BK Ventilasjon → `https://bkventilasjon.no/karriere/`;
 - 2 `external.careers_page` claims and 2 `hiring.careers_page` canonical facts;
 - 0 careers claims represented as `external.job_posting`;
-- deterministic synthesis explicitly states that a careers surface is known while no specific active job is independently verified;
 - observed conservative production charge: 1,392 / 2,000;
 - third-party API cost: $0;
-- contract/canonical/synthesis production run: passed.
+- contract/canonical production semantics passed.
 
 Integrated production artifact:
 
@@ -53,6 +54,8 @@ Integrated production artifact:
 
 A follow-up artifact verifier corrected an overly narrow test assumption about website `source_class`. The invariant is the already-qualified exact homepage plus a company-host relationship between that evidence URL and the careers URL, not a specific discovery-source label. Corrected verification workflow `37097186345` passed.
 
+Before the final merge gate, careers claim projection was moved out of the frozen V1 `output_contract.py` into a dedicated idempotent post-contract projector. Permanent tests cover external ATS rejection, contract/canonical projection, no job-posting relabelling, idempotence, and homepage-snapshot hash mismatch abstention.
+
 ## Decision
 
-**GO for production promotion.** M2C adds a Builderr-requested hiring-presence fact with no new production request class, keeps concrete vacancies semantically separate, preserves the existing exact-company gate, and reproduced the same two unseen-transfer signals in the integrated production output.
+**GO for production promotion once the exact-head CI gate is green.** M2C adds a Builderr-requested hiring-presence fact with no new production request class, keeps concrete vacancies semantically separate, preserves the existing exact-company gate, and keeps the historical V1 contract projector unchanged.

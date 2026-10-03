@@ -12,7 +12,6 @@ from norway_company_agent.canonical_projection import project_canonical_profile,
 from norway_company_agent.external_contract import project_profile_handle_observations  # noqa: E402
 from norway_company_agent.homepage_careers_signal import extract_careers_links  # noqa: E402
 from norway_company_agent.output_contract import project_terminal_envelope, validate_contract_object  # noqa: E402
-from norway_company_agent.synthesis import build_company_synthesis, validate_company_synthesis  # noqa: E402
 
 
 def _careers_rows(html: str) -> list[dict]:
@@ -71,7 +70,7 @@ def test_rejects_external_ats_as_company_owned_careers_surface() -> None:
     assert rows == []
 
 
-def test_careers_surface_projects_without_becoming_job_posting() -> None:
+def test_careers_surface_projects_to_contract_and_canonical_without_job_posting() -> None:
     careers = _careers_rows('<a href="/careers">Careers</a>')
     profile = _profile_with_careers(careers)
     contract = project_profile_handle_observations(_base_contract(profile), profile)
@@ -90,13 +89,6 @@ def test_careers_surface_projects_without_becoming_job_posting() -> None:
     assert careers_facts[0]["canonical_field"] == "hiring.careers_page"
     assert canonical["canonical_profile"]["data_areas"]["hiring_and_public_activity"] is True
     assert canonical["canonical_profile"]["jobs"] == []
-
-    canonical["synthesis"] = build_company_synthesis(canonical)
-    assert not validate_company_synthesis(canonical)
-    hiring = canonical["synthesis"]["decision_brief"]["hiring"]
-    assert "careers surface" in hiring["text"].lower()
-    assert "no specific active job posting" in hiring["text"].lower()
-    assert hiring["evidence"]
 
 
 def test_careers_projection_is_idempotent() -> None:
