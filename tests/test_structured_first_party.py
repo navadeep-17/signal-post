@@ -1,3 +1,9 @@
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
 from norway_company_agent.structured_first_party import (
     classify_first_party_url,
     discover_feed_links,
