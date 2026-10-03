@@ -180,7 +180,7 @@ The generated workspace includes:
 - source/date context;
 - recent official changes;
 - evidence drawer and verify-all flow;
-- descriptive side-by-side comparison;
+- **Compare companies** descriptive side-by-side view;
 - deterministic grounded Ask Signalpost answers;
 - explicit unknown/data-gap handling;
 - careers-surface discovery with conservative vacancy semantics;
