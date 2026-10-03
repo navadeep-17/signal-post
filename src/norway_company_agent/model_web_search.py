@@ -116,7 +116,7 @@ def openai_web_search_candidates(
     timeout: float = 15.0,
     max_candidates: int = 5,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Use model web search only to nominate URLs for later independent verification."""
+    """Use exactly one hosted web-search call only to nominate URLs for later verification."""
     if not api_key.strip():
         raise ValueError("OpenAI web-search provider requires an API key")
     if timeout <= 0:
@@ -128,7 +128,10 @@ def openai_web_search_candidates(
     body = json.dumps(
         {
             "model": model,
+            "reasoning": {"effort": "none"},
             "tools": [{"type": "web_search"}],
+            "tool_choice": "required",
+            "max_tool_calls": 1,
             "input": prompt,
             "max_output_tokens": 220,
             "store": False,
@@ -169,6 +172,8 @@ def openai_web_search_candidates(
             "provider": "openai_responses_web_search",
             "model": model,
             "web_search_tool_calls": tool_calls,
+            "max_web_search_tool_calls": 1,
+            "web_search_required": True,
             "input_tokens": int(usage.get("input_tokens") or 0),
             "output_tokens": int(usage.get("output_tokens") or 0),
             "transient_response_text_present": bool(transient_text),
@@ -183,6 +188,8 @@ def openai_web_search_candidates(
             "provider": "openai_responses_web_search",
             "model": model,
             "web_search_tool_calls": 0,
+            "max_web_search_tool_calls": 1,
+            "web_search_required": True,
             "input_tokens": 0,
             "output_tokens": 0,
             "transient_response_text_present": False,
