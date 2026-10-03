@@ -33,4 +33,4 @@ def test_machine_readable_manifest_remains_certified_v5_lineage() -> None:
 
     assert manifest["submission_identity"]["revision"] == "v5"
     assert manifest["entrypoints"]["evaluator_runner"] == "scripts/run_signalpost_v2.py"
-    assert manifest["qualification_policy"]["official_score_claimed"] is False if "qualification_policy" in manifest else True
+    assert manifest["current_revision"]["qualification_policy"]["official_score_claimed"] is False
