@@ -8,7 +8,7 @@ Builderr's official diagnostic explicitly cited company-owned careers pages as m
 
 - The company website must already pass the existing exact-company publication gate.
 - Careers discovery happens while the already-budgeted homepage HTML is in memory.
-- Only explicit same-registered-domain careers/hiring links are retained.
+- Only explicit same-company-host careers/hiring links are retained. Root/`www` equivalents and direct parent/subdomain relationships are allowed; ambiguous sibling subdomains abstain.
 - External ATS/job-board URLs are not represented as company-owned careers pages.
 - No careers URL is fetched by M2C.
 - The claim type is `external.careers_page`; it is never `external.job_posting`.
@@ -19,7 +19,7 @@ Builderr's official diagnostic explicitly cited company-owned careers pages as m
 
 ## Evidence
 
-The evidence is the exact verified homepage that declared the careers link, including its retrieval timestamp, content hash and bounded link text. Website discovery provenance may be registry-linked, deterministic-domain discovery, or another already-qualified production route; the M2C invariant is that the evidence homepage and the careers URL resolve to the same registered domain after the website itself has already passed the exact-company publication gate.
+The evidence is the exact verified homepage that declared the careers link, including its retrieval timestamp, content hash and bounded link text. Website discovery provenance may be registry-linked, deterministic-domain discovery, or another already-qualified production route. M2C performs its host check locally and deterministically; it does not consult a public-suffix service or make a new network request.
 
 ## Qualification
 
@@ -51,7 +51,7 @@ Integrated production artifact:
 - artifact: `v7-m2c-production-qualification`;
 - artifact digest: `sha256:8cdd9ed59fea48c9a9d5821edcbe87dd06760755f7f39eb6ec33d9fff4f05a67`.
 
-A follow-up artifact verifier corrected an overly narrow test assumption about website `source_class`. The invariant is same exact-verified registered domain, not a specific discovery-source label. Corrected verification workflow `37097186345` passed.
+A follow-up artifact verifier corrected an overly narrow test assumption about website `source_class`. The invariant is the already-qualified exact homepage plus a company-host relationship between that evidence URL and the careers URL, not a specific discovery-source label. Corrected verification workflow `37097186345` passed.
 
 ## Decision
 
