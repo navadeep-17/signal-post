@@ -81,6 +81,48 @@ jobs:
           },indent=2))
           PY
 
+      - name: Check generic probe against public Builderr diagnostic examples
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from norway_company_agent.targeted_careers_probe import probe_targeted_careers_page
+
+          examples = [
+              ("EQUINOR ASA", "https://www.equinor.com/"),
+              ("TOMRA SYSTEMS ASA", "https://www.tomra.com/"),
+          ]
+          rows=[]
+          for name, verified_url in examples:
+              profile={
+                  "organisation_number": name,
+                  "evidence": {
+                      "website": {
+                          "status": "available",
+                          "source_url": verified_url,
+                          "retrieved_at": "public-builderr-diagnostic",
+                          "value": {
+                              "final_url": verified_url,
+                              "identity_assessment": {"publishable": True},
+                              "pages": [],
+                          },
+                      }
+                  },
+              }
+              fact, metrics = probe_targeted_careers_page(profile, timeout=8)
+              rows.append({
+                  "company": name,
+                  "verified_url": verified_url,
+                  "qualified": bool(fact),
+                  "fact": fact,
+                  "metrics": metrics,
+              })
+          Path('out/v7-m2b/public-diagnostic-examples.json').write_text(
+              json.dumps(rows, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(rows, indent=2, sort_keys=True))
+          PY
+
       - name: Upload development evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -91,3 +133,4 @@ jobs:
           path: |
             out/v7-m2b/report.json
             out/v7-m2b/facts.jsonl
+            out/v7-m2b/public-diagnostic-examples.json
