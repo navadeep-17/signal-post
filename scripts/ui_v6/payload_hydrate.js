@@ -15,6 +15,13 @@ function hydrateSignalpostPayload(raw){
         delete section.sourceRefs;
       }
     });
+    Object.values(company?.synthesis?.decisionBrief||{}).forEach(item=>{
+      if(!item||Array.isArray(item)||typeof item!=='object'||!Array.isArray(item.evidenceRefs))return;
+      const meta=item.evidenceMeta||{};
+      item.evidence=item.evidenceRefs.map(id=>pool[id]?{...pool[id],...(meta[id]||{})}:null).filter(Boolean);
+      delete item.evidenceRefs;
+      delete item.evidenceMeta;
+    });
   });
   return companies;
 }
