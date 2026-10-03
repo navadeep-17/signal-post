@@ -185,6 +185,7 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     locations = _facts_by_type(contract, "registered_location")
     workforce = _first(contract, "workforce_snapshot")
     website = _first(contract, "website")
+    careers_pages = _facts_by_type(contract, "careers_page")
     jobs = _facts_by_type(contract, "job_posting")
     updates = _facts_by_type(contract, "company_update")
     social = _facts_by_type(contract, "social_profile")
@@ -259,11 +260,14 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     if website:
         external_bits.append(f"Verified company website: {website.get('value')}.")
         external_facts.append(website)
+    if careers_pages:
+        external_bits.append(f"Verified company-owned careers surfaces published: {len(careers_pages)}.")
+        external_facts.extend(careers_pages)
     if jobs:
         external_bits.append(f"Strict job postings published: {len(jobs)}.")
         external_facts.extend(jobs)
     else:
-        external_bits.append("No strict job posting is published for this run.")
+        external_bits.append("No specific active job posting is independently verified for this run.")
     if updates:
         external_bits.append(f"Dated company updates published: {len(updates)}.")
         external_facts.extend(updates)
@@ -320,8 +324,10 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     for key, label in area_labels.items():
         if not data_areas.get(key):
             unknowns.append(f"No qualified {label} fact is published.")
-    if not jobs:
-        unknowns.append("No strict job posting is published.")
+    if not careers_pages and not jobs:
+        unknowns.append("No verified careers surface or strict job posting is published.")
+    elif careers_pages and not jobs:
+        unknowns.append("A verified careers surface is published, but no specific active job posting is independently verified.")
     if not updates:
         unknowns.append("No dated company update is published.")
 
@@ -376,11 +382,17 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     size_text = "; ".join(size_parts).capitalize() + "." if size_parts else "No qualified size metric is published."
 
     leader_text = organisation_bits[0] if leader else "No qualified current leadership fact is published."
-    hiring_text = (
-        f"{len(jobs)} strict job posting(s) are published."
-        if jobs
-        else "No strict job posting is published for this run."
-    )
+    if jobs:
+        hiring_text = f"{len(jobs)} strict job posting(s) are published."
+        if careers_pages:
+            hiring_text += f" {len(careers_pages)} verified company-owned careers surface(s) are also published."
+    elif careers_pages:
+        hiring_text = (
+            f"{len(careers_pages)} verified company-owned careers surface(s) are published; "
+            "no specific active job posting is independently verified."
+        )
+    else:
+        hiring_text = "No verified careers surface or strict job posting is published for this run."
     footprint_parts: list[str] = []
     if website:
         footprint_parts.append(f"verified website {website.get('value')}")
@@ -395,7 +407,7 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         "what_does_it_do": _decision_item("what_does_it_do", " ".join(identity_bits), identity_facts, evidence_by_id),
         "how_big_is_it": _decision_item("how_big_is_it", size_text, [fact for fact in [workforce, revenue, operating] if fact], evidence_by_id),
         "who_runs_it": _decision_item("who_runs_it", leader_text, [leader] if leader else [], evidence_by_id),
-        "hiring": _decision_item("hiring", hiring_text, jobs, evidence_by_id),
+        "hiring": _decision_item("hiring", hiring_text, [*careers_pages, *jobs], evidence_by_id),
         "digital_footprint": _decision_item("digital_footprint", digital_text, [fact for fact in [website, *social, *updates] if fact], evidence_by_id),
         "what_changed": {
             "key": "what_changed",

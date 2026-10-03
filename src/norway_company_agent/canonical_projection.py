@@ -33,6 +33,7 @@ CANONICAL_FIELD_BY_TYPE = {
     "company_description": "website.description",
     "contact_email": "website.contact_email",
     "social_profile": "public.social_profile",
+    "careers_page": "hiring.careers_page",
     "job_posting": "hiring.job_posting",
     "company_update": "public.company_update",
 }
@@ -184,6 +185,8 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         facts.append(_fact("contact_email", claim))
     for claim in index.get("external.workforce_snapshot") or []:
         facts.append(_fact("workforce_snapshot", claim))
+    for claim in index.get("external.careers_page") or []:
+        facts.append(_fact("careers_page", claim))
     for claim in index.get("external.job_posting") or []:
         facts.append(_fact("job_posting", claim))
     for claim in index.get("external.company_update") or []:
@@ -217,6 +220,7 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "people": [item for item in facts if item["type"] == "person_role"],
         "locations": [item for item in facts if item["type"] == "registered_location"],
         "company_website": [item for item in facts if item["type"] in website_keys],
+        "hiring_signals": [item for item in facts if item["type"] == "careers_page"],
         "jobs": [item for item in facts if item["type"] == "job_posting"],
         "public_activity": [item for item in facts if item["type"] in activity_keys],
     }
@@ -230,7 +234,7 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "company_website": any(item.get("availability") == "available" for item in canonical["company_website"]),
         "hiring_and_public_activity": any(
             item.get("availability") == "available"
-            for item in (canonical["jobs"] + canonical["public_activity"])
+            for item in (canonical["hiring_signals"] + canonical["jobs"] + canonical["public_activity"])
         ),
     }
 
@@ -283,7 +287,7 @@ def validate_canonical_projection(contract: dict[str, Any]) -> list[str]:
             errors.append(f"canonical fact {position} publishes an inactive person role as current")
 
     flattened: list[dict[str, Any]] = []
-    for key in ("company_record", "financials", "people", "locations", "company_website", "jobs", "public_activity"):
+    for key in ("company_record", "financials", "people", "locations", "company_website", "hiring_signals", "jobs", "public_activity"):
         rows = canonical.get(key)
         if not isinstance(rows, list):
             errors.append(f"canonical_profile.{key} must be a list")

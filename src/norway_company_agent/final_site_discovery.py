@@ -21,6 +21,7 @@ from .domain_discovery import (
     registry_email_domain_candidates,
 )
 from .evidence import evidence
+from .homepage_careers_signal import extract_careers_links
 from .identity import apply_website_identity_gate
 from .website import (
     USER_AGENT,
@@ -310,6 +311,12 @@ def fetch_bounded_homepage(
             "identity_text_excerpt": identity_text,
             "main_text_excerpt": text[:5000],
             "social_links": _social_links(final_url, soup),
+            "careers_links": extract_careers_links(
+                verified_url=final_url,
+                final_url=final_url,
+                soup=soup,
+                homepage_content_sha256=digest,
+            ),
             "structured_organisations": _jsonld_organisations(structured),
             "content_sha256": digest,
             "extraction_state": _extraction_state(text, soup),

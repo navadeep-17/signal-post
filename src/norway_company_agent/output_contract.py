@@ -205,6 +205,32 @@ def _website_claims(
             claim_span=f"Verified social links published on {final_url}",
         )
 
+    for ordinal, careers in enumerate(value.get("careers_links") or []):
+        if not isinstance(careers, dict):
+            continue
+        careers_url = str(careers.get("url") or "").strip()
+        if not careers_url:
+            continue
+        _add_claim(
+            claims,
+            evidence_entries,
+            org=org,
+            evidence_key=f"website:careers:{ordinal}",
+            record=record,
+            field="external.careers_page",
+            value={
+                "url": careers_url,
+                "anchor_text": str(careers.get("anchor_text") or "").strip() or None,
+            },
+            availability="available",
+            claim_span=str(careers.get("evidence_span") or f"Homepage careers link: {careers_url}"),
+            extra={
+                "platform": "company_site",
+                "signal_type": "careers_page",
+                "claim_scope": str(careers.get("claim_scope") or ""),
+            },
+        )
+
 
 def _financial_claims(
     profile: dict[str, Any],
