@@ -6,6 +6,8 @@ from datetime import date
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .first_party_jobs import extract_current_first_party_jobs
+
 
 JOB_PATH_MARKERS = (
     "/job",
@@ -234,9 +236,11 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
     if not context:
         return {"jobs": [], "updates": []}
     verified_url = str(context["final_url"])
-    jobs: list[dict[str, Any]] = []
+    jobs: list[dict[str, Any]] = extract_current_first_party_jobs(profile)
     updates: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str]] = {
+        ("job", str(item.get("url") or "")) for item in jobs if item.get("url")
+    }
 
     for page in pages:
         url = str(page.get("url") or "").strip()
@@ -368,22 +372,27 @@ def project_first_party_activity_claims(
         evidence_id = _evidence_id(org, "job", item)
         evidence_by_id[evidence_id] = {
             "id": evidence_id,
-            "source_url": item["url"],
+            "source_url": item.get("evidence_url") or item["url"],
             "source_class": "company_owned",
-            "retrieved_at": retrieved_at,
+            "retrieved_at": item.get("retrieved_at") or retrieved_at,
             "content_sha256": item.get("content_sha256"),
             "claim_span": item["evidence_span"],
         }
+        job_value = {"title": item["title"], "url": item["url"]}
+        if item.get("application_url"):
+            job_value["application_url"] = item["application_url"]
+        if item.get("deadline"):
+            job_value["deadline"] = item["deadline"]
         claims.append(
             {
                 "field": "external.job_posting",
-                "value": {"title": item["title"], "url": item["url"]},
+                "value": job_value,
                 "availability": "available",
                 "confidence": 0.99,
                 "evidence_ids": [evidence_id],
                 "platform": "company_site",
                 "signal_type": "job_posting",
-                "claim_scope": "Verified company-owned role detail page with a specific title, job detail marker and explicit apply action; generic careers pages excluded.",
+                "claim_scope": item.get("claim_scope") or "Verified company-owned role detail page with a specific title, job detail marker and explicit apply action; generic careers pages excluded.",
             }
         )
 
