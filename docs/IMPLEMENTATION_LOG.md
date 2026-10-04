@@ -12,6 +12,54 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase A audit found more zero-request BRREG recall; idle contact-page fallback rejected
+
+Status: **AUDITED + TESTED CANDIDATE / NETWORK EXPERIMENT REJECTED / NOT QUALIFIED**
+
+Active PR: #94, branch `feature/phaseb-idle-contact-enrichment`.
+
+Measured candidate lineage:
+
+- exact consumed Phase-1 E2E head: `74527e8d072bd1456b11ba55dc3d85c27f75ac0f`;
+- Baseline CI `37196448235`: PASS;
+- consumed Phase-1 E2E `37196444699`: PASS;
+- artifact `phaseb-consumed-e2e`, ID `11300583926`;
+- artifact digest `fe0eee5d099c9128ab24cce616a7f4c7c3884ddebd5934889c56a879187c5c70`.
+
+Candidate result on frozen 100:
+
+- postal address available: 30 companies;
+- external labelled homepage phone: 2 companies;
+- registered phone/mobile + external-phone union: 31 vs 29 baseline, +2 net-new companies;
+- contract/canonical/synthesis errors: 0;
+- logical requests 673;
+- conservative charge 1,346/2,000;
+- cost $0; search requests 0.
+
+A deeper collected-vs-emitted audit found additional broad exact BRREG fields still dropped before projection: foundation date (~98/100), Foretaksregisteret registration date (~98/100), statutes date (~96/100), institutional sector (~95/100), capital (~91/100), enterprise-register state (100/100), VAT state (100/100) and VAT registration date (~48/100). Decision: Phase A remains open; implement these exact-live zero-request facts before consuming a fresh promotion cohort.
+
+Idle network contact-page experiment:
+
+- measured head: `e80577f1e846dcfa8252132017e9f949e0acb7d7`;
+- workflow `37197243641`;
+- V8 execution: PASS, 100/100 terminal;
+- promotion assertion: FAIL;
+- one contact-surface phone company `977117186`, but it was not net-new at company contact-family level;
+- logical requests 679 before V5 wrapper / 680 combined;
+- conservative charge 1,358 before V5 wrapper / 1,360 combined;
+- runtime 438.254 s;
+- cost $0; search requests 0;
+- artifact `phaseb-m5-consumed-transfer`, ID `11302125123`, digest `448635d91a6d141771cd116d54e15222327434f1671597c19c5e7e3d19a6cd2d`.
+
+Decision:
+
+- **DROP** the idle contact-page network fallback because it failed the roadmap promotion bar of measurable net-new company coverage.
+- Restore bounded Wikidata behavior; remove the M5 transfer workflow and contact-surface-specific tests.
+- Keep only the zero-network exact-homepage phone extraction and exact-live postal-address projection from PR #94.
+- Next: Phase A2 exact-live BRREG zero-request recovery, then combined consumed measurement, then one fresh disjoint qualification only after stabilization.
+
+---
+
 ## 2026-10-04 — Phase 1 exact BRREG lost-claim recovery merged
 
 Status: **QUALIFIED + MERGED + POST-MERGE GREEN**
