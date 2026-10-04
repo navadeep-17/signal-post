@@ -10,11 +10,11 @@ Repository: `navadeep-17/signal-post`
 
 Production branch: `main`
 
-Live `main` observed immediately before this final state-only handoff update:
+Live `main` observed immediately before this state-only handoff update:
 
-`fbfc4954888b76c922724b2084fc819a8b441864`
+`b13e298c2c71bd3be0a99be749fda762bc65c317`
 
-That tip is documentation-only on top of the Phase-4 production merge. Production merge commit:
+That tip is documentation-only (`docs: pin final Phase 4 handoff state`) on top of prior documentation handoff `fbfc4954888b76c922724b2084fc819a8b441864`. Production code semantics remain the Phase-4 merge:
 
 `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
 
@@ -34,7 +34,7 @@ Post-merge Baseline CI:
 - merge SHA: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
 - full tests, certified-1000 canonical audit, submission-bundle verification and deterministic refresh replay all passed
 
-Open PRs #76, #78 and #84 remain historical/experimental and are not the active production path.
+Open PRs #76, #78 and #84 remain historical/experimental and are not the active production path. There is no active production PR.
 
 ## 2. Closed phases and retained state
 
