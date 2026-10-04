@@ -12,6 +12,30 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase A exact-live BRREG breadth merged and post-merge green
+
+Status: **QUALIFIED + MERGED + POST-MERGE GREEN**
+
+- PR #94: `Phase A: exact-live BRREG zero-request breadth recovery`
+- branch: `feature/phaseb-idle-contact-enrichment`
+- qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
+- cleaned branch reconciled with new main roadmap using merge head `d36ea6edefc58e38ad656042d93c6a409c4f02e7`
+- exact-head Baseline CI `37205694426`: PASS
+- merge commit: `8a729036350c019e107cd68a08641f1fff6796f6`
+- post-merge Baseline CI `37205739214`: PASS
+
+The one new `main` commit before merge (`ea79bf6283497dd991a9a106d7dffb8f3001d418`, Phase 0–11 roadmap) was preserved exactly during reconciliation. Final PR scope contained only continuation/history docs, `official.py`, `v2_registry_projection.py`, `canonical_projection.py`, and two focused Phase-A regression files.
+
+Retained production behavior: exact-live BRREG postal address, foundation/articles dates, Foretaksregisteret state/date, institutional sector, registered capital, VAT state/date and forced-dissolution status, all with exact source lineage and zero added source requests.
+
+Fresh qualification evidence remained run `37203580574`: 100 unique companies, 0 overlap after 8,323 exclusions, 100/100 terminal, zero evidence/contract/canonical/synthesis errors, 666 logical requests, 1,332/2,000 conservative charge, 460.916 s, $0, search requests 0. Artifact `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`, digest `31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`.
+
+The external homepage-phone feature and idle contact-page network fallback remain rejected. The homepage-phone feature was precision-correct but added zero net-new phone-family companies on both fresh cohorts, so it was removed before merge.
+
+Decision: **PROMOTE complete**. Phase 1 / collected-vs-emitted exact BRREG recovery is closed. Next architecture stage: Phase 2 exact website-discovery improvement.
+
+---
+
 ## 2026-10-04 — Phase A exact-live BRREG breadth fresh-qualifies; duplicate external-phone feature dropped
 
 Status: **QUALIFIED / RELEASE CLEANUP / NOT YET MERGED**
