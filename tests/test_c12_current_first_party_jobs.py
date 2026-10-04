@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 from bs4 import BeautifulSoup
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.first_party_jobs import extract_current_first_party_jobs
 from norway_company_agent.job_surface_signal import (
