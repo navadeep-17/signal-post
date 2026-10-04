@@ -10,20 +10,22 @@ Repository: `navadeep-17/signal-post`
 
 Production branch: `main`
 
-Production-code `main` semantics remain Phase A; latest documentation/history commit before this handoff:
+Live `main` observed immediately before this state-only reconciliation:
 
-`1043ce528470cae4b737e7f35452deb20ceb3486`
+`6863ffb763bdc0b0ed2eee7c1b360612291f59bf`
 
-Phase-A production merge: `8a729036350c019e107cd68a08641f1fff6796f6`.
+That tip is documentation-only on top of Phase-A production merge `8a729036350c019e107cd68a08641f1fff6796f6`; production code semantics remain Phase A. Recent documentation commits include implementation-history update `472c8453370fbb5aa9a1b847991fa90e7834f335` and roadmap update `6863ffb763bdc0b0ed2eee7c1b360612291f59bf`.
 
 Open PRs #76, #78 and #84 are historical/experimental and are not the active production path.
 
-Latest Phase-2 experiment branch:
+Latest completed Phase-2 experiment branch:
 
 - branch: `experiment/phase2-subunit-email-domain-screen`
 - exact measured head: `5321ab9689d754bd2f2415f392a8d0179050b6ae`
 - PR: none
 - state: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+No Phase-2 production branch is currently qualified or merged.
 
 ## 2. Lifecycle state
 
