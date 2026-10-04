@@ -1,0 +1,36 @@
+name: C12 M3 BORI Probe
+
+on:
+  push:
+    branches:
+      - feature/c12-dated-first-party-news
+    paths:
+      - "scripts/run_c12_m3_bori_probe.py"
+      - ".github/workflows/c12-m3-bori-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Run C12-M3 BORI probe
+        run: uv run python scripts/run_c12_m3_bori_probe.py
+      - name: Upload bounded report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c12-m3-bori-probe-813396092
+          path: out/c12-m3-bori-probe.json
+          if-no-files-found: warn
+          retention-days: 7
