@@ -69,14 +69,16 @@ def _profile() -> dict:
 
 
 def _c12_mtm_profile() -> dict:
-    """Regression shape for Builderr C12 example organisation 811730912.
+    """Regression shape from the live C12 follow-up for organisation 811730912.
 
-    The social handle is intentionally abbreviated so the old legal-name/handle heuristic
-    rejects it. The exact company homepage declaration is the evidence being tested; this
-    fixture does not hard-code a claim into production behavior.
+    On 2026-10-04 the exact MTM Skogservice homepage declared an opaque YouTube channel URL.
+    The old legal-name/handle heuristic scored that channel 0.3 because the channel ID does
+    not encode the legal company name. The regression tests the narrower, source-backed
+    claim that the exact verified company homepage declared the URL.
     """
     digest = "c" * 64
     source_url = "https://www.mtm-skogservice.no/"
+    youtube_url = "https://youtube.com/channel/UCWQ6axV2SNSqhA0JVoTZk-w"
     return {
         "organisation_number": "811730912",
         "name": "MTM SKOGSERVICE AS",
@@ -85,7 +87,7 @@ def _c12_mtm_profile() -> dict:
                 "status": "available",
                 "source_type": "registry_linked_company_website",
                 "source_url": source_url,
-                "retrieved_at": "2026-10-04T05:00:00Z",
+                "retrieved_at": "2026-10-04T04:58:38Z",
                 "content_sha256": digest,
                 "value": {
                     "final_url": source_url,
@@ -104,12 +106,12 @@ def _c12_mtm_profile() -> dict:
                         }
                     ],
                     "discovered_social_links": [
-                        {"platform": "facebook", "url": "https://facebook.com/mtmbutikk"}
+                        {"platform": "youtube", "url": youtube_url}
                     ],
                     "social_link_assessments": [
                         {
-                            "platform": "facebook",
-                            "url": "https://facebook.com/mtmbutikk",
+                            "platform": "youtube",
+                            "url": youtube_url,
                             "identity_score": 0.3,
                             "publishable": False,
                             "matched_tokens": [],
@@ -140,13 +142,13 @@ def test_emits_only_publishable_handle_with_exact_company_page_provenance() -> N
     assert publishable_observation(item) is True
 
 
-def test_c12_exact_homepage_declaration_survives_weak_handle_name_match() -> None:
+def test_c12_exact_homepage_declaration_survives_opaque_handle_name_match() -> None:
     observations = company_site_social_observations(_c12_mtm_profile())
     assert len(observations) == 1
     item = observations[0]
     assert item["organisation_number"] == "811730912"
-    assert item["platform"] == "facebook"
-    assert item["profile_url"] == "https://facebook.com/mtmbutikk"
+    assert item["platform"] == "youtube"
+    assert item["profile_url"] == "https://youtube.com/channel/UCWQ6axV2SNSqhA0JVoTZk-w"
     assert item["source_url"] == "https://www.mtm-skogservice.no/"
     assert item["strategy"] == "verified_company_homepage_declaration_c12_v1"
     assert item["metrics"]["network_requests_added"] == 0
@@ -167,8 +169,8 @@ def test_c12_direct_declaration_becomes_material_external_profile_handle_claim()
     projected = project_profile_handle_observations(contract, profile)
     claims = [row for row in projected["claims"] if row.get("field") == "external.profile_handle"]
     assert len(claims) == 1
-    assert claims[0]["value"] == "https://facebook.com/mtmbutikk"
-    assert claims[0]["platform"] == "facebook"
+    assert claims[0]["value"] == "https://youtube.com/channel/UCWQ6axV2SNSqhA0JVoTZk-w"
+    assert claims[0]["platform"] == "youtube"
     assert claims[0]["availability"] == "available"
     evidence = {row["id"]: row for row in projected["evidence"]}
     ev = evidence[claims[0]["evidence_ids"][0]]
