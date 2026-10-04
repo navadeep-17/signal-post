@@ -7,7 +7,9 @@ on:
       - audit/phase5-source-family-selection
     paths:
       - scripts/screen_phase5_source_family_reach.py
+      - scripts/normalize_phase5_csv_encoding.py
       - tests/test_phase5_source_family_reach.py
+      - tests/test_phase5_csv_encoding.py
       - docs/PHASE5_SOURCE_FAMILY_SELECTION.md
       - .github/workflows/phase5-source-family-selection.yml
 
@@ -35,7 +37,9 @@ jobs:
       - name: Run focused source-selection tests
         run: |
           uv sync --locked
-          uv run --with pytest pytest -q tests/test_phase5_source_family_reach.py
+          uv run --with pytest pytest -q \
+            tests/test_phase5_source_family_reach.py \
+            tests/test_phase5_csv_encoding.py
 
       - name: Pin consumed cohort
         run: |
@@ -49,10 +53,14 @@ jobs:
         run: |
           curl --fail --location --retry 3 --retry-delay 2 \
             'https://stotte.brreg.no/nb/oppslag/stoettetildeling/totalbestand/csv' \
+            --output stotte.raw.csv
+          test -s stotte.raw.csv
+          sha256sum stotte.raw.csv > stotte.sha256
+          uv run python scripts/normalize_phase5_csv_encoding.py \
+            --input stotte.raw.csv \
             --output stotte.csv
           test -s stotte.csv
-          sha256sum stotte.csv > stotte.sha256
-          wc -c stotte.csv
+          wc -c stotte.raw.csv stotte.csv
           head -n 2 stotte.csv
 
       - name: Download available Doffin annual CSV distributions
