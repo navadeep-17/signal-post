@@ -1,0 +1,138 @@
+name: Phase 5 Source Family Selection
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/phase5-source-family-selection
+    paths:
+      - scripts/screen_phase5_source_family_reach.py
+      - scripts/normalize_phase5_csv_encoding.py
+      - tests/test_phase5_source_family_reach.py
+      - tests/test_phase5_csv_encoding.py
+      - docs/PHASE5_SOURCE_FAMILY_SELECTION.md
+      - .github/workflows/phase5-source-family-selection.yml
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src
+
+jobs:
+  consumed-source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run focused source-selection tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_phase5_source_family_reach.py \
+            tests/test_phase5_csv_encoding.py
+
+      - name: Pin consumed cohort
+        run: |
+          cp submission/final-release-1000.jsonl consumed-1000.jsonl
+          echo '80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26  consumed-1000.jsonl' | sha256sum -c -
+          test "$(wc -l < consumed-1000.jsonl)" -eq 1000
+
+      - name: Download current Støtteregisteret full allocation CSV
+        id: stotte
+        continue-on-error: true
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://stotte.brreg.no/nb/oppslag/stoettetildeling/totalbestand/csv' \
+            --output stotte.raw.csv
+          test -s stotte.raw.csv
+          sha256sum stotte.raw.csv > stotte.sha256
+          uv run python scripts/normalize_phase5_csv_encoding.py \
+            --input stotte.raw.csv \
+            --output stotte.csv
+          test -s stotte.csv
+          wc -c stotte.raw.csv stotte.csv
+          head -n 2 stotte.csv
+
+      - name: Download available Doffin annual CSV distributions
+        id: doffin
+        run: |
+          mkdir -p doffin
+          found=0
+          for year in 2022 2023 2024 2025 2026; do
+            url="https://adaapnedataprodst.blob.core.windows.net/kunngjoringer/${year}/Kunngjoringer_${year}.csv"
+            if curl --fail --location --retry 2 --retry-delay 1 "$url" --output "doffin/Kunngjoringer_${year}.csv"; then
+              test -s "doffin/Kunngjoringer_${year}.csv"
+              sha256sum "doffin/Kunngjoringer_${year}.csv" >> doffin.sha256
+              found=$((found+1))
+            else
+              rm -f "doffin/Kunngjoringer_${year}.csv"
+            fi
+          done
+          echo "downloaded_years=$found" >> "$GITHUB_OUTPUT"
+          echo "Doffin CSV files downloaded: $found"
+          ls -lh doffin || true
+
+      - name: Measure exact-org company reach on consumed release cohort
+        run: |
+          STOTTE_ARGS=""
+          if test -s stotte.csv; then STOTTE_ARGS="--stotte-csv stotte.csv"; fi
+          DOFFIN_ARGS=""
+          for path in doffin/*.csv; do
+            test -e "$path" || continue
+            DOFFIN_ARGS="$DOFFIN_ARGS --doffin-csv $path"
+          done
+          uv run python scripts/screen_phase5_source_family_reach.py \
+            --cohort consumed-1000.jsonl \
+            $STOTTE_ARGS \
+            $DOFFIN_ARGS \
+            --output phase5-source-reach.json
+          cat phase5-source-reach.json
+
+      - name: Enforce research-only invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('phase5-source-reach.json').read_text())
+          assert report['companies'] == 1000
+          assert report['fresh_cohort_consumed'] is False
+          assert report['production_publication_enabled'] is False
+          for source in report['sources']:
+              assert source['publication_enabled'] is False
+              assert source['candidate_only'] is True
+          print(json.dumps({
+              'companies': report['companies'],
+              'sources': [
+                  {
+                      'source': s['source'],
+                      'status': s['status'],
+                      'matched_companies': s.get('matched_companies'),
+                      'company_reach': s.get('company_reach'),
+                  }
+                  for s in report['sources']
+              ],
+          }, indent=2))
+          PY
+
+      - name: Upload source-selection audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-source-family-selection
+          retention-days: 45
+          if-no-files-found: warn
+          path: |
+            consumed-1000.jsonl
+            stotte.sha256
+            doffin.sha256
+            phase5-source-reach.json
