@@ -1,6 +1,6 @@
 # Signalpost — Current Continuation State
 
-Last updated: 2026-10-04
+Last updated: 2026-10-04 15:57 Asia/Kolkata
 
 This is the **first file every new implementation chat must read**. It is intentionally short and current. Historical detail belongs in `docs/IMPLEMENTATION_LOG.md`; strategy belongs in `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
 
@@ -12,22 +12,35 @@ Production branch: `main`
 
 Current production `main` SHA:
 
-`911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`
+`bd6b337ce89770fb3cc7633d1e1cf1852d5f89c2`
 
-Latest merged PR:
+Latest merged production feature:
 
 - PR #92 — `Phase 1: recover evaluator-visible exact BRREG claims`
 - merge commit: `911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`
+- post-merge Baseline CI run `37193327713`: **PASS**
 
-Post-merge Baseline CI:
+Current `main` is one documentation merge ahead of that feature:
 
-- run `37193327713`
-- status: **PASS**
+- commit `bd6b337ce89770fb3cc7633d1e1cf1852d5f89c2`
+- message: `docs: add 70+ roadmap and cross-chat continuation system`
+- production code semantics remain the Phase-1 code line.
 
-Previous major milestone:
+### Active implementation branch / PR
 
-- PR #90 — C12 M4 bounded current first-party jobs
-- merge commit `fb4c8711b9a3c58c16c6ff1c26aada93c036938a`
+- active branch: `feature/phaseb-idle-contact-enrichment`
+- PR #94 — `Phase B: exact-site contact phone enrichment`
+- PR state: **OPEN / DRAFT / NOT MERGED**
+- exact branch head: `f04c1faee580a9e61194d00a0ef2625936d91871`
+- base: `main` at `bd6b337ce89770fb3cc7633d1e1cf1852d5f89c2`
+- Baseline CI on exact head: run `37195005850` — **PASS**
+- consumed-cohort E2E: run `37195003615` — **IN PROGRESS** at the actual V8 evaluator stage as of this update.
+
+Other open draft PRs are historical/experimental and are not the current production path:
+
+- PR #84 — provider-gated V9 M1c readiness; no live provider qualification dispatched;
+- PR #78 — V9 Website Discovery 2.0 experiment; not wired into production V8;
+- PR #76 — stale V7 exact-org BRREG registered-contact fallback; do not merge directly.
 
 Do not infer state from older chat messages if GitHub disagrees with this file.
 
@@ -53,28 +66,13 @@ Internal next-major-revision target:
 - UX 8
 - total 70-73+
 
-## 3. What is already productionized
+## 3. Production state — explicit lifecycle labels
 
-### Official / canonical foundation
-
-- exact organisation-number identity anchor;
-- BRREG live/bulk data;
-- financials;
-- roles;
-- locations/workplaces;
-- group/registry context where available;
-- canonical claims + evidence;
-- availability states;
-- deterministic refresh/change tracking;
-- one terminal envelope/company;
-- output-contract projection;
-- request/runtime/cost accounting.
-
-### Phase 1 lost-claim recovery now merged
+### MERGED + POST-MERGE GREEN — Phase 1 exact BRREG claim recovery
 
 PR #92 recovered evaluator-visible exact BRREG facts that were already available in live registry evidence but were previously discarded or insufficiently projected.
 
-Production now retains/projects:
+Production retains/projects:
 
 - registration date;
 - registered business address;
@@ -111,7 +109,50 @@ Fresh zero-overlap qualification for PR #92:
 - third-party cost: $0;
 - search requests: 0.
 
-This is the first completed item under Phase A of the 70+ roadmap: **zero-risk collected-but-unpublished fact recovery**.
+State labels:
+
+- **IMPLEMENTED:** yes
+- **TESTED:** yes
+- **QUALIFIED:** yes, fresh zero-overlap 100
+- **MERGED:** yes
+- **POST-MERGE GREEN:** yes
+
+### IMPLEMENTED + TESTED, NOT YET QUALIFIED — PR #94 exact-site contact enrichment candidate
+
+Live GitHub shows PR #94 currently contains a Phase B / Phase C candidate that extends exact verified-site contact coverage while preserving the existing site-request ceiling and evidence model. Current PR metadata describes:
+
+- explicitly labelled Norwegian contact-phone extraction from exact verified company pages;
+- `external.contact_phone` with canonical `website.contact_phone`;
+- separation from official BRREG registered phone/mobile;
+- page URL/hash/evidence-span provenance;
+- a consumed-cohort contact-page experiment intended to use otherwise-idle site budget without displacing stronger careers/news paths.
+
+Current state labels:
+
+- **IMPLEMENTED:** yes, on branch `feature/phaseb-idle-contact-enrichment`
+- **TESTED:** yes, Baseline CI run `37195005850` passed on exact head `f04c1fae...`
+- **QUALIFIED:** no — consumed E2E run `37195003615` is still in progress and no fresh promotion cohort has been accepted
+- **MERGED:** no
+- **POST-MERGE GREEN:** not applicable
+
+Do not merge or call PR #94 complete until the documented Phase A audit is closed and PR #94 passes its own promotion/qualification gates.
+
+## 4. Existing production foundation
+
+### Official / canonical
+
+- exact organisation-number identity anchor;
+- BRREG live/bulk data;
+- financials;
+- roles;
+- locations/workplaces;
+- group/registry context where available;
+- canonical claims + evidence;
+- availability states;
+- deterministic refresh/change tracking;
+- one terminal envelope/company;
+- output-contract projection;
+- request/runtime/cost accounting.
 
 ### Website discovery and identity
 
@@ -138,7 +179,7 @@ Publication remains fail-closed.
 - C12 bounded dated first-party news detail;
 - C12 bounded current first-party job postings.
 
-## 4. Previous major milestone — C12 M4 jobs
+## 5. Previous major milestone — C12 M4 jobs
 
 PR #90 is merged.
 
@@ -166,7 +207,7 @@ M4 proof artifact:
 - artifact ID `11295658686`
 - digest `b51f1ea151329ef3ad98f1c6f66ae09ced0b5d6aaa699e132312b580cac7fe4c`
 
-## 5. Known measured production strengths
+## 6. Known measured production strengths
 
 - exact terminal-output behavior is strong;
 - evidence completeness and hashes are strong;
@@ -179,7 +220,7 @@ M4 proof artifact:
 
 Do not weaken these strengths to chase recall.
 
-## 6. Primary remaining risk
+## 7. Primary remaining risk
 
 **Recall / company coverage**, especially non-registry information families.
 
@@ -194,21 +235,21 @@ Optimize **net-new companies covered per information family**, especially:
 
 Do not optimize merely for total claim count.
 
-## 7. Exact next action
+## 8. Exact next action
 
 Phase A is **partially complete**: lost-claim BRREG recovery has shipped.
 
-Next:
+The next gate remains the repository-documented Phase A audit, even though PR #94 already exists as a draft candidate:
 
-1. run/complete a current-main evaluator-shaped **family coverage matrix** after PR #92;
-2. compare all internally collected data against canonical emitted facts to identify any remaining zero-risk projection gaps;
-3. measure current M3/M4 company coverage for concrete jobs and dated activity on a fresh cohort;
-4. measure website/contact/social/people/location company coverage on the same cohort;
-5. select the next implementation only from measured net-new company opportunity.
+1. complete the post-Phase-1 current-main evaluator-shaped **family coverage matrix** using the frozen Phase-1 qualification artifact where possible;
+2. compare internally collected data against canonical emitted facts and identify any remaining meaningful zero-risk projection gaps;
+3. record unique-company coverage for website, contact email/phone, social, concrete jobs, dated activity, people, locations, workforce and registry changes;
+4. record request/runtime/cost and precision/evidence findings;
+5. only if no meaningful zero-risk projection gaps remain, treat PR #94 / Phase B verified-site enrichment as the active next implementation candidate.
 
-If no meaningful projection gaps remain, move to **Phase B — verified-site enrichment 2.0 + adaptive request allocation** from `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
+Do not consume a new fresh qualification cohort for PR #94 until its consumed-cohort E2E is green and Phase A is explicitly closed in repository documentation.
 
-## 8. Do-not-repeat decisions
+## 9. Do-not-repeat decisions
 
 - Do not loosen exact website identity to recover recall.
 - Do not treat generic careers pages as jobs.
@@ -220,15 +261,16 @@ If no meaningful projection gaps remain, move to **Phase B — verified-site enr
 - Do not tune against Builderr's checked collection.
 - Do not use an old local scoring rubric when the live challenge page differs.
 
-## 9. Session handoff protocol
+## 10. Session handoff protocol
 
 Before doing implementation work, a new chat must:
 
-1. read this file;
+1. read this file completely;
 2. read `docs/70_PLUS_IMPLEMENTATION_PLAN.md`;
 3. inspect current `main` SHA and open PRs;
-4. verify any time-sensitive Builderr rule against the live official page;
-5. continue from the exact `NEXT` item below.
+4. reconcile this file first if GitHub is ahead;
+5. verify any time-sensitive Builderr rule against the live official page when required;
+6. continue from the exact `NEXT` item below.
 
 At the end of every substantial work session, update this file before stopping.
 
@@ -256,6 +298,6 @@ Never write `done` merely because code exists. Distinguish:
 - MERGED
 - POST-MERGE GREEN
 
-## 10. NEXT
+## 11. NEXT
 
-**NEXT:** Post-Phase-1 current-main family-coverage + remaining collected-vs-emitted audit. Then select Phase B only if no meaningful zero-risk projection gaps remain.
+**NEXT:** Complete the post-Phase-1 current-main family-coverage + remaining collected-vs-emitted audit. Close Phase A only if no meaningful zero-risk projection gaps remain. Then continue PR #94 as the Phase B/Phase C candidate, first through its consumed-cohort E2E and only afterward through a fresh disjoint promotion qualification.
