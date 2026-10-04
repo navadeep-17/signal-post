@@ -12,6 +12,56 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase A3 zero-request breadth passes consumed gate; first final fresh qualification fails optional postal floor
+
+Status: **IMPLEMENTED + TESTED / FIRST FRESH QUALIFICATION FAILED / NOT MERGED**
+
+Active PR: #94, branch `feature/phaseb-idle-contact-enrichment`.
+
+Phase A3 consumed gate:
+
+- exact measured head: `ddd35f0679a9b05bdea5a26cd1b5b8f83a1fc59f`;
+- run `37200794754`: PASS;
+- artifact `phasea3-consumed-e2e`, ID `11302927164`;
+- digest `9c7b0014d0e08686f6801e541411da8141a36d331500cd9ca11c6f181e258578`;
+- 100/100 terminal;
+- company coverage: forced dissolution 100, foundation 98, articles date 96, Foretaksregisteret state 100/date 98, sector 95, capital 91, VAT state 100/date 48, postal address 30;
+- external labelled homepage phone 1, external email 3, registered phone/mobile 29, combined phone family 30;
+- evidence / contract / canonical / synthesis errors 0;
+- 669 logical requests, 1,338 conservative charge, theoretical ceiling 2,000;
+- runtime 473.27 s; cost $0; search requests 0.
+
+Before fresh qualification, branch ancestry was reconciled with live `main` `1589e4c5fd8c9cdc44e28574c961ee1912e47bf9` using merge commit `0b0c8e154bf6ac7391f1a01316f739cc9ff3892c`.
+
+First final fresh attempt:
+
+- exact head: `525b80126ac48e8662886422fbb606cce29e2a20`;
+- Baseline CI `37201687696`: PASS;
+- qualification run `37201683517`;
+- seed `20261102`;
+- exact exclusion: 8,223 unique, SHA `4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae`;
+- fresh cohort: 100 unique, overlap 0, SHA `f74aed4f1c3a389e2a88699f2df02edb01815c1f81cf87d6858cc276dacd5c29`;
+- V8 evaluator execution: PASS, 100/100 terminal;
+- fresh coverage: forced dissolution 100, foundation 99, articles date 97, enterprise state 100/date 98, sector 100, capital 93, VAT state 100/date 57, postal address 17, registration date 100, business address 100;
+- external homepage phone 3, external email 7, registered phone/mobile 38;
+- contract/canonical/synthesis/budget errors: 0;
+- 702 observed logical requests, 1,404 conservative charge, theoretical ceiling 2,000;
+- runtime 451.153 s; cost $0; search requests 0;
+- artifact `phasea-final-fresh-disjoint-100`, ID `11302933473`, digest `44045fa0727fb3fab5e79f7721e706d4a2a0cf2478644f3f61983291def12aa0`.
+
+Qualification result: **FAIL**. The only failed promotion assertion was `postal_address >= 20`; actual untouched-cohort prevalence was 17. The production path, exact evidence checks, evaluator, budget and output validations were otherwise clean.
+
+Decision:
+
+- do not retroactively relabel the failed run as qualified;
+- treat seed `20261102` cohort as consumed;
+- keep production extraction/publication semantics unchanged;
+- retune validation criteria so broad near-universal fields retain strong floors, while optional source-prevalence fields (postal address, VAT registration date) are reported and exact-evidence audited rather than treated as universal hard floors;
+- next untouched exclusion is 8,323 unique companies, SHA `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`;
+- run a second untouched cohort with seed `20261103`; only a green second fresh gate can qualify PR #94.
+
+---
+
 ## 2026-10-04 — Phase A audit found more zero-request BRREG recall; idle contact-page fallback rejected
 
 Status: **AUDITED + TESTED CANDIDATE / NETWORK EXPERIMENT REJECTED / NOT QUALIFIED**
