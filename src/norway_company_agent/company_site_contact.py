@@ -38,154 +38,88 @@ def _safe_same_domain_email(email: str, website_url: str) -> bool:
     return bool(website_domain and email_domain and website_domain == email_domain)
 
 
-def _normalised_org(profile: dict[str, Any]) -> str | None:
+def _verified_homepage_context(profile: dict[str, Any]) -> dict[str, Any] | None:
     org = str(profile.get("organisation_number") or "")
-    return org if len(org) == 9 and org.isdigit() else None
+    if len(org) != 9 or not org.isdigit():
+        return None
 
+    website = ((profile.get("evidence") or {}).get("website") or {})
+    value = website.get("value") or {}
+    identity = value.get("identity_assessment") or {}
+    if website.get("status") != "available" or not identity.get("publishable"):
+        return None
 
-def _contact_contexts(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return trusted retained page contexts, homepage first then exact contact surface.
+    source_url = str(value.get("final_url") or website.get("source_url") or "").strip()
+    retrieved_at = str(website.get("retrieved_at") or "").strip()
+    content_sha256 = str(value.get("content_sha256") or website.get("content_sha256") or "").strip()
+    identity_text = str(value.get("identity_text_excerpt") or "")
+    if not source_url.startswith(("http://", "https://")) or not retrieved_at or len(content_sha256) != 64:
+        return None
+    if not identity_text.strip():
+        return None
 
-    Every context is already tied to the target legal entity. The homepage requires the
-    ordinary website identity gate. A retained contact surface additionally requires the
-    Phase B page-local exact identity decision stored by the bounded site scheduler.
-    """
-    org = _normalised_org(profile)
-    if org is None:
-        return []
-
-    evidence_map = profile.get("evidence") or {}
-    website = evidence_map.get("website") or {}
-    website_value = website.get("value") or {}
-    website_identity = website_value.get("identity_assessment") or {}
-    contexts: list[dict[str, Any]] = []
-
-    if website.get("status") == "available" and website_identity.get("publishable"):
-        source_url = str(website_value.get("final_url") or website.get("source_url") or "").strip()
-        retrieved_at = str(website.get("retrieved_at") or "").strip()
-        content_sha256 = str(website_value.get("content_sha256") or website.get("content_sha256") or "").strip()
-        identity_text = str(website_value.get("identity_text_excerpt") or "")
-        if (
-            source_url.startswith(("http://", "https://"))
-            and retrieved_at
-            and len(content_sha256) == 64
-            and identity_text.strip()
-        ):
-            contexts.append(
-                {
-                    "kind": "homepage",
-                    "source_url": source_url,
-                    "retrieved_at": retrieved_at,
-                    "content_sha256": content_sha256,
-                    "identity_text": identity_text,
-                    "identity_score": website_identity.get("score"),
-                    "identity_proof": [
-                        {
-                            "type": "website_identity_gate",
-                            "status": website_identity.get("status"),
-                            "score": website_identity.get("score"),
-                            "method": website_identity.get("method"),
-                        },
-                        {
-                            "type": "bounded_identity_footer_excerpt",
-                            "source_url": source_url,
-                            "content_sha256": content_sha256,
-                        },
-                    ],
-                }
-            )
-
-    surface = evidence_map.get("website_contact_surface") or {}
-    surface_value = surface.get("value") or {}
-    surface_identity = surface_value.get("contact_surface_identity") or {}
-    if surface.get("status") == "available" and surface_identity.get("publishable"):
-        source_url = str(surface_value.get("final_url") or surface.get("source_url") or "").strip()
-        retrieved_at = str(surface.get("retrieved_at") or "").strip()
-        content_sha256 = str(surface_value.get("content_sha256") or surface.get("content_sha256") or "").strip()
-        identity_text = str(surface_value.get("identity_text_excerpt") or "")
-        primary_domain = _registered_domain(
-            str(website_value.get("final_url") or website.get("source_url") or "")
-        )
-        if (
-            source_url.startswith(("http://", "https://"))
-            and retrieved_at
-            and len(content_sha256) == 64
-            and identity_text.strip()
-            and primary_domain
-            and _registered_domain(source_url) == primary_domain
-        ):
-            score = 1.0 if surface_identity.get("target_org_number_on_page") else 0.98
-            contexts.append(
-                {
-                    "kind": "contact_surface",
-                    "source_url": source_url,
-                    "retrieved_at": retrieved_at,
-                    "content_sha256": content_sha256,
-                    "identity_text": identity_text,
-                    "identity_score": score,
-                    "identity_proof": [
-                        {
-                            "type": "website_identity_gate",
-                            "status": website_identity.get("status"),
-                            "score": website_identity.get("score"),
-                            "method": website_identity.get("method"),
-                        },
-                        {
-                            "type": "contact_surface_exact_page_identity",
-                            "method": surface_identity.get("method"),
-                            "target_org_number_on_page": surface_identity.get("target_org_number_on_page"),
-                            "full_legal_name_on_page": surface_identity.get("full_legal_name_on_page"),
-                            "registry_location_on_page": surface_identity.get("registry_location_on_page"),
-                        },
-                        {
-                            "type": "bounded_identity_footer_excerpt",
-                            "source_url": source_url,
-                            "content_sha256": content_sha256,
-                        },
-                    ],
-                }
-            )
-    return contexts
+    return {
+        "org": org,
+        "source_url": source_url,
+        "retrieved_at": retrieved_at,
+        "content_sha256": content_sha256,
+        "identity_text": identity_text,
+        "identity": identity,
+    }
 
 
 def company_site_contact_email_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract narrow first-party email claims from retained exact company pages.
+    """Extract narrow first-party email claims from an already-qualified homepage snapshot.
 
-    H2c itself performs no network access. It inspects the already-qualified homepage and,
-    when the bounded site scheduler retained one, an independently exact same-domain contact
-    page. Publication requires the email domain to match the source page's registered domain.
-    Homepage evidence wins deterministic deduplication when the same address appears twice.
+    H2c performs no network access. It only inspects the bounded identity/footer/contact text
+    retained from the exact company website snapshot. Publication requires the email domain
+    to match the verified website's registered domain.
     """
-    org = _normalised_org(profile)
-    if org is None:
+    context = _verified_homepage_context(profile)
+    if context is None:
         return []
 
-    by_email: dict[str, dict[str, Any]] = {}
-    for context in _contact_contexts(profile):
-        source_url = str(context["source_url"])
-        for match in EMAIL_RE.finditer(str(context["identity_text"])):
-            email = match.group(1).strip().lower()
-            if email in by_email or not _safe_same_domain_email(email, source_url):
-                continue
-            content_sha256 = str(context["content_sha256"])
-            observation_id = "company-site-email-" + hashlib.sha256(
-                f"{org}|{email}|{source_url}|{content_sha256}".encode("utf-8")
-            ).hexdigest()[:24]
-            by_email[email] = {
+    source_url = str(context["source_url"])
+    identity_text = str(context["identity_text"])
+    emails = sorted(
+        {
+            match.group(1).strip().lower()
+            for match in EMAIL_RE.finditer(identity_text)
+            if _safe_same_domain_email(match.group(1), source_url)
+        }
+    )[:MAX_CONTACT_EMAILS]
+
+    observations: list[dict[str, Any]] = []
+    for email in emails:
+        observation_id = "company-site-email-" + hashlib.sha256(
+            f"{context['org']}|{email}|{source_url}|{context['content_sha256']}".encode("utf-8")
+        ).hexdigest()[:24]
+        observations.append(
+            {
                 "id": observation_id,
-                "organisation_number": org,
+                "organisation_number": context["org"],
                 "platform": "company_site",
                 "signal_type": "company_profile",
                 "source_url": source_url,
                 "retrieved_at": context["retrieved_at"],
-                "content_sha256": content_sha256,
+                "content_sha256": context["content_sha256"],
                 "exact_entity": True,
                 "identity_proof": [
-                    *list(context["identity_proof"]),
+                    {
+                        "type": "website_identity_gate",
+                        "status": context["identity"].get("status"),
+                        "score": context["identity"].get("score"),
+                        "method": context["identity"].get("method"),
+                    },
                     {
                         "type": "same_registered_domain_contact_email",
                         "registered_domain": _registered_domain(source_url),
                         "email_domain": email.split("@", 1)[1],
+                    },
+                    {
+                        "type": "bounded_identity_footer_excerpt",
+                        "source_url": source_url,
+                        "content_sha256": context["content_sha256"],
                     },
                 ],
                 "acquisition_mode": "permitted_public_page",
@@ -194,63 +128,68 @@ def company_site_contact_email_observations(profile: dict[str, Any]) -> list[dic
                 "evidence_span": f"Verified company page publishes contact email {email}",
                 "contact_email": email,
                 "metrics": {
-                    "identity_score": context.get("identity_score"),
+                    "identity_score": context["identity"].get("score"),
                     "claim_scope": (
-                        "Contact email explicitly present in bounded footer/contact/legal text on an exact "
-                        "company page; email domain matches the verified website registered domain."
+                        "Contact email explicitly present in bounded footer/contact/legal text on the exact "
+                        "company website; email domain matches the verified website registered domain."
                     ),
                 },
-                "strategy": (
-                    "verified_company_contact_surface_same_domain_email_v1"
-                    if context["kind"] == "contact_surface"
-                    else "verified_company_page_same_domain_email_v1"
-                ),
+                "strategy": "verified_company_page_same_domain_email_v1",
             }
-
-    return [by_email[email] for email in sorted(by_email)[:MAX_CONTACT_EMAILS]]
+        )
+    return observations
 
 
 def company_site_contact_phone_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract explicitly labelled Norwegian contact numbers from retained exact pages.
+    """Extract explicitly labelled Norwegian contact numbers from the verified homepage.
 
     Only numbers immediately following Telefon/Tlf/Phone/Tel inside bounded legal/contact/
-    footer text qualify. Homepage evidence wins deterministic deduplication. The claim means
-    only that the exact company page published a contact number; no person, role, ownership,
-    switchboard, or deliverability inference is made.
+    footer text qualify. This is zero-network and does not infer a person, role or ownership.
     """
-    org = _normalised_org(profile)
-    if org is None:
+    context = _verified_homepage_context(profile)
+    if context is None:
         return []
 
-    by_phone: dict[str, dict[str, Any]] = {}
-    for context in _contact_contexts(profile):
-        source_url = str(context["source_url"])
-        for match in PHONE_RE.finditer(str(context["identity_text"])):
-            digits = re.sub(r"\D", "", match.group(1))
-            if len(digits) != 8:
-                continue
-            phone = "+47" + digits
-            if phone in by_phone:
-                continue
-            content_sha256 = str(context["content_sha256"])
-            observation_id = "company-site-phone-" + hashlib.sha256(
-                f"{org}|{phone}|{source_url}|{content_sha256}".encode("utf-8")
-            ).hexdigest()[:24]
-            by_phone[phone] = {
+    source_url = str(context["source_url"])
+    phones = sorted(
+        {
+            "+47" + re.sub(r"\D", "", match.group(1))
+            for match in PHONE_RE.finditer(str(context["identity_text"]))
+            if len(re.sub(r"\D", "", match.group(1))) == 8
+        }
+    )[:MAX_CONTACT_PHONES]
+
+    observations: list[dict[str, Any]] = []
+    for phone in phones:
+        observation_id = "company-site-phone-" + hashlib.sha256(
+            f"{context['org']}|{phone}|{source_url}|{context['content_sha256']}".encode("utf-8")
+        ).hexdigest()[:24]
+        observations.append(
+            {
                 "id": observation_id,
-                "organisation_number": org,
+                "organisation_number": context["org"],
                 "platform": "company_site",
                 "signal_type": "company_profile",
                 "source_url": source_url,
                 "retrieved_at": context["retrieved_at"],
-                "content_sha256": content_sha256,
+                "content_sha256": context["content_sha256"],
                 "exact_entity": True,
                 "identity_proof": [
-                    *list(context["identity_proof"]),
+                    {
+                        "type": "website_identity_gate",
+                        "status": context["identity"].get("status"),
+                        "score": context["identity"].get("score"),
+                        "method": context["identity"].get("method"),
+                    },
                     {
                         "type": "explicit_labelled_contact_phone",
                         "labels": ["telefon", "tlf", "phone", "tel"],
                         "normalized_country_code": "+47",
+                    },
+                    {
+                        "type": "bounded_identity_footer_excerpt",
+                        "source_url": source_url,
+                        "content_sha256": context["content_sha256"],
                     },
                 ],
                 "acquisition_mode": "permitted_public_page",
@@ -259,37 +198,33 @@ def company_site_contact_phone_observations(profile: dict[str, Any]) -> list[dic
                 "evidence_span": f"Verified company page explicitly labels contact phone {phone}",
                 "contact_phone": phone,
                 "metrics": {
-                    "identity_score": context.get("identity_score"),
+                    "identity_score": context["identity"].get("score"),
                     "claim_scope": (
-                        "Contact phone explicitly labelled in bounded footer/contact/legal text on an exact "
-                        "company page; normalized to Norwegian +47 format without inferring a person or role."
+                        "Contact phone explicitly labelled in bounded footer/contact/legal text on the exact "
+                        "company website; normalized to Norwegian +47 format without inferring a person or role."
                     ),
                 },
-                "strategy": (
-                    "verified_company_contact_surface_labelled_phone_v1"
-                    if context["kind"] == "contact_surface"
-                    else "verified_company_page_labelled_phone_v1"
-                ),
+                "strategy": "verified_company_page_labelled_phone_v1",
             }
-
-    return [by_phone[phone] for phone in sorted(by_phone)[:MAX_CONTACT_PHONES]]
+        )
+    return observations
 
 
 def attach_company_site_contact_email_observations(profile: dict[str, Any]) -> dict[str, Any]:
-    """Attach zero-network exact-site email and phone observations idempotently."""
+    """Attach zero-network exact-homepage email and phone observations idempotently."""
     existing = [item for item in (profile.get("external_observations") or []) if isinstance(item, dict)]
-    h2c = [
-        *company_site_contact_email_observations(profile),
-        *company_site_contact_phone_observations(profile),
-    ]
     managed_prefixes = ("company-site-email-", "company-site-phone-")
     existing = [
         item for item in existing
         if not str(item.get("id") or "").startswith(managed_prefixes)
     ]
+    current = [
+        *company_site_contact_email_observations(profile),
+        *company_site_contact_phone_observations(profile),
+    ]
     by_id = {
         str(item.get("id")): item
-        for item in [*existing, *h2c]
+        for item in [*existing, *current]
         if str(item.get("id") or "").strip()
     }
     profile["external_observations"] = sorted(
