@@ -52,6 +52,12 @@ APPLY_TEXT_MARKERS = (
 )
 DATE_TOKEN = r"(?:20\d{2}-[01]?\d-[0-3]?\d|[0-3]?\d[./-][01]?\d[./-](?:20)?\d{2})"
 DATE_RE = re.compile(rf"\b({DATE_TOKEN})\b")
+ACTIVE_VACANCY_COUNT_PATTERNS = (
+    re.compile(r"\b(\d{1,3})\s+(?:antall\s+)?ledige\s+stillinger\b", re.I),
+    re.compile(r"\bantall\s+ledige\s+stillinger(?:\s+[^\d\s]+){0,6}\s+(\d{1,3})\b", re.I),
+    re.compile(r"\b(\d{1,3})\s+(?:open\s+positions|open\s+roles|open\s+vacancies|vacancies)\b", re.I),
+    re.compile(r"\b(?:open\s+positions|open\s+roles|open\s+vacancies|vacancies)\s*[:\-]?\s*(\d{1,3})\b", re.I),
+)
 
 
 def _fold(value: Any) -> str:
@@ -131,27 +137,21 @@ def _application_link(container: Tag | None, base_url: str, role_url: str) -> tu
 def extract_homepage_hiring_signal(*, final_url: str, soup: BeautifulSoup) -> dict[str, Any]:
     """Return conservative homepage-only evidence that active vacancies exist now.
 
-    A generic careers link is not enough. A positive numeric count adjacent to a hiring
-    phrase is required before the bounded crawler spends its final follow-up slot on a
-    careers surface.
+    A generic careers link is not enough. The page must contain an explicit vacancy-count
+    phrase such as ``10 Antall ledige stillinger`` or ``10 open positions``. Broad numeric
+    proximity is intentionally rejected so unrelated phone numbers, years, statistics or
+    navigation counters cannot consume the bounded careers-follow-up slot.
     """
     text = " ".join(soup.get_text(" ", strip=True).split())[:30_000]
-    folded = text.casefold()
     counts: list[int] = []
-    for phrase in ACTIVE_COUNT_PHRASES:
-        escaped = re.escape(phrase)
-        patterns = (
-            re.compile(rf"\b(\d{{1,3}})\b.{{0,100}}\b{escaped}\b", re.I),
-            re.compile(rf"\b{escaped}\b.{{0,100}}\b(\d{{1,3}})\b", re.I),
-        )
-        for pattern in patterns:
-            for match in pattern.finditer(folded):
-                try:
-                    value = int(match.group(1))
-                except (TypeError, ValueError):
-                    continue
-                if 0 <= value <= 500:
-                    counts.append(value)
+    for pattern in ACTIVE_VACANCY_COUNT_PATTERNS:
+        for match in pattern.finditer(text):
+            try:
+                value = int(match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 0 < value <= 500:
+                counts.append(value)
     count = max(counts) if counts else 0
     return {
         "active_vacancy_count": count,
