@@ -12,6 +12,28 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase 4 dated-activity evidence hardening merged and post-merge green
+
+Status: **IMPLEMENTED + TESTED + MERGED + POST-MERGE GREEN / NO FRESH QUALIFICATION BY DESIGN**
+
+- PR #95: `Phase 4: harden dated activity evidence selection`
+- branch: `feature/phase4-activity-date-evidence-hardening`
+- docs-inclusive exact PR head: `49f9b89d149749400f14f105671edd644116faeb`
+- exact-head Baseline CI `37219207340`: PASS
+- merge commit: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
+- post-merge Baseline CI `37219278337`: PASS
+- consumed semantics/diff run: `37217368930`, PASS
+- artifact: `phase4-activity-evidence-consumed-diff`, ID `11308328355`
+- artifact digest: `ddcf4e328edab217a016122801f1ad16f4f60c0a80d3e106b09ba5f67ed59da0`
+
+The merge retains typed page-local date ranking, same-rank conflict abstention, unique-only weak text dates, generic CMS placeholder rejection and exact date-method/raw-evidence provenance. No source, network request, identity rule or third-party cost was added.
+
+The frozen 100-company diff remained monotonic: jobs 0->0, updates 0->0, no added/dropped update URLs, no publication-date changes, zero added requests and `precision_monotonic=true`. Post-merge CI passed the full test suite, certified-1000 canonical audit, submission-bundle verification and deterministic refresh replay.
+
+Decision: **PROMOTE complete**. Phase 4 is closed. Next roadmap step is a consumed-only rights/reach/exact-ID source/family selection audit; no connector or fresh cohort until one deterministic source passes that gate.
+
+---
+
 ## 2026-10-04 — Phase 4 dated-activity evidence hardening passes consumed gate
 
 Status: **IMPLEMENTED + TESTED / MERGE PENDING / NOT FRESH-QUALIFIED / NOT MERGED**
@@ -104,8 +126,8 @@ Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
 - branch: `experiment/phase3-dated-activity-discovery`
 - exact measured head: `5f6540fffe5ce3656f2c8611da8cc390409ecddd`
 - workflow run `37215062164`: PASS
-- artifact: `phase3-sitemap-activity-screen`, ID `11308151116`
-- artifact digest: `fcbd1aa10c91b7f468894a81e6fe88d797224fe1d058ac472a4d049f8e800d35`
+- artifact `phase3-sitemap-activity-screen`, ID `11308151116`
+- artifact digest `fcbd1aa10c91b7f468894a81e6fe88d797224fe1d058ac472a4d049f8e800d35`
 - publication remained disabled
 - frozen consumed cohort: 100 companies / 7 exact verified sites
 
@@ -115,10 +137,10 @@ Measured result:
 - sitemap indexes: 4;
 - direct urlsets: 1;
 - accepted dated-activity companies: **0**;
-- 4 sitemap indexes would require a child-sitemap request before an article detail and therefore exceed the intended two-idle-request discovery+detail theorem;
-- sitemap `<lastmod>` stayed ranking-only and never became publication evidence;
+- 4 sitemap indexes would require an extra child-sitemap request before an article detail and therefore exceed the intended two-idle-request discovery+detail theorem;
+- sitemap `<lastmod>` stayed ranking-only and never publication evidence;
 - actual experiment requests: 13;
-- projected production incremental requests assuming cached homepage robots policy: 6;
+- projected production incremental requests assuming cached robots policy: 6;
 - projected combined conservative charge: 1,344/2,000;
 - runtime: 8.614 s;
 - cost $0; search API requests 0; wrong-company publications 0.
@@ -160,7 +182,7 @@ Measured result:
 
 The detail gate would authorize only `employer.orgnr == target` or an exact BRREG subunit organisation number whose recorded parent is the target. No candidate reached detail lookup. The public experiment token is also not a stable production credential.
 
-Decision: **DROP**. Do not broaden name matching post-hoc or spend a fresh cohort. Reconsider only if NAV feed semantics or an exact organisation-number index materially changes.
+Decision: **DROP**. Do not broaden name matching post-hoc or spend a fresh cohort. Reconsider only if NAV feed semantics or a direct organisation-number index materially changes.
 
 ---
 
