@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from .website import _registered_domain
 
 NEWS_PATH_TERMS = ("aktuelt", "nyheter", "news", "blog", "blogg", "press", "presse", "artikler", "articles")
 GENERIC_NEWS_TITLES = {"aktuelt", "nyheter", "news", "blog", "blogg", "press", "presse", "artikler", "articles", "les mer", "read more"}
+DATE_HINT_RE = re.compile(
+    r"\b(?:20\d{2}-[01]\d-[0-3]\d|[0-3]?\d[./-][01]?\d[./-](?:20\d{2}|\d{2}))\b"
+)
 
 
 def _same_registered_domain(left: str, right: str) -> bool:
@@ -33,6 +37,33 @@ def _specific_news_path(url: str) -> tuple[bool, str | None]:
     return index < len(parts) - 1, term
 
 
+def _dated_local_context(anchor: Tag, *, max_chars: int = 1600) -> str | None:
+    """Return bounded local card text when an explicit visible date surrounds a link.
+
+    Some exact company homepages expose news cards whose detail URLs are root-level slugs
+    rather than `/news/<slug>`. A visible date in the same local card is strong enough to
+    *nominate* that link for one bounded detail fetch. It is never publication evidence by
+    itself; the fetched destination must still pass the strict detail-page gate.
+    """
+    direct = " ".join(anchor.get_text(" ", strip=True).split())
+    if DATE_HINT_RE.search(direct):
+        return direct[:max_chars]
+
+    depth = 0
+    for parent in anchor.parents:
+        if not isinstance(parent, Tag):
+            continue
+        if parent.name not in {"article", "li", "div", "section"}:
+            continue
+        depth += 1
+        text = " ".join(parent.get_text(" ", strip=True).split())
+        if 0 < len(text) <= max_chars and DATE_HINT_RE.search(text):
+            return text
+        if depth >= 4:
+            break
+    return None
+
+
 def extract_news_detail_links(
     *,
     verified_url: str,
@@ -41,11 +72,14 @@ def extract_news_detail_links(
     homepage_content_sha256: str,
     limit: int = 4,
 ) -> list[dict[str, Any]]:
-    """Nominate specific same-domain first-party news/article detail links.
+    """Nominate bounded same-domain first-party news/article detail links.
 
-    This is discovery only. A returned URL is never itself a company-update fact. The
-    destination must be independently fetched and later pass the strict dated-detail-page
-    projector before publication.
+    Two nomination shapes are accepted: a specific URL below a known news path, or a
+    same-domain link inside a small homepage card carrying an explicit visible date. The
+    latter covers sites such as Lucerna whose news detail pages use root-level slugs.
+
+    Nomination never becomes a fact. The destination must be independently fetched and
+    later pass the strict page-level title/date/content publication gate.
     """
     if limit < 1 or not _same_registered_domain(verified_url, final_url):
         return []
@@ -68,12 +102,18 @@ def extract_news_detail_links(
             continue
         if not _same_registered_domain(clean, verified_url):
             continue
-        specific, marker = _specific_news_path(clean)
-        if not specific or not marker:
+
+        specific_path, path_marker = _specific_news_path(clean)
+        dated_context = _dated_local_context(anchor)
+        if not specific_path and not dated_context:
             continue
+
         anchor_text = " ".join(anchor.get_text(" ", strip=True).split())
-        if anchor_text.casefold().strip(" -|:") in GENERIC_NEWS_TITLES:
+        generic_anchor = anchor_text.casefold().strip(" -|:") in GENERIC_NEWS_TITLES
+        if generic_anchor and not dated_context:
             continue
+
+        marker = path_marker or "dated_homepage_card"
         seen.add(clean)
         rows.append(
             {
@@ -83,6 +123,7 @@ def extract_news_detail_links(
                 "homepage_url": final_url,
                 "homepage_content_sha256": homepage_content_sha256,
                 "document_order": position,
+                "dated_context": dated_context[:500] if dated_context else None,
                 "nomination_only": True,
             }
         )
