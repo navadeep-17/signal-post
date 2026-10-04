@@ -171,6 +171,27 @@ def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, li
     if not final_url:
         return None, []
     pages = [page for page in (value.get("pages") or []) if isinstance(page, dict)]
+
+    # C12-M3 retains one bounded article fetch separately so homepage-only social
+    # provenance remains unchanged. Consume it only when the exact verified homepage
+    # nominated that same URL and the detail fetch stayed on the verified company site.
+    detail = ((profile.get("evidence") or {}).get("website_news_detail") or {})
+    detail_value = detail.get("value") or {}
+    detail_pages = [page for page in (detail_value.get("pages") or []) if isinstance(page, dict)]
+    nominated = {
+        str(item.get("url") or "").rstrip("/")
+        for item in (value.get("news_detail_links") or [])
+        if isinstance(item, dict) and item.get("url")
+    }
+    if (
+        detail.get("status") == "available"
+        and detail.get("source_type") == "verified_company_news_detail_candidate"
+        and detail_pages
+    ):
+        page = detail_pages[0]
+        page_url = str(page.get("url") or detail_value.get("final_url") or detail.get("source_url") or "").strip()
+        if page_url.rstrip("/") in nominated and _same_verified_site(page_url, final_url):
+            pages.append(page)
     return {"record": website, "final_url": final_url}, pages
 
 

@@ -22,6 +22,7 @@ from .domain_discovery import (
 )
 from .evidence import evidence
 from .homepage_careers_signal import extract_careers_links
+from .homepage_news_signal import extract_news_detail_links
 from .identity import apply_website_identity_gate
 from .website import (
     USER_AGENT,
@@ -317,6 +318,12 @@ def fetch_bounded_homepage(
                 soup=soup,
                 homepage_content_sha256=digest,
             ),
+            "news_detail_links": extract_news_detail_links(
+                verified_url=final_url,
+                final_url=final_url,
+                soup=soup,
+                homepage_content_sha256=digest,
+            ),
             "structured_organisations": _jsonld_organisations(structured),
             "content_sha256": digest,
             "extraction_state": _extraction_state(text, soup),
@@ -408,6 +415,51 @@ def _merge_secondary_page(primary: dict[str, Any], secondary: dict[str, Any]) ->
     return True
 
 
+def _attach_bounded_news_detail(
+    primary: dict[str, Any],
+    *,
+    evidence_map: dict[str, Any],
+    total: dict[str, Any],
+    timeout: float,
+) -> bool:
+    # Spend the final two site requests on one homepage-nominated news detail page.
+    if not _publishable(primary):
+        return False
+    if int(total.get("requests") or 0) + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
+        return False
+    value = primary.get("value") or {}
+    links = [item for item in (value.get("news_detail_links") or []) if isinstance(item, dict) and item.get("url")]
+    if not links:
+        return False
+
+    candidate_url = str(links[0]["url"])
+    total["news_detail_attempted"] = True
+    total["news_detail_candidate_url"] = candidate_url
+    detail, ops = fetch_bounded_homepage(
+        candidate_url,
+        source_type="verified_company_news_detail_candidate",
+        timeout=timeout,
+    )
+    _add_metrics(total, ops)
+
+    primary_domain = str(value.get("registered_domain") or "")
+    detail_value = detail.get("value") or {}
+    detail_domain = str(detail_value.get("registered_domain") or "")
+    accepted = bool(
+        detail.get("status") == "available"
+        and primary_domain
+        and detail_domain == primary_domain
+        and str(detail_value.get("final_url") or detail.get("source_url") or "").rstrip("/") == candidate_url.rstrip("/")
+    )
+    if accepted:
+        evidence_map["website_news_detail"] = detail
+        total["news_detail_retained"] = True
+        return True
+
+    total["news_detail_retained"] = False
+    return False
+
+
 def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve a canonical company website with a four-logical-request site ceiling.
 
@@ -431,6 +483,8 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
         "h1c_attempted": False,
         "h1c_secondary_attempted": False,
         "h1c_secondary_verified": False,
+        "news_detail_attempted": False,
+        "news_detail_retained": False,
         "selected_source": None,
         "promoted": False,
     }
@@ -452,6 +506,9 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
         if _publishable(registry_terminal):
             total["selected_source"] = "registry_website"
             total["promoted"] = True
+            _attach_bounded_news_detail(
+                registry_terminal, evidence_map=evidence_map, total=total, timeout=timeout
+            )
             return row, total
     else:
         plan = registry_email_domain_candidates(row)
@@ -499,6 +556,9 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
                 row["website"] = (candidate_record.get("value") or {}).get("final_url") or candidate_record.get("source_url") or ""
                 total["selected_source"] = "registry_email_domain"
                 total["promoted"] = True
+                _attach_bounded_news_detail(
+                    candidate_record, evidence_map=evidence_map, total=total, timeout=timeout
+                )
                 return row, total
 
     h1c_plan = deterministic_domain_candidates(row, max_candidates=1)
@@ -627,6 +687,12 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
             if _publishable((row.get("evidence") or {}).get("website") or {}):
                 total["selected_source"] = "h1c_deterministic_domain"
                 total["promoted"] = True
+                _attach_bounded_news_detail(
+                    (row.get("evidence") or {}).get("website") or candidate_record,
+                    evidence_map=evidence_map,
+                    total=total,
+                    timeout=timeout,
+                )
                 return row, total
             total["h1c_guard_reasons"] = reasons
 
