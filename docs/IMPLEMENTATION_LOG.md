@@ -12,6 +12,147 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase 3 hardened RSS/Atom dated-activity screen rejected
+
+Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+- branch: `experiment/phase3-dated-activity-discovery`
+- exact hardened head: `5ed4f3a83eab592c0a2a2c7d96e0865cf874bce0`
+- workflow run `37215793652`: PASS
+- artifact: `phase3-rss-activity-screen`, ID `11308790825`
+- artifact digest: `f2c10fbeb86d0f04bdd8a53e3594bd2aaf2e1ef957ae36eb5bdfd29c41714cde`
+- full regressions: PASS
+- publication remained disabled
+- frozen consumed cohort: 100 companies / 7 exact verified sites
+
+The first RSS run (`37215447605`, artifact `11308540417`) appeared to produce one dated update for `BIKE2WORK AS`, but manual audit found a precision defect: the RSS item was the standard WordPress `Hello world!` placeholder dated 16 Nov 2021 while the detail extractor selected a separate `04/10/2026` date-labelled element on the page.
+
+The experiment was hardened before any promotion:
+
+- standard CMS placeholder posts are rejected;
+- feed dates remain ranking/conflict-veto metadata only and can never create a published fact;
+- a clear feed-year/detail-year contradiction vetoes an apparent detail fact;
+- existing page-local C12 activity acceptance remains the positive evidence gate.
+
+Hardened result:
+
+- 7/7 exact verified sites screened;
+- declared feed hints: 2 companies;
+- RSS feeds parsed: 2;
+- precision-clean dated-activity companies: **0**;
+- decisions: 4 no feed hint, 1 no feed activity candidate, 1 robots unavailable, 1 generic CMS placeholder reject;
+- actual experiment requests: 16;
+- actual bytes: 1,631,210;
+- projected production incremental site requests: 3;
+- projected combined conservative charge: 1,338/2,000;
+- runtime: 13.374 s;
+- third-party cost: $0;
+- search API requests: 0;
+- wrong-company publications: 0.
+
+Decision: **DROP** the current bounded RSS/Atom acquisition path. The experiment exposed a real generic page-date precision weakness, so the next phase is page-level evidence/date hardening before further source expansion.
+
+---
+
+## 2026-10-04 — Phase 3 sitemap dated-activity screen rejected
+
+Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+- branch: `experiment/phase3-dated-activity-discovery`
+- exact measured head: `5f6540fffe5ce3656f2c8611da8cc390409ecddd`
+- workflow run `37215062164`: PASS
+- artifact: `phase3-sitemap-activity-screen`, ID `11308151116`
+- artifact digest: `fcbd1aa10c91b7f468894a81e6fe88d797224fe1d058ac472a4d049f8e800d35`
+- publication remained disabled
+- frozen consumed cohort: 100 companies / 7 exact verified sites
+
+Measured result:
+
+- robots sitemap hints: 5 companies;
+- sitemap indexes: 4;
+- direct urlsets: 1;
+- accepted dated-activity companies: **0**;
+- 4 sitemap indexes would require a child-sitemap request before an article detail and therefore exceed the intended two-idle-request discovery+detail theorem;
+- sitemap `<lastmod>` stayed ranking-only and never became publication evidence;
+- actual experiment requests: 13;
+- projected production incremental requests assuming cached homepage robots policy: 6;
+- projected combined conservative charge: 1,344/2,000;
+- runtime: 8.614 s;
+- cost $0; search API requests 0; wrong-company publications 0.
+
+Decision: **DROP** sitemap-only dated-activity discovery on the current verified-site cohort. RSS/Atom remained the only budget-compatible Phase-3 retune and was screened separately.
+
+---
+
+## 2026-10-04 — NAV exact-org vacancy-feed screen rejected
+
+Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+- branch: `experiment/nav-exact-org-vacancy-screen`
+- exact measured head: `c156fda6a5ac711b285e864270273446262d19ac`
+- corrected workflow run `37214017085`: PASS
+- artifact: `nav-exact-org-vacancy-screen`, ID `11307433276`
+- artifact digest: `917ad28cc991fdeb70a8f78617cbb8c0c1fbbf49e8c6ce598455630127d7e5db`
+- first run `37213928445` failed before any NAV request due a harness-only frozen-report key mismatch; full regressions were green and the workflow was corrected without changing matching semantics
+- publication remained disabled and personal contact fields were not retained
+
+Measured result:
+
+- complete 180-day feed traversal;
+- 38 feed requests, 181,234,775 bytes;
+- 368,428 raw feed events;
+- 90,917 unique vacancies;
+- 9,723 active unique vacancies;
+- target/main-or-exact-subunit shortlist candidates: **0**;
+- vacancy-detail requests: 0;
+- exact active vacancies: 0;
+- target companies with exact active vacancies: **0/100**;
+- NAV logical requests: 39;
+- conservative NAV charge: 78;
+- projected combined charge with Phase-A baseline: 1,410/2,000;
+- runtime: 62.381 s;
+- third-party cost: $0;
+- search API requests: 0;
+- wrong-company publications: 0.
+
+The detail gate would authorize only `employer.orgnr == target` or an exact BRREG subunit organisation number whose recorded parent is the target. No candidate reached detail lookup. The public experiment token is also not a stable production credential.
+
+Decision: **DROP**. Do not broaden name matching post-hoc or spend a fresh cohort. Reconsider only if NAV feed semantics or an exact organisation-number index materially changes.
+
+---
+
+## 2026-10-04 — Phase 2 same-domain secondary identity screen rejected
+
+Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+- branch: `experiment/phase2-registry-secondary-identity-screen`
+- exact measured head: `03b9ab870c00ac681cbf47ca74a57920e9a76e5f`
+- workflow run `37211887561`: PASS
+- artifact: `phase2-registry-secondary-identity-screen`, ID `11307036767`
+- artifact digest: `b552fe0a4961148a9a0e3dfac520dc9535cfe3171af624cf3efc90a885c59937`
+- full regressions: PASS
+- publication remained disabled
+
+The experiment selected only loaded, quarantined `registry_linked_company_website` records and substituted one same-domain legal/contact identity page for the remaining H1c slot. Positive proof was hardened to be page-local to the secondary page; split homepage+secondary proof is regression-rejected.
+
+Measured result:
+
+- eligible quarantined registry sites: 4;
+- secondary attempts: 4;
+- accepted exact target sites: **0**;
+- decisions: 1 conflicting explicit organisation number, 1 insufficient target proof, 2 secondary pages unavailable;
+- 8 logical / 16 conservative screen charge;
+- runtime: 9.468 s;
+- third-party cost: $0;
+- search API requests: 0;
+- request theorem held: existing registry homepage 2 + secondary page max 2 = four site requests.
+
+Manual conflict audit: `VIKHOV B4 BORETTSLAG` at `bonitas.no/personvernerklaering` explicitly identified organisation number `987579773`, not the target.
+
+Decision: **DROP**. Combined with the deterministic-domain DNS failure funnel, Phase 2 is candidate-source constrained under the current $0 rights-safe source set.
+
+---
+
 ## 2026-10-04 — Phase 2 exact-parent subunit email-domain screen rejected
 
 Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
@@ -32,7 +173,7 @@ Measured result:
 - baseline V8: 100/100 terminal, `passed=true`, 8 exact verified websites, 666 logical requests, 1,332/2,000 conservative charge, 439.185 s, $0, search API requests 0;
 - exact-parent subunit email rows: 19;
 - companies with exact-parent subunit email: 19;
-- unresolved companies with non-generic deduplicated candidate domains: 10;
+- unresolved companies with non-generic deduplicated email-domain candidates: 10;
 - attempted candidates: 10;
 - accepted exact target sites: **0**;
 - decisions: 9 existing identity-gate rejects, 1 target-proof reject;
@@ -60,7 +201,6 @@ Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
 - artifact: `phase2-subunit-homepage-screen`, ID `11306100222`
 - artifact digest: `b856eba533cf5a1ee3eef4e92054fd294878480b4b3f0adc4b88e803f3314ffd`
 - full regressions: PASS
-- publication remained disabled
 - cohort: already-consumed Phase-A seed-`20261103` 100
 
 The experiment retained `hjemmeside` and `overordnetEnhet` from the BRREG underunit/location response that production already fetches, then independently screened only exact-parent subunit homepage hints against the target main entity.
