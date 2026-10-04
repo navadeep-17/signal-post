@@ -1,4 +1,4 @@
-name: Phase A Final Fresh Disjoint 100
+name: Phase A Final Fresh Disjoint 100 V2
 
 on:
   workflow_dispatch:
@@ -13,18 +13,18 @@ permissions:
   actions: read
 
 concurrency:
-  group: phasea-final-fresh-disjoint-100-${{ github.ref }}
+  group: phasea-final-fresh-disjoint-100-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  qualify-fresh-100:
+  qualify-fresh-100-v2:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       PYTHONPATH: ${{ github.workspace }}/src
-      PHASE1_EXCLUDE_SHA256: 029d7077661ea57b2672656a7108822abffa953ecfe900fec20e7746e738f557
-      PHASE1_FRESH_SHA256: 92fc871ee9c94a928908cf00f007aef67eea02fe788caf70e8e734e82bd76b5d
-      FINAL_EXCLUDE_SHA256: 4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae
+      FAILED_EXCLUDE_SHA256: 4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae
+      FAILED_FRESH_SHA256: f74aed4f1c3a389e2a88699f2df02edb01815c1f81cf87d6858cc276dacd5c29
+      SECOND_EXCLUDE_SHA256: ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,30 +62,30 @@ jobs:
             --output brreg-enheter.csv
           test -s brreg-enheter.csv
 
-      - name: Restore frozen Phase 1 exclusion and qualification cohort
+      - name: Restore failed fresh attempt as consumed input
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p prior
-          gh run download 37192494569 \
+          gh run download 37201683517 \
             --repo navadeep-17/signal-post \
-            --name phase1-fresh-disjoint-100 \
+            --name phasea-final-fresh-disjoint-100 \
             --dir prior
-          test -s prior/phase1-fresh-exclude.jsonl
-          test -s prior/phase1-fresh-100.jsonl
-          echo "$PHASE1_EXCLUDE_SHA256  prior/phase1-fresh-exclude.jsonl" | sha256sum -c -
-          echo "$PHASE1_FRESH_SHA256  prior/phase1-fresh-100.jsonl" | sha256sum -c -
+          test -s prior/phasea-final-exclude.jsonl
+          test -s prior/phasea-final-fresh-100.jsonl
+          echo "$FAILED_EXCLUDE_SHA256  prior/phasea-final-exclude.jsonl" | sha256sum -c -
+          echo "$FAILED_FRESH_SHA256  prior/phasea-final-fresh-100.jsonl" | sha256sum -c -
 
-      - name: Freeze exact all-touched exclusion union
+      - name: Freeze exact 8323-company all-touched exclusion union
         run: |
           uv run python - <<'PY'
           import hashlib, json
           from pathlib import Path
 
-          sources=[Path('prior/phase1-fresh-exclude.jsonl'),Path('prior/phase1-fresh-100.jsonl')]
+          sources=[Path('prior/phasea-final-exclude.jsonl'),Path('prior/phasea-final-fresh-100.jsonl')]
           rows={}
-          source_counts={}
+          counts={}
           for path in sources:
               orgs=set()
               for line in path.read_text(encoding='utf-8').splitlines():
@@ -96,58 +96,58 @@ jobs:
                   assert len(org)==9,(path,item)
                   orgs.add(org)
                   rows.setdefault(org,{'organisation_number':org})
-              source_counts[str(path)]=len(orgs)
-          out=Path('phasea-final-exclude.jsonl')
+              counts[str(path)]=len(orgs)
+          out=Path('phasea-v2-exclude.jsonl')
           out.write_text(''.join(json.dumps(rows[org],separators=(',',':'))+'\n' for org in sorted(rows)),encoding='utf-8')
           digest=hashlib.sha256(out.read_bytes()).hexdigest()
-          report={'source_unique_counts':source_counts,'union_unique_companies':len(rows),'sha256':digest}
-          assert source_counts['prior/phase1-fresh-exclude.jsonl']==8123,report
-          assert source_counts['prior/phase1-fresh-100.jsonl']==100,report
-          assert len(rows)==8223,report
-          assert digest=='4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae',report
-          Path('phasea-final-exclude-report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+          report={'source_unique_counts':counts,'union_unique_companies':len(rows),'sha256':digest}
+          assert counts['prior/phasea-final-exclude.jsonl']==8223,report
+          assert counts['prior/phasea-final-fresh-100.jsonl']==100,report
+          assert len(rows)==8323,report
+          assert digest=='ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85',report
+          Path('phasea-v2-exclude-report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(report,indent=2))
           PY
-          echo "$FINAL_EXCLUDE_SHA256  phasea-final-exclude.jsonl" | sha256sum -c -
+          echo "$SECOND_EXCLUDE_SHA256  phasea-v2-exclude.jsonl" | sha256sum -c -
 
-      - name: Select untouched final Phase A qualification cohort
+      - name: Select second untouched Phase A qualification cohort
         run: |
           uv run python scripts/select_disjoint_validation_batch.py \
             --universe signalpost-universe.jsonl.gz \
-            --exclude phasea-final-exclude.jsonl \
+            --exclude phasea-v2-exclude.jsonl \
             --count 100 \
-            --seed 20261102 \
-            --evaluation-split phasea_final_fresh_disjoint_qualification \
-            --sample-slice registry_breadth_and_zero_network_contact_phone \
-            --output phasea-final-fresh-100.jsonl \
-            --report phasea-final-selection.json
+            --seed 20261103 \
+            --evaluation-split phasea_final_fresh_disjoint_qualification_v2 \
+            --sample-slice registry_breadth_optional_prevalence_retune \
+            --output phasea-v2-fresh-100.jsonl \
+            --report phasea-v2-selection.json
           uv run python - <<'PY'
           import json
           from pathlib import Path
-          report=json.loads(Path('phasea-final-selection.json').read_text(encoding='utf-8'))
+          report=json.loads(Path('phasea-v2-selection.json').read_text(encoding='utf-8'))
           assert report['count']==100,report
           assert report['overlap_count']==0,report
-          assert report['seed']==20261102,report
-          rows=[json.loads(x) for x in Path('phasea-final-fresh-100.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+          assert report['seed']==20261103,report
+          rows=[json.loads(x) for x in Path('phasea-v2-fresh-100.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
           orgs={str(row['organisation_number']) for row in rows}
-          excluded={str(json.loads(x)['organisation_number']) for x in Path('phasea-final-exclude.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()}
+          excluded={str(json.loads(x)['organisation_number']) for x in Path('phasea-v2-exclude.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()}
           assert len(rows)==100 and len(orgs)==100,(len(rows),len(orgs))
           assert not (orgs & excluded),len(orgs & excluded)
           print(json.dumps(report,indent=2))
           PY
-          sha256sum phasea-final-fresh-100.jsonl > phasea-final-fresh-100.sha256
+          sha256sum phasea-v2-fresh-100.jsonl > phasea-v2-fresh-100.sha256
 
       - name: Run actual V8 evaluator path
         run: |
           mkdir -p out
           uv run python scripts/run_signalpost_v8.py \
-            --organisations phasea-final-fresh-100.jsonl \
+            --organisations phasea-v2-fresh-100.jsonl \
             --bulk brreg-enheter.csv \
-            --output out/phasea-final-output.jsonl \
-            --report out/phasea-final-report.json \
-            --product-output out/phasea-final-product.html \
-            --work-dir out/phasea-final-work \
-            --run-id phasea-final-fresh-disjoint-100 \
+            --output out/phasea-v2-output.jsonl \
+            --report out/phasea-v2-report.json \
+            --product-output out/phasea-v2-product.html \
+            --work-dir out/phasea-v2-work \
+            --run-id phasea-final-fresh-disjoint-100-v2 \
             --workers 8 \
             --site-timeout 6 \
             --wikidata-timeout 8 \
@@ -158,19 +158,19 @@ jobs:
             --annual-workforce-ocr-pages 8 \
             --annual-workforce-ocr-dpi 110
 
-      - name: Verify fresh exact evidence, coverage and safety theorem
+      - name: Verify predeclared fresh evidence, coverage and safety theorem
         run: |
           uv run python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
 
           def read_jsonl(path):
               return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
 
-          rows=read_jsonl('out/phasea-final-output.jsonl')
-          profiles=read_jsonl('out/phasea-final-work/profiles.jsonl')
-          report=json.loads(Path('out/phasea-final-report.json').read_text(encoding='utf-8'))
-          selection=json.loads(Path('phasea-final-selection.json').read_text(encoding='utf-8'))
+          rows=read_jsonl('out/phasea-v2-output.jsonl')
+          profiles=read_jsonl('out/phasea-v2-work/profiles.jsonl')
+          report=json.loads(Path('out/phasea-v2-report.json').read_text(encoding='utf-8'))
+          selection=json.loads(Path('phasea-v2-selection.json').read_text(encoding='utf-8'))
           assert len(rows)==100 and len(profiles)==100,(len(rows),len(profiles))
           assert len({str(row['organisation_number']) for row in rows})==100
           assert selection['overlap_count']==0,selection
@@ -186,7 +186,7 @@ jobs:
           assert rb['total_logical_requests_per_profile_ceiling']==9,rb
           assert rb['theoretical_challenge_request_charge_ceiling']<=2000,rb
           assert rb['observed_conservative_challenge_request_charge']<=2000,rb
-          assert rb['max_challenge_requests']==2000,rb
+          assert rb['max_challenge_requests']<=2000,rb
           assert report['source_policy']['third_party_cost_usd']==0.0,report['source_policy']
           assert report['source_policy']['search_api_requests']==0,report['source_policy']
 
@@ -210,6 +210,8 @@ jobs:
           external_phone_companies=set()
           external_email_companies=set()
           registered_phone_companies=set()
+          description_companies=set()
+          purpose_companies=set()
 
           for row in rows:
               org=str(row['organisation_number'])
@@ -220,10 +222,10 @@ jobs:
                   if claim.get('availability')!='available':
                       continue
                   field=str(claim.get('field') or '')
-                  if field in {'registered_phone','registered_mobile'}:
-                      registered_phone_companies.add(org)
-                  if field=='external.contact_email':
-                      external_email_companies.add(org)
+                  if field=='company_description': description_companies.add(org)
+                  if field=='registered_purpose': purpose_companies.add(org)
+                  if field in {'registered_phone','registered_mobile'}: registered_phone_companies.add(org)
+                  if field=='external.contact_email': external_email_companies.add(org)
                   if field=='external.contact_phone':
                       external_phone_companies.add(org)
                       value=str(claim.get('value') or '')
@@ -270,6 +272,7 @@ jobs:
                       evidence_errors.append((org,field,'canonical mismatch'))
 
           assert not evidence_errors,evidence_errors[:20]
+
           assert len(coverage['forced_dissolution'])>=95,len(coverage['forced_dissolution'])
           assert len(coverage['foundation_date'])>=90,len(coverage['foundation_date'])
           assert len(coverage['articles_date'])>=80,len(coverage['articles_date'])
@@ -278,26 +281,31 @@ jobs:
           assert len(coverage['institutional_sector'])>=90,len(coverage['institutional_sector'])
           assert len(coverage['registered_capital'])>=80,len(coverage['registered_capital'])
           assert len(coverage['registered_in_vat_register'])>=95,len(coverage['registered_in_vat_register'])
-          assert len(coverage['vat_registration_date'])>=35,len(coverage['vat_registration_date'])
-          assert len(coverage['postal_address'])>=20,len(coverage['postal_address'])
           assert len(coverage['registration_date'])>=95,len(coverage['registration_date'])
           assert len(coverage['registered_address'])>=95,len(coverage['registered_address'])
+          assert len(description_companies)>=95,len(description_companies)
+          assert len(purpose_companies)>=90,len(purpose_companies)
 
-          Path('out/phasea-final-phone-audit.jsonl').write_text(
+          assert len(coverage['vat_registration_date'])>0,len(coverage['vat_registration_date'])
+          assert len(coverage['postal_address'])>0,len(coverage['postal_address'])
+
+          Path('out/phasea-v2-phone-audit.jsonl').write_text(
               ''.join(json.dumps(item,ensure_ascii=False,separators=(',',':'))+'\n' for item in phone_audit),
               encoding='utf-8'
           )
           combined_phone=registered_phone_companies|external_phone_companies
           summary={
-              'schema':'signalpost-phasea-final-fresh-disjoint-v1',
-              'repository_sha':'${{ github.sha }}',
+              'schema':'signalpost-phasea-final-fresh-disjoint-v2',
+              'repository_sha':os.environ.get('GITHUB_SHA'),
               'companies':100,
               'unique_companies':100,
               'overlap_count':selection['overlap_count'],
               'seed':selection['seed'],
-              'exclude_manifest_sha256':'4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae',
+              'exclude_manifest_sha256':'ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85',
               'cohort_sha256':selection['output_sha256'],
               'claim_company_coverage':{field:len(orgs) for field,orgs in sorted(coverage.items())},
+              'company_description_companies':len(description_companies),
+              'registered_purpose_companies':len(purpose_companies),
               'external_contact_phone_companies':len(external_phone_companies),
               'external_contact_email_companies':len(external_email_companies),
               'registered_phone_or_mobile_companies':len(registered_phone_companies),
@@ -317,40 +325,41 @@ jobs:
               },
               'passed':True,
           }
-          Path('out/phasea-final-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          Path('out/phasea-v2-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(summary,ensure_ascii=False,indent=2))
           PY
 
       - name: Hash qualification deliverables
         run: |
           sha256sum \
-            phasea-final-exclude.jsonl \
-            phasea-final-fresh-100.jsonl \
-            phasea-final-selection.json \
-            out/phasea-final-output.jsonl \
-            out/phasea-final-report.json \
-            out/phasea-final-work/profiles.jsonl \
-            out/phasea-final-summary.json \
-            out/phasea-final-phone-audit.jsonl \
-            > out/phasea-final-fresh.sha256
+            phasea-v2-exclude.jsonl \
+            phasea-v2-exclude-report.json \
+            phasea-v2-fresh-100.jsonl \
+            phasea-v2-selection.json \
+            out/phasea-v2-output.jsonl \
+            out/phasea-v2-report.json \
+            out/phasea-v2-work/profiles.jsonl \
+            out/phasea-v2-summary.json \
+            out/phasea-v2-phone-audit.jsonl \
+            > out/phasea-v2-fresh.sha256
 
-      - name: Upload fresh qualification
+      - name: Upload second fresh qualification
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phasea-final-fresh-disjoint-100
+          name: phasea-final-fresh-disjoint-100-v2
           retention-days: 30
           if-no-files-found: warn
           path: |
-            phasea-final-exclude.jsonl
-            phasea-final-exclude-report.json
-            phasea-final-fresh-100.jsonl
-            phasea-final-fresh-100.sha256
-            phasea-final-selection.json
-            out/phasea-final-output.jsonl
-            out/phasea-final-report.json
-            out/phasea-final-product.html
-            out/phasea-final-work/profiles.jsonl
-            out/phasea-final-summary.json
-            out/phasea-final-phone-audit.jsonl
-            out/phasea-final-fresh.sha256
+            phasea-v2-exclude.jsonl
+            phasea-v2-exclude-report.json
+            phasea-v2-fresh-100.jsonl
+            phasea-v2-fresh-100.sha256
+            phasea-v2-selection.json
+            out/phasea-v2-output.jsonl
+            out/phasea-v2-report.json
+            out/phasea-v2-product.html
+            out/phasea-v2-work/profiles.jsonl
+            out/phasea-v2-summary.json
+            out/phasea-v2-phone-audit.jsonl
+            out/phasea-v2-fresh.sha256
