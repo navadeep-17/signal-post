@@ -7,12 +7,21 @@ from typing import Any
 from .registry_narrative import project_registry_narrative_claims
 
 
-MANAGED_FIELDS = ("industry", "municipality_number", "bankrupt", "liquidating")
+MANAGED_FIELDS = (
+    "industry",
+    "municipality_number",
+    "bankrupt",
+    "liquidating",
+    "registration_date",
+    "registered_address",
+)
 SOURCE_PATHS = {
     "industry": "/naeringskode1",
     "municipality_number": "/forretningsadresse/kommunenummer",
     "bankrupt": "/konkurs",
     "liquidating": "/underAvvikling",
+    "registration_date": "/registreringsdatoEnhetsregisteret",
+    "registered_address": "/forretningsadresse",
 }
 OWN_SIGNAL_TYPE = "official_registry_live_projection"
 
@@ -39,11 +48,10 @@ def _registry_live_record(profile: dict[str, Any]) -> dict[str, Any]:
 def _exact_live_value(record: dict[str, Any], field: str) -> Any:
     """Return only values present in the retained exact-org live BRREG response.
 
-    ``official.normalize_entity`` preserves these values directly from the response body:
-    ``naeringskode1`` as ``industry``, ``forretningsadresse`` as ``business_address``,
-    ``konkurs`` as ``bankrupt`` and ``underAvvikling`` as ``liquidating``. A missing key
-    normalizes to ``None``; importantly, explicit ``False`` remains distinguishable and is
-    therefore publishable.
+    ``official.normalize_entity`` preserves these values directly from the response body.
+    A missing key normalizes to ``None``; importantly, explicit ``False`` remains
+    distinguishable and is therefore publishable. Structured addresses are retained only
+    when they contain at least one concrete address component.
     """
 
     if record.get("status") != "available":
@@ -79,6 +87,29 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
         raw = value.get("liquidating")
         return raw if isinstance(raw, bool) else None
 
+    if field == "registration_date":
+        raw = str(value.get("registration_date") or "").strip()
+        return raw or None
+
+    if field == "registered_address":
+        raw = value.get("business_address")
+        if not isinstance(raw, dict):
+            return None
+        cleaned = {
+            key: raw.get(key)
+            for key in (
+                "adresse",
+                "postnummer",
+                "poststed",
+                "kommune",
+                "kommunenummer",
+                "land",
+                "landkode",
+            )
+            if raw.get(key) not in (None, "", [])
+        }
+        return cleaned or None
+
     raise KeyError(field)
 
 
@@ -95,12 +126,9 @@ def _own_claim(claim: dict[str, Any]) -> bool:
 
 
 def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Project C12-safe evaluator-facing BRREG fields from exact live evidence only.
+    """Project evaluator-facing BRREG fields from exact live evidence only.
 
-    Earlier V2 revisions projected four additional fields from the normalized bulk/profile
-    abstraction while attaching a broad registry source. C12 showed that many such claims
-    could not be independently matched to the exact retained official response. This
-    projector now fails closed: an ``available`` claim is emitted only when the value is
+    The projector fails closed: an ``available`` claim is emitted only when the value is
     present in the retained exact-organisation ``registry_live`` response whose URL/hash is
     attached as evidence. If the live response is available but a field is absent, the field
     is explicitly marked ``not_available``. Bulk/profile values never fill the gap.
@@ -136,9 +164,6 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
         if item.get("id") and item.get("id") not in (removed_ids - still_referenced)
     }
 
-    # If the exact live source itself failed or was not retained, do not manufacture an
-    # availability statement from the bulk/profile abstraction. Existing base claims remain
-    # untouched; only V2-owned additional fields are withheld.
     if live.get("status") != "available" or not source_url or not retrieved_at or len(content_sha256) != 64:
         projected = {
             **contract,
