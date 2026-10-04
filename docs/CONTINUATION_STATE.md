@@ -10,7 +10,11 @@ Repository: `navadeep-17/signal-post`
 
 Production branch: `main`
 
-Phase-4 production merge:
+Live `main` observed immediately before this final state-only handoff update:
+
+`fbfc4954888b76c922724b2084fc819a8b441864`
+
+That tip is documentation-only on top of the Phase-4 production merge. Production merge commit:
 
 `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
 
@@ -30,7 +34,7 @@ Post-merge Baseline CI:
 - merge SHA: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
 - full tests, certified-1000 canonical audit, submission-bundle verification and deterministic refresh replay all passed
 
-Open PRs #76, #78 and #84 are historical/experimental and are not the active production path.
+Open PRs #76, #78 and #84 remain historical/experimental and are not the active production path.
 
 ## 2. Closed phases and retained state
 
@@ -132,7 +136,7 @@ Validation:
 
 ## 5. Exact next 1–3 actions
 
-1. Run a **consumed-only source-selection audit**, not a connector implementation. Compare plausible deterministic official/rights-safe sources such as Doffin, Støtteregisteret and Patentstyret on: rights, exact organisation-number join, likely company-level reach, scored-family value, freshness and request/runtime cost.
+1. Run a **consumed-only source-selection audit**, not a connector implementation. Compare plausible deterministic official/rights-safe sources such as Doffin, Støtteregisteret and Patentstyret on rights, exact organisation-number join, likely company-level reach, scored-family value, freshness and request/runtime cost.
 2. Select at most one source/family only if it has a credible path to meaningful net-new company coverage without weakening exact-company precision or exceeding the 2,000/100 theorem. Record PROMOTE/RETUNE/SHELVE/DROP in the repository before implementation.
 3. If one source passes the selection gate, implement it on a consumed cohort first. Otherwise advance to another roadmap phase rather than forcing a low-yield connector. **No fresh cohort yet.**
 
