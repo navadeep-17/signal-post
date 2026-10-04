@@ -251,20 +251,8 @@ def main() -> None:
     report["canonical_projection"]["validation_errors"] = errors
     report["canonical_projection"]["v2_registry_projection"] = {
         "network_requests_added": 0,
-        "fields": [
-            "industry",
-            "municipality_number",
-            "bankrupt",
-            "liquidating",
-            "registration_date",
-            "registered_address",
-            "registered_contact_email",
-            "registered_phone",
-            "registered_mobile",
-            "company_description",
-            "registered_purpose",
-        ],
-        "source": "exact-org BRREG registry_live response retained by the base collector",
+        "fields": ["industry", "municipality_number", "bankrupt", "liquidating", "company_description", "registered_purpose"],
+        "source": "exact-org BRREG registry profile retained by the unchanged base collector",
     }
     report["canonical_projection"]["first_party_activity_projection"] = {
         "network_requests_added": 0,
@@ -342,12 +330,10 @@ def main() -> None:
             ],
         }
 
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    base_output.unlink(missing_ok=True)
-    base_report.unlink(missing_ok=True)
-
-    if not report["passed"]:
-        raise SystemExit("V2 hard gates failed")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    raise SystemExit(0 if report["passed"] else 1)
 
 
 if __name__ == "__main__":
