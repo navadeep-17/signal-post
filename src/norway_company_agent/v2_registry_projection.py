@@ -1,80 +1,130 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from .registry_narrative import project_registry_narrative_claims
 
 
 MANAGED_FIELDS = ("industry", "municipality_number", "bankrupt", "liquidating")
+SOURCE_PATHS = {
+    "industry": "/naeringskode1",
+    "municipality_number": "/forretningsadresse/kommunenummer",
+    "bankrupt": "/konkurs",
+    "liquidating": "/underAvvikling",
+}
+OWN_SIGNAL_TYPE = "official_registry_live_projection"
 
 
 def _evidence_id(org: str, field: str, record: dict[str, Any]) -> str:
     material = "|".join(
         (
             org,
-            "v2-registry",
+            "c12-registry-live",
             field,
+            SOURCE_PATHS[field],
             str(record.get("source_url") or ""),
             str(record.get("content_sha256") or ""),
-            str(record.get("source_row_key") or ""),
         )
     )
-    return "ev-v2-registry-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
+    return "ev-c12-registry-live-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
 
 
-def _registry_value(profile: dict[str, Any], field: str) -> Any:
+def _registry_live_record(profile: dict[str, Any]) -> dict[str, Any]:
+    record = ((profile.get("evidence") or {}).get("registry_live") or {})
+    return record if isinstance(record, dict) else {}
+
+
+def _exact_live_value(record: dict[str, Any], field: str) -> Any:
+    """Return only values present in the retained exact-org live BRREG response.
+
+    ``official.normalize_entity`` preserves these values directly from the response body:
+    ``naeringskode1`` as ``industry``, ``forretningsadresse`` as ``business_address``,
+    ``konkurs`` as ``bankrupt`` and ``underAvvikling`` as ``liquidating``. A missing key
+    normalizes to ``None``; importantly, explicit ``False`` remains distinguishable and is
+    therefore publishable.
+    """
+
+    if record.get("status") != "available":
+        return None
+    value = record.get("value") if isinstance(record.get("value"), dict) else {}
+
     if field == "industry":
-        code = profile.get("industry_code")
-        description = profile.get("industry_label")
+        raw = value.get("industry")
+        if not isinstance(raw, dict):
+            return None
+        code = raw.get("kode") if raw.get("kode") not in (None, "") else raw.get("code")
+        description = (
+            raw.get("beskrivelse") if raw.get("beskrivelse") not in (None, "") else raw.get("description")
+        )
         if code in (None, "") and description in (None, ""):
-            # Some older/internal profile shapes already carry a normalized industry value.
-            return profile.get("industry")
+            return None
         return {"code": code or None, "description": description or None}
+
     if field == "municipality_number":
-        return profile.get("municipality_number")
+        address = value.get("business_address")
+        if not isinstance(address, dict):
+            return None
+        municipality_number = address.get("kommunenummer")
+        if municipality_number in (None, ""):
+            return None
+        return str(municipality_number)
+
     if field == "bankrupt":
-        return profile.get("bankrupt")
+        raw = value.get("bankrupt")
+        return raw if isinstance(raw, bool) else None
+
     if field == "liquidating":
-        return profile.get("liquidating")
+        raw = value.get("liquidating")
+        return raw if isinstance(raw, bool) else None
+
     raise KeyError(field)
 
 
-def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
-    """Attach evaluator-facing BRREG registry claims without changing the V1 adapter.
+def _claim_span(field: str, value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"{SOURCE_PATHS[field]}={encoded}"[:1000]
 
-    The base collector/output adapter remains the immutable V1 behavior. V2 reads the
-    exact-org registry profile already retained by that collector and adds only fields that
-    were present there but not reliably surfaced in the V1 claims envelope. V4 additionally
-    reuses the same retained registry row for literal activity/purpose narrative through
-    :func:`project_registry_narrative_claims`. No network access, identity relaxation, or
-    value inference occurs here.
+
+def _own_claim(claim: dict[str, Any]) -> bool:
+    return claim.get("field") in MANAGED_FIELDS and claim.get("signal_type") in {
+        OWN_SIGNAL_TYPE,
+        "official_registry_projection",
+    }
+
+
+def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+    """Project C12-safe evaluator-facing BRREG fields from exact live evidence only.
+
+    Earlier V2 revisions projected four additional fields from the normalized bulk/profile
+    abstraction while attaching a broad registry source. C12 showed that many such claims
+    could not be independently matched to the exact retained official response. This
+    projector now fails closed: an ``available`` claim is emitted only when the value is
+    present in the retained exact-organisation ``registry_live`` response whose URL/hash is
+    attached as evidence. If the live response is available but a field is absent, the field
+    is explicitly marked ``not_available``. Bulk/profile values never fill the gap.
     """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     if str(profile.get("organisation_number") or "") != org:
         raise ValueError("V2 registry projection organisation number mismatch")
 
-    registry = ((profile.get("evidence") or {}).get("registry") or {})
-    if registry.get("status") != "available":
-        return contract
-    source_url = registry.get("source_url")
-    retrieved_at = registry.get("retrieved_at")
-    if not source_url or not retrieved_at:
-        return contract
+    live = _registry_live_record(profile)
+    source_url = str(live.get("source_url") or "").strip()
+    retrieved_at = str(live.get("retrieved_at") or "").strip()
+    content_sha256 = str(live.get("content_sha256") or "").strip()
 
-    claims = [dict(item) for item in (contract.get("claims") or [])]
-    evidence = [dict(item) for item in (contract.get("evidence") or [])]
+    original_claims = [dict(item) for item in (contract.get("claims") or [])]
+    original_evidence = [dict(item) for item in (contract.get("evidence") or [])]
 
-    # V2 owns these four field names. Remove an older/broader representation first so the
-    # output is deterministic and idempotent.
     removed_ids = {
         evidence_id
-        for claim in claims
-        if claim.get("field") in MANAGED_FIELDS
+        for claim in original_claims
+        if _own_claim(claim)
         for evidence_id in (claim.get("evidence_ids") or [])
     }
-    claims = [claim for claim in claims if claim.get("field") not in MANAGED_FIELDS]
+    claims = [claim for claim in original_claims if not _own_claim(claim)]
     still_referenced = {
         evidence_id
         for claim in claims
@@ -82,34 +132,51 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
     }
     evidence_by_id = {
         str(item.get("id")): item
-        for item in evidence
+        for item in original_evidence
         if item.get("id") and item.get("id") not in (removed_ids - still_referenced)
     }
 
+    # If the exact live source itself failed or was not retained, do not manufacture an
+    # availability statement from the bulk/profile abstraction. Existing base claims remain
+    # untouched; only V2-owned additional fields are withheld.
+    if live.get("status") != "available" or not source_url or not retrieved_at or len(content_sha256) != 64:
+        projected = {
+            **contract,
+            "claims": claims,
+            "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
+        }
+        return project_registry_narrative_claims(projected, profile)
+
     for field in MANAGED_FIELDS:
-        value = _registry_value(profile, field)
-        # False is a meaningful official value; only None/empty strings are absent.
-        if value is None or value == "":
-            continue
-        evidence_id = _evidence_id(org, field, registry)
+        value = _exact_live_value(live, field)
+        evidence_id = _evidence_id(org, field, live)
+        available = value is not None
         evidence_by_id[evidence_id] = {
             "id": evidence_id,
             "source_url": source_url,
             "source_class": "official",
             "retrieved_at": retrieved_at,
-            "content_sha256": registry.get("content_sha256"),
-            "claim_span": f"{field}={value}"[:1000],
-            **({"source_row_key": registry.get("source_row_key")} if registry.get("source_row_key") is not None else {}),
+            "content_sha256": content_sha256,
+            "source_row_key": org,
+            "source_field": SOURCE_PATHS[field],
+            "claim_span": (
+                _claim_span(field, value)
+                if available
+                else f"{SOURCE_PATHS[field]} not resolved in retained exact-org registry_live response"
+            ),
         }
         claims.append(
             {
                 "field": field,
-                "value": value,
-                "availability": "available",
+                "value": value if available else None,
+                "availability": "available" if available else "not_available",
                 "confidence": 1.0,
                 "evidence_ids": [evidence_id],
-                "signal_type": "official_registry_projection",
-                "claim_scope": "Exact organisation-number BRREG registry profile retained by the base collector; V2 zero-network projection.",
+                "signal_type": OWN_SIGNAL_TYPE,
+                "claim_scope": (
+                    "Exact organisation-number BRREG live entity response; value must resolve "
+                    f"from {SOURCE_PATHS[field]}. Bulk/profile fallback is prohibited."
+                ),
             }
         )
 
