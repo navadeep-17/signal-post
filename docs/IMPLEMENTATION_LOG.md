@@ -12,6 +12,24 @@ Rules:
 
 ---
 
+## 2026-10-04 — Final Phase 4 current-state handoff pinned
+
+Status: **DOCUMENTATION-ONLY / NO PRODUCTION SEMANTIC CHANGE**
+
+- live `main` observed before this handoff update: `b13e298c2c71bd3be0a99be749fda762bc65c317`
+- continuation-state update commit: `ab7c624a8b5c8cd0fb36d40c779f1227856dc78c`
+- production Phase-4 merge remains `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
+- PR #95 remains merged
+- post-merge Baseline CI `37219278337`: PASS
+- lifecycle remains **IMPLEMENTED + TESTED + MERGED + POST-MERGE GREEN**; no fresh qualification was required for the precision-only zero-request hardening
+- no active production PR; open PRs #76, #78 and #84 remain historical/experimental only
+
+Current blocker/strategy state is unchanged: Phase 2 is candidate-source constrained, Phase 3 sitemap/RSS acquisition is dropped/shelved, and Phase 4 is closed. The next action remains a consumed-only deterministic source/family selection audit across rights-safe official sources such as Doffin, Støtteregisteret and Patentstyret. No new connector and no fresh cohort should be used until one source passes rights + exact-ID + reach + budget screening.
+
+Decision: **STATE PIN ONLY**. No production code, workflow, request budget, evidence rule or roadmap semantics changed.
+
+---
+
 ## 2026-10-04 — Phase 4 dated-activity evidence hardening merged and post-merge green
 
 Status: **IMPLEMENTED + TESTED + MERGED + POST-MERGE GREEN / NO FRESH QUALIFICATION BY DESIGN**
