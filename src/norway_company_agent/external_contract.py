@@ -14,12 +14,7 @@ def _observation_evidence_id(org: str, observation: dict[str, Any]) -> str:
             str(observation.get("id") or ""),
             str(observation.get("source_url") or ""),
             str(observation.get("content_sha256") or ""),
-            str(
-                observation.get("profile_url")
-                or observation.get("contact_email")
-                or observation.get("contact_phone")
-                or ""
-            ),
+            str(observation.get("profile_url") or observation.get("contact_email") or ""),
         ]
     )
     return "ev-external-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
@@ -74,28 +69,6 @@ def _validated_contact_emails(profile: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(
         accepted,
         key=lambda row: (str(row.get("contact_email") or ""), str(row.get("id") or "")),
-    )
-
-
-def _validated_contact_phones(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    org = str(profile.get("organisation_number") or "")
-    accepted = []
-    for observation in profile.get("external_observations") or []:
-        if not isinstance(observation, dict):
-            continue
-        if observation.get("signal_type") != "company_profile":
-            continue
-        if str(observation.get("organisation_number") or "") != org:
-            continue
-        if not publishable_observation(observation):
-            continue
-        phone = str(observation.get("contact_phone") or "").strip()
-        if not (phone.startswith("+47") and len(phone) == 11 and phone[1:].isdigit()):
-            continue
-        accepted.append(observation)
-    return sorted(
-        accepted,
-        key=lambda row: (str(row.get("contact_phone") or ""), str(row.get("id") or "")),
     )
 
 
@@ -205,26 +178,26 @@ def project_contact_email_observations(
     contract: dict[str, Any],
     profile: dict[str, Any],
 ) -> dict[str, Any]:
-    """Project zero-network exact-site contact email and phone observations.
+    """Project H2c verified first-party contact-email observations into contract claims.
 
-    Email claims remain restricted to same-domain addresses in bounded legal/contact/footer
-    text. Phone claims require an explicit Telefon/Tlf/Phone/Tel label in the same retained
-    exact-site text. Neither path performs network access or overrides official registered
-    contact fields. Projection is idempotent.
+    The claim is intentionally narrow: the exact verified company homepage published the
+    email in bounded footer/contact/legal text, and the email domain matched the verified
+    website registered domain. No deliverability, inbox ownership, or monitoring claim is
+    implied. Projection is idempotent and performs no network access.
     """
 
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     claims = [dict(item) for item in (contract.get("claims") or [])]
     evidence = [dict(item) for item in (contract.get("evidence") or [])]
 
-    managed_fields = {"external.contact_email", "external.contact_phone"}
+    managed_field = "external.contact_email"
     removed_evidence_ids = {
         evidence_id
         for claim in claims
-        if claim.get("field") in managed_fields
+        if claim.get("field") == managed_field
         for evidence_id in (claim.get("evidence_ids") or [])
     }
-    claims = [claim for claim in claims if claim.get("field") not in managed_fields]
+    claims = [claim for claim in claims if claim.get("field") != managed_field]
     still_referenced = {
         evidence_id
         for claim in claims
@@ -236,9 +209,8 @@ def project_contact_email_observations(
         if item.get("id") not in (removed_evidence_ids - still_referenced)
     ]
 
-    email_observations = _validated_contact_emails(profile)
-    phone_observations = _validated_contact_phones(profile)
-    if not email_observations and not phone_observations:
+    observations = _validated_contact_emails(profile)
+    if not observations:
         return {
             **contract,
             "claims": claims,
@@ -246,8 +218,7 @@ def project_contact_email_observations(
         }
 
     evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
-
-    for observation in email_observations:
+    for observation in observations:
         evidence_id = _observation_evidence_id(org, observation)
         email = str(observation.get("contact_email") or "").strip().lower()
         evidence_by_id[evidence_id] = {
@@ -260,33 +231,8 @@ def project_contact_email_observations(
         }
         claims.append(
             {
-                "field": "external.contact_email",
+                "field": managed_field,
                 "value": email,
-                "availability": "available",
-                "confidence": _confidence(observation),
-                "evidence_ids": [evidence_id],
-                "platform": "company_site",
-                "signal_type": "company_profile",
-                "observation_id": observation.get("id"),
-                "claim_scope": (observation.get("metrics") or {}).get("claim_scope"),
-            }
-        )
-
-    for observation in phone_observations:
-        evidence_id = _observation_evidence_id(org, observation)
-        phone = str(observation.get("contact_phone") or "").strip()
-        evidence_by_id[evidence_id] = {
-            "id": evidence_id,
-            "source_url": observation.get("source_url"),
-            "source_class": "company_owned",
-            "retrieved_at": observation.get("retrieved_at"),
-            "content_sha256": observation.get("content_sha256"),
-            "claim_span": observation.get("evidence_span"),
-        }
-        claims.append(
-            {
-                "field": "external.contact_phone",
-                "value": phone,
                 "availability": "available",
                 "confidence": _confidence(observation),
                 "evidence_ids": [evidence_id],
