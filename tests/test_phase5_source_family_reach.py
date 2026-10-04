@@ -1,16 +1,24 @@
+from __future__ import annotations
+
 import csv
+import importlib.util
 import json
 from pathlib import Path
 
-from scripts.screen_phase5_source_family_reach import (
-    candidate_org_columns,
-    extract_org_numbers,
-    load_targets,
-    normalize_header,
-    role_for_header,
-    screen_csv,
-    valid_org_number,
-)
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "screen_phase5_source_family_reach.py"
+spec = importlib.util.spec_from_file_location("screen_phase5_source_family_reach", SCRIPT)
+assert spec and spec.loader
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+candidate_org_columns = module.candidate_org_columns
+extract_org_numbers = module.extract_org_numbers
+load_targets = module.load_targets
+normalize_header = module.normalize_header
+role_for_header = module.role_for_header
+screen_csv = module.screen_csv
+valid_org_number = module.valid_org_number
 
 
 def write_cohort(path: Path) -> None:
