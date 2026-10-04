@@ -1,0 +1,148 @@
+name: Phase 1 Registry Live Coverage
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - phase1/lost-claim-registry-live
+    paths:
+      - "scripts/measure_phase1_registry_live_coverage.py"
+      - ".github/workflows/phase1-registry-live-coverage.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase1-registry-live-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure-consumed-c12-m5-100:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download Builderr universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+
+      - name: Recreate already-consumed C12 M5 cohort
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 \
+            --seed 20260915 \
+            --output prior-validation-300.jsonl \
+            --report prior-validation-300-selection.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows = {}
+          for path in (
+              Path('entry-companies.jsonl'),
+              Path('prior-validation-300.jsonl'),
+              Path('submission/final-release-1000.jsonl'),
+          ):
+              for line in path.read_text(encoding='utf-8').splitlines():
+                  if not line.strip():
+                      continue
+                  item = json.loads(line)
+                  org = ''.join(ch for ch in str(item.get('organisation_number') or '') if ch.isdigit())
+                  if len(org) == 9:
+                      rows.setdefault(org, {'organisation_number': org})
+          for org in ('811730912', '813396092', '838797172', '938702675', '982897327'):
+              rows.setdefault(org, {'organisation_number': org})
+          Path('phase1-consumed-exclude.jsonl').write_text(
+              ''.join(json.dumps(rows[org], separators=(',', ':')) + '\n' for org in sorted(rows)),
+              encoding='utf-8',
+          )
+          PY
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude phase1-consumed-exclude.jsonl \
+            --count 100 \
+            --seed 20261004 \
+            --evaluation-split c12_m5_fresh_validation \
+            --sample-slice combined_m1_m4_transfer \
+            --output phase1-consumed-100.jsonl \
+            --report phase1-consumed-selection.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('phase1-consumed-selection.json').read_text())
+          assert report['count'] == 100, report
+          assert report['overlap_count'] == 0, report
+          assert report['seed'] == 20261004, report
+          assert report['output_sha256'] == '5bfb49418a1ae692b3145d2d2afe22e598067e5f6dfbcd31b0ecb35845a77ac0', report
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Measure exact live BRREG coverage
+        run: |
+          mkdir -p out
+          uv run python scripts/measure_phase1_registry_live_coverage.py \
+            --input phase1-consumed-100.jsonl \
+            --summary out/phase1-registry-live-summary.json \
+            --audit out/phase1-registry-live-audit.jsonl \
+            --workers 8 \
+            --timeout 15 \
+            --retries 2
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('out/phase1-registry-live-summary.json').read_text())
+          assert summary['companies'] == 100, summary
+          assert summary['unique_companies'] == 100, summary
+          assert summary['exact_live_successes'] == 100, summary
+          assert summary['requests'] == 100, summary
+          assert summary['third_party_cost_usd'] == 0.0, summary
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Hash deliverables
+        run: |
+          sha256sum \
+            phase1-consumed-100.jsonl \
+            phase1-consumed-selection.json \
+            out/phase1-registry-live-summary.json \
+            out/phase1-registry-live-audit.jsonl \
+            > out/phase1-registry-live.sha256
+
+      - name: Upload measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-registry-live-coverage-consumed-100
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase1-consumed-100.jsonl
+            phase1-consumed-selection.json
+            out/phase1-registry-live-summary.json
+            out/phase1-registry-live-audit.jsonl
+            out/phase1-registry-live.sha256
