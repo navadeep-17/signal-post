@@ -1,21 +1,31 @@
-# Signalpost V3 Implementation Plan
+# Signalpost V3 Implementation Plan — Historical Milestone Record
 
 Date: 2026-10-01
 
-Baseline leaderboard result: **42.21/100**
+> **Status:** historical milestone document. Do not use this file as the current implementation roadmap.
+>
+> Current source of truth:
+>
+> 1. `docs/CONTINUATION_STATE.md` — exact current state and NEXT action
+> 2. `docs/70_PLUS_IMPLEMENTATION_PLAN.md` — current 70+ strategy and acceptance gates
+> 3. `docs/IMPLEMENTATION_LOG.md` — append-only implementation history
+
+This file is retained because it records the reasoning and qualification evidence behind V3-era milestones, especially annual-report intelligence reuse. Some score snapshots and future sequencing below have since been superseded.
+
+Baseline leaderboard result at the time this plan was written: **42.21/100**
 
 - Recall / coverage: **12.89 / 50**
 - Precision / evidence: **18.92 / 30**
 - Synthesis: **7.20 / 12**
 - UX: **3.20 / 8**
 
-Current production branch already contains the V2 canonical projection and V2.1 deterministic synthesis/product surface. V3 therefore prioritizes **new exact, evidence-backed facts**, not another output-shape rewrite.
+The production branch already contained the V2 canonical projection and V2.1 deterministic synthesis/product surface. V3 therefore prioritized **new exact, evidence-backed facts**, not another output-shape rewrite.
 
-## Objective
+## Historical objective
 
-Develop toward a score with qualification margin, while preserving the strongest property of the current system: exact-entity evidence and deterministic abstention.
+Develop toward a score with qualification margin, while preserving the strongest property of the system: exact-entity evidence and deterministic abstention.
 
-Internal engineering target only (not a Builderr score prediction):
+Historical internal engineering target only:
 
 - recall / coverage >= 30/50
 - precision / evidence >= 24/30
@@ -25,7 +35,7 @@ Internal engineering target only (not a Builderr score prediction):
 
 Stretch target: 75+.
 
-## Rules for every milestone
+## Rules that remain valid
 
 1. Candidate discovery never proves identity.
 2. No fact is published without source URL, retrieval time, content hash and evidence span where applicable.
@@ -38,7 +48,7 @@ Stretch target: 75+.
 
 ## Milestone 1 — Annual-report intelligence reuse
 
-**Goal:** turn BRREG annual-report OCR that is already paid for by H2g into additional exact official facts with zero additional network requests on reports already fetched.
+**Goal:** turn BRREG annual-report OCR that was already paid for by H2g into additional exact official facts with zero additional network requests on reports already fetched.
 
 First target: a conservative `company_description` / business-activity fact from explicit annual-report sections such as `Virksomhetens art` or `Selskapets virksomhet`.
 
@@ -80,24 +90,22 @@ A separate untouched final confirmation cohort was then frozen with seed `202610
 - contract errors: **0**;
 - change errors: **0**.
 
-Latest branch Baseline CI is green after the hardening and qualification-workflow changes.
+**Promotion gate was satisfied for Milestone 1.**
 
-**Promotion gate: satisfied for Milestone 1.** The new fact type transferred to an untouched zero-overlap cohort with useful net-new reach and no wrong-entity/non-activity descriptions in manual audit.
+## Historical later milestones
 
-## Milestone 2 — Broad official public-activity sources
+The following were the intended V3 sequence at the time. They are retained only for historical context; the current roadmap may sequence them differently based on later measurements.
 
-Screen exact-org, zero/low-cost Norwegian sources before coding full connectors:
+### Milestone 2 — Broad official public-activity sources
 
-- BRREG Støtteregisteret (support/grant activity)
+Candidates considered:
+
+- BRREG Støtteregisteret
 - Doffin procurement data
 - Patentstyret open data
-- NAV / Arbeidsplassen jobs (revisit only if a stronger bounded lookup strategy beats the previous feed screen)
+- NAV / Arbeidsplassen jobs
 
-Only implement a connector when rights are clear, exact entity attribution is deterministic, and a 10–20 company screen suggests useful random-company reach.
-
-## Milestone 3 — ML request ranking
-
-Use the existing labelled identity history (correct sites, namesakes, parents, service providers, parked pages, redirects) to train a lightweight candidate/page ranker.
+### Milestone 3 — ML request ranking
 
 Allowed role of ML:
 
@@ -111,56 +119,24 @@ Forbidden role of ML:
 - generate financial values;
 - override deterministic identity/evidence gates.
 
-Candidate models: logistic regression / gradient boosting first. Prefer a small auditable model over a large neural model.
+### Milestone 4 — Evidence-bounded AI extraction
 
-## Milestone 4 — Evidence-bounded AI extraction
+Historical intended rule:
 
-Add optional LLM extraction over already-fetched first-party pages and annual-report text.
+> No supporting source span -> no published fact.
 
-Rules:
+Identity remains deterministic and official numeric financial values remain non-generative.
 
-- strict JSON schema;
-- every extracted fact must include a verbatim supporting span from supplied text;
-- deterministic verifier must find that span in the source text;
-- identity is fixed before the LLM sees the document;
-- no evidence span -> abstain;
-- official numeric financial values remain deterministic.
+### Milestone 5 — Recall-aware synthesis and UX
 
-Targets: business description, products/services, named leaders, operating locations, concrete job postings and dated company activity.
+Historical targets included company briefs, changes, hiring/activity, unknowns, freshness, comparisons and evidence verification.
 
-## Milestone 5 — Recall-aware synthesis and UX
+### Milestone 6 — Revision qualification and freeze
 
-Use the expanded canonical facts to improve:
+The enduring rule is still valid: fresh evaluator-shaped run, evidence validation, manual audit, zero-overlap transfer, exact SHA freeze, then submission.
 
-- company brief;
-- what changed;
-- what is hiring / recent activity;
-- explicit unknowns;
-- source freshness;
-- side-by-side company comparison;
-- evidence verification on desktop and mobile.
+## Supersession note
 
-Do not synthesize unsupported facts.
+Subsequent C12 work added stronger exact first-party social provenance, dated news detail and bounded current first-party jobs. The next implementation decision must therefore start from current `main` and current measured family coverage, not from the old V3 sequence above.
 
-## Milestone 6 — Revision qualification and freeze
-
-For every candidate revision:
-
-- fresh 100-company smoke in evaluator shape;
-- zero terminal drops;
-- contract/evidence validation;
-- request/runtime/cost report;
-- manual audit of every newly published external fact type;
-- zero-overlap transfer test;
-- exact commit SHA freeze;
-- only then submit the next Builderr revision.
-
-## Revision strategy
-
-V3 should be coverage-first. Do not submit tiny cosmetic revisions. Each submitted SHA should represent a measured step change:
-
-1. V3: annual-report intelligence + any other zero-network exact facts that qualify;
-2. V4: strongest broad official source and/or ML request ranking if qualified;
-3. V5: evidence-bounded AI extraction + final synthesis/UX hardening.
-
-The exact sequence may change only when measured results show a different feature has higher score-relevant return.
+See `docs/CONTINUATION_STATE.md` for the exact current NEXT action.
