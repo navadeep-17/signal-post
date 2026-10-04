@@ -14,6 +14,9 @@ CANONICAL_FIELD_BY_TYPE = {
     "industry": "company.industry",
     "bankrupt": "company.bankrupt",
     "liquidating": "company.liquidating",
+    "registration_date": "company.registration_date",
+    "registered_address": "company.registered_address",
+    "registered_purpose": "company.registered_purpose",
     "registered_employee_count": "company.employee_count",
     "latest_submitted_accounts": "company.latest_submitted_accounts",
     "accounting_obligation": "company.accounting_obligation",
@@ -100,9 +103,6 @@ def _flatten_roles(claim: dict[str, Any]) -> list[dict[str, Any]]:
     for ordinal, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        # BRREG marks departed appointments with ``inactive``. Keep those rows in the
-        # original source claim for audit/history, but never publish them as a current
-        # ``people.role`` fact.
         if row.get("inactive") is True:
             continue
         facts.append(_fact("person_role", claim, value=dict(row), ordinal=ordinal))
@@ -143,6 +143,9 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         ("municipality_number", "municipality_number"),
         ("bankrupt", "bankrupt"),
         ("liquidating", "liquidating"),
+        ("registration_date", "registration_date"),
+        ("registered_address", "registered_address"),
+        ("registered_purpose", "registered_purpose"),
         ("employee_count", "registered_employee_count"),
         ("latest_submitted_accounts", "latest_submitted_accounts"),
         ("accounting_obligation", "accounting_obligation"),
@@ -202,6 +205,9 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "industry",
         "bankrupt",
         "liquidating",
+        "registration_date",
+        "registered_address",
+        "registered_purpose",
         "registered_employee_count",
         "latest_submitted_accounts",
         "accounting_obligation",
