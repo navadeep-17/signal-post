@@ -12,6 +12,43 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase 2 exact-parent subunit homepage screen rejected
+
+Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+- branch: `experiment/phase2-subunit-homepage-screen`
+- exact measured head: `afe25ce63219c9c0eba532cac8b498fd012a9194`
+- workflow run `37208360582`: PASS
+- artifact: `phase2-subunit-homepage-screen`, ID `11306100222`
+- artifact digest: `b856eba533cf5a1ee3eef4e92054fd294878480b4b3f0adc4b88e803f3314ffd`
+- full regressions: PASS
+- publication remained disabled
+- cohort: already-consumed Phase-A seed-`20261103` 100
+
+The experiment retained `hjemmeside` and `overordnetEnhet` from the BRREG underunit/location response that production already fetches, then independently screened only exact-parent subunit homepage hints against the target main entity.
+
+Measured result:
+
+- baseline exact verified websites: 7/100;
+- unresolved website companies: 93;
+- companies with subunit homepage hints: 3;
+- candidate attempts: 3;
+- accepted exact target sites: **0**;
+- one candidate (`bonitas.no` for target `VIKHOV B4 BORETTSLAG`) explicitly identified a different organisation number and was correctly rejected;
+- two other candidates failed the existing identity gate / fetch requirement;
+- wrong-company publications: 0;
+- screen logical site requests: 6;
+- conservative screen charge: 12;
+- runtime: 6.019 s;
+- third-party cost: $0;
+- search API requests: 0.
+
+Decision: **DROP**. Do not integrate this candidate path or spend a fresh cohort. Next Phase-2 screen: exact-parent subunit email-domain hints from the same already-paid BRREG locations response, using existing generic-email filtering and exact-page target-company verification.
+
+Norid organisation-number domain lookup was also screened conceptually and rejected before implementation because its public lookup terms/purpose restrictions are incompatible with Signalpost production use.
+
+---
+
 ## 2026-10-04 — Phase A exact-live BRREG breadth merged and post-merge green
 
 Status: **QUALIFIED + MERGED + POST-MERGE GREEN**
