@@ -17,9 +17,10 @@ Current production `main` SHA before Phase-A merge:
 ### Active implementation branch / PR
 
 - branch: `feature/phaseb-idle-contact-enrichment`
-- PR #94 target title: `Phase A: exact-live BRREG zero-request breadth recovery`
-- state: **OPEN / DRAFT UNTIL READY MUTATION SUCCEEDS / NOT MERGED**
+- PR #94: `Phase A: exact-live BRREG zero-request breadth recovery`
+- state: **OPEN / READY / NOT MERGED**
 - second-fresh qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
+- cleaned release head before this ready-state pin: `c35d2a858d223c271ff55beeb29c70532d19595e`
 - cleaned release-line semantics contain only qualified exact-BRREG/postal behavior; rejected external-phone code and one-off workflows are removed.
 
 Other open draft PRs are historical/experimental and are not the active production path.
@@ -170,21 +171,20 @@ No retained Phase-A field adds a source request.
 
 ## 7. Current blocker
 
-Phase A is qualified but not yet merged. The remaining blocker is release hygiene only:
+Phase A is qualified and PR #94 is ready. Remaining blocker:
 
-1. update PR #94 metadata and transition out of draft;
-2. exact-head CI on the cleaned branch;
-3. merge if green;
-4. verify post-merge `main` CI.
+1. exact-head Baseline CI on the cleaned ready branch;
+2. merge if green;
+3. verify post-merge `main` CI.
 
 ## 8. Exact next actions
 
 1. Confirm the cleaned PR diff contains only continuity docs, `official.py`, `v2_registry_projection.py`, `canonical_projection.py`, and the two focused Phase-A tests.
-2. Update PR #94 title/body, mark ready, and require exact-head Baseline CI green.
+2. Require exact-head Baseline CI green on this synchronized ready-PR head.
 3. Merge PR #94 and update docs with merge SHA.
 4. Verify post-merge `main` CI.
 5. After Phase A closes, resume Phase B/C website-enrichment / adaptive-request work using company-family net-new coverage as the promotion metric.
 
 ## 9. NEXT
 
-**NEXT: update/ready PR #94, obtain exact-head CI on the cleaned qualified Phase-A branch, then merge only if green and verify post-merge `main`.**
+**NEXT: wait only for exact-head Baseline CI on the cleaned ready Phase-A branch; merge if green, then verify post-merge `main`.**
