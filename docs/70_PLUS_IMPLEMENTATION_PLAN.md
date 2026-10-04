@@ -60,7 +60,7 @@ Typed families remain conceptually separate: identity, registry, financials, peo
 
 ## 3. Current production foundation
 
-Production already includes:
+Production now includes:
 
 - exact BRREG entity anchoring and exact-live registry evidence
 - financials, roles, people, locations/workplaces and group context
@@ -76,9 +76,11 @@ Production already includes:
 - annual-report company-description fallback
 - bounded dated first-party news detail foundation
 - bounded current first-party job-posting foundation
+- Phase-4 page-local dated-activity precision hardening
 - $0 third-party API spend
 
 Phase-1 production merge: `8a729036350c019e107cd68a08641f1fff6796f6`.
+Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 
 ## 4. Phase status map
 
@@ -86,7 +88,7 @@ Phase-1 production merge: `8a729036350c019e107cd68a08641f1fff6796f6`.
 - **Phase 1 — Collected-vs-emitted recovery:** **CLOSED / QUALIFIED / MERGED / POST-MERGE GREEN**.
 - **Phase 2 — Exact website discovery improvement:** **SHELVED / CANDIDATE-SOURCE CONSTRAINED** under current $0 rights-safe sources.
 - **Phase 3 — Bounded sitemap/RSS dated activity:** **SCREENED / DROP on current consumed cohort**.
-- **Phase 4 — Page-level observation/evidence hardening:** **IMPLEMENTED + TESTED / MERGE PENDING**.
+- **Phase 4 — Page-level observation/evidence hardening:** **CLOSED / IMPLEMENTED / TESTED / MERGED / POST-MERGE GREEN**.
 - **Phase 5 — Contact/social enrichment:** partial production foundation; revisit only with a new structured/multi-family hypothesis.
 - **Phase 6 — Actual jobs:** C12 M4 foundation exists; NAV exact-org batch screen did not transfer.
 - **Phase 7 — Dated activity:** production C12 M3 foundation remains; Phase-3 RSS/sitemap expansion did not transfer.
@@ -97,7 +99,7 @@ Phase-1 production merge: `8a729036350c019e107cd68a08641f1fff6796f6`.
 
 Immediate path:
 
-> merge/post-merge Phase 4 precision hardening -> consumed-only rights/reach/exact-ID source-selection audit -> choose one deterministic high-yield family/source -> Phase 10 allocation if needed -> Phase 11 fresh release qualification.
+> consumed-only rights/reach/exact-ID source-selection audit -> choose one deterministic high-yield family/source if justified -> Phase 10 allocation if needed -> Phase 11 fresh release qualification.
 
 ## 5. Phase 1 — collected-vs-emitted recovery
 
@@ -170,56 +172,37 @@ Hardened rerun `37215793652`, artifact ID `11308790825`:
 
 Conclusion:
 
-> Do not productionize the current sitemap/RSS experiment. The useful result was the precision defect it exposed; Phase 4 hardens that production evidence path directly.
+> Do not productionize the current sitemap/RSS experiment. The useful result was the precision defect it exposed; that production evidence path is now hardened by Phase 4.
 
 ## 8. Phase 4 — page-level observation and evidence hardening
 
-Status: **IMPLEMENTED + TESTED / MERGE PENDING**.
+Status: **CLOSED / IMPLEMENTED + TESTED + MERGED + POST-MERGE GREEN**.
 
 Purpose: harden first-party dated-activity evidence without adding requests or new sources.
 
 Implemented:
 
-1. Adversarial regressions for:
-   - strong publication metadata plus conflicting generic DOM date;
-   - multiple equally strong conflicting dates;
-   - multiple weak unstructured dates;
-   - preserved unique unstructured date;
-   - standard CMS placeholder titles/content.
+1. Adversarial regressions for strong publication metadata plus conflicting generic DOM date, same-rank conflicts, multiple weak text dates, preserved unique text dates and generic CMS placeholders.
 2. Replaced order-insensitive concatenated date extraction with typed page-local candidate evaluation.
-3. Deterministic semantic priority:
-   - JSON-LD/`article:published_time` publication metadata;
-   - itemprop publication metadata;
-   - explicit pubdate/date metadata;
-   - `<time datetime>`;
-   - weaker labelled/time text only after stronger sources.
+3. Deterministic semantic priority from publication metadata through `<time datetime>` to weaker labelled/time text.
 4. Same-rank conflicting publication dates abstain.
 5. Unstructured page text is accepted only if it contains exactly one unique date.
 6. Generic WordPress/CMS placeholder updates are rejected.
-7. Retained update evidence now records the selected extraction method and raw page-local date evidence.
-8. No network request/source was added.
+7. Retained update evidence records selected extraction method and raw page-local date evidence.
+8. No new network request/source was added.
 
-Validation:
+Validation and release:
 
-- measured semantics head: `a220089fccefd63f88555d675194ebefcdd44723`
+- measured semantics head `a220089fccefd63f88555d675194ebefcdd44723`
 - consumed diff run `37217368930`: PASS
 - artifact `phase4-activity-evidence-consumed-diff`, ID `11308328355`
 - digest `ddcf4e328edab217a016122801f1ad16f4f60c0a80d3e106b09ba5f67ed59da0`
 - frozen 100: jobs 0 -> 0, updates 0 -> 0, no added/dropped URLs, no date changes
-- network requests added: 0
-- third-party cost/search requests added: 0
-- `precision_monotonic=true`
-- release-shaped code/test head before docs-only commits: `a4b8789a746f6e194186db1ea7dd2a40c78bf7b9`
-- exact-head Baseline CI `37217488481`: PASS
-
-Promotion bar status:
-
-- known false-positive mechanism removed by adversarial regression: PASS
-- existing behavior on frozen consumed output preserved: PASS
-- zero request increase: PASS
-- full repository CI: PASS
-- fresh qualification: intentionally not required for this precision-only phase
-- merge/post-merge gate: pending
+- network/search requests added 0; cost added $0; `precision_monotonic=true`
+- docs-inclusive PR head Baseline CI `37219207340`: PASS
+- PR #95 merged as `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
+- post-merge Baseline CI `37219278337`: PASS
+- fresh cohort intentionally not consumed because this was a precision-only, zero-request hardening phase
 
 ## 9. Phase 5 — contact/social enrichment
 
@@ -279,7 +262,9 @@ Before another Builderr revision require:
 
 ## 14. Next-source selection gate
 
-After Phase 4 is merged/post-merge green, do not immediately implement another connector. First build a consumed-only source/family selection matrix for plausible deterministic sources such as Doffin, Støtteregisteret or Patentstyret.
+This is the active roadmap step after Phase 4.
+
+Do not immediately implement another connector. First build a consumed-only source/family selection matrix for plausible deterministic sources such as Doffin, Støtteregisteret or Patentstyret.
 
 For each candidate require evidence for:
 
@@ -366,4 +351,4 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 
 ## 23. NEXT
 
-**Finish the Phase-4 merge/post-merge gate for PR #95. Once POST-MERGE GREEN, run a consumed-only rights/reach/exact-ID source-selection audit for the next deterministic high-yield family/source; do not return to speculative domain generation and do not consume a fresh cohort yet.**
+**Run a consumed-only deterministic source/family selection audit. Screen rights, exact-ID join quality, likely evaluator-shaped reach and request/runtime budget for Doffin, Støtteregisteret, Patentstyret or another official source before implementing a connector. No fresh cohort yet.**
