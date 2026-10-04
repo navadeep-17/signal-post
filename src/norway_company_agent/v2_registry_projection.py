@@ -12,8 +12,10 @@ MANAGED_FIELDS = (
     "municipality_number",
     "bankrupt",
     "liquidating",
+    "forced_dissolution",
     "registration_date",
     "foundation_date",
+    "articles_date",
     "registered_in_enterprise_register",
     "enterprise_register_date",
     "institutional_sector",
@@ -31,8 +33,10 @@ SOURCE_PATHS = {
     "municipality_number": "/forretningsadresse/kommunenummer",
     "bankrupt": "/konkurs",
     "liquidating": "/underAvvikling",
+    "forced_dissolution": "/underTvangsavviklingEllerTvangsopplosning",
     "registration_date": "/registreringsdatoEnhetsregisteret",
     "foundation_date": "/stiftelsesdato",
+    "articles_date": "/vedtektsdato",
     "registered_in_enterprise_register": "/registrertIForetaksregisteret",
     "enterprise_register_date": "/registreringsdatoForetaksregisteret",
     "institutional_sector": "/institusjonellSektorkode",
@@ -156,6 +160,7 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
     if field in {
         "bankrupt",
         "liquidating",
+        "forced_dissolution",
         "registered_in_enterprise_register",
         "registered_in_vat_register",
     }:
@@ -165,6 +170,7 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
     if field in {
         "registration_date",
         "foundation_date",
+        "articles_date",
         "enterprise_register_date",
         "vat_registration_date",
     }:
