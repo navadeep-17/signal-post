@@ -14,6 +14,9 @@ MANAGED_FIELDS = (
     "liquidating",
     "registration_date",
     "registered_address",
+    "registered_contact_email",
+    "registered_phone",
+    "registered_mobile",
 )
 SOURCE_PATHS = {
     "industry": "/naeringskode1",
@@ -22,6 +25,9 @@ SOURCE_PATHS = {
     "liquidating": "/underAvvikling",
     "registration_date": "/registreringsdatoEnhetsregisteret",
     "registered_address": "/forretningsadresse",
+    "registered_contact_email": "/epostadresse",
+    "registered_phone": "/telefon",
+    "registered_mobile": "/mobil",
 }
 OWN_SIGNAL_TYPE = "official_registry_live_projection"
 
@@ -43,6 +49,11 @@ def _evidence_id(org: str, field: str, record: dict[str, Any]) -> str:
 def _registry_live_record(profile: dict[str, Any]) -> dict[str, Any]:
     record = ((profile.get("evidence") or {}).get("registry_live") or {})
     return record if isinstance(record, dict) else {}
+
+
+def _text_value(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
 
 
 def _exact_live_value(record: dict[str, Any], field: str) -> Any:
@@ -88,8 +99,7 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
         return raw if isinstance(raw, bool) else None
 
     if field == "registration_date":
-        raw = str(value.get("registration_date") or "").strip()
-        return raw or None
+        return _text_value(value.get("registration_date"))
 
     if field == "registered_address":
         raw = value.get("business_address")
@@ -109,6 +119,15 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
             if raw.get(key) not in (None, "", [])
         }
         return cleaned or None
+
+    if field == "registered_contact_email":
+        return _text_value(value.get("contact_email"))
+
+    if field == "registered_phone":
+        return _text_value(value.get("contact_phone"))
+
+    if field == "registered_mobile":
+        return _text_value(value.get("contact_mobile"))
 
     raise KeyError(field)
 
