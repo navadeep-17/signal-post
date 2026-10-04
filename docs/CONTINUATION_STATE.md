@@ -12,16 +12,20 @@ Production branch: `main`
 
 Live `main` immediately before this update:
 
-`2140105da59fbf77769f9fd95b9643de589c8b62`
+`275e040dd4f171c755aa659555ce31d94ea59ccd`
 
-That tip is documentation-only on top of Phase-A production merge `8a729036350c019e107cd68a08641f1fff6796f6`; production code semantics remain Phase A / V8. Open PRs #76, #78 and #84 remain historical/experimental and are not the active production path.
+That tip is documentation-only on top of Phase-A production merge `8a729036350c019e107cd68a08641f1fff6796f6`; production code semantics remain Phase A / V8.
 
-No Phase-2 or NAV experiment is qualified or merged.
+Open PRs #76, #78 and #84 are historical/experimental and are not the active production path.
 
-Latest completed experiments:
+Active experiment branch:
 
-- `experiment/phase2-registry-secondary-identity-screen`, measured head `03b9ab870c00ac681cbf47ca74a57920e9a76e5f`: **DROP**.
-- `experiment/nav-exact-org-vacancy-screen`, measured head `c156fda6a5ac711b285e864270273446262d19ac`: **DROP**.
+- branch: `experiment/phase3-dated-activity-discovery`
+- PR: none
+- exact measured head: `5ed4f3a83eab592c0a2a2c7d96e0865cf874bce0`
+- state: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+No Phase-2, NAV or Phase-3 experiment is qualified or merged.
 
 ## 2. Lifecycle state
 
@@ -37,21 +41,35 @@ Phase 1 is closed.
 
 ### Phase 2 / exact website-discovery improvement
 
-- **IMPLEMENTED:** experiment-only strategies; no new production strategy merged
+- **IMPLEMENTED:** experiment-only strategies
 - **TESTED:** yes
 - **QUALIFIED:** no
 - **MERGED:** no
-- **STATE:** **CANDIDATE-SOURCE CONSTRAINED / SHELVED under the current $0, rights-safe source set**
+- **POST-MERGE GREEN:** not applicable
+- **STATE:** **CANDIDATE-SOURCE CONSTRAINED / SHELVED under current $0 rights-safe sources**
 
-Do not keep generating more legal-name domain guesses without a genuinely new rights-safe candidate source. The measured bottleneck is candidate generation, not identity verification.
+The dominant failure is candidate generation, not identity verification. Do not add more legal-name domain guesses without a genuinely new rights-safe candidate source.
 
-### Phase 3 / bounded verified-site activity discovery
+### Phase 3 / bounded verified-site dated activity discovery
+
+- **IMPLEMENTED:** yes, experiment-only sitemap and RSS/Atom screens
+- **TESTED:** yes, full regressions passed
+- **QUALIFIED:** no
+- **MERGED:** no
+- **POST-MERGE GREEN:** not applicable
+- **STATE:** **DROP / SHELVED on current verified-site cohort**
+
+Both bounded sitemap and declared-feed paths produced zero precision-clean dated-activity companies.
+
+### Phase 4 / page-level observation and evidence hardening
 
 - **IMPLEMENTED:** not yet
 - **TESTED:** not yet
 - **QUALIFIED:** no
 - **MERGED:** no
 - **STATE:** **ACTIVE NEXT PHASE**
+
+Phase 3 exposed a concrete date-selection precision defect that must be fixed before further source expansion.
 
 ## 3. Retained Phase-A baseline
 
@@ -66,114 +84,99 @@ Second untouched qualification run `37203580574`:
 - runtime: 460.916 s
 - third-party cost: $0
 - search API requests: 0
-- artifact: `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`, digest `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`
+- artifact: `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`
+- digest: `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`
 
-Consumed Phase-2 reruns show 7–8 exact verified websites because live page/network state drifts slightly.
+Frozen consumed Phase-2/3 profiles contain 7 exact verified websites.
 
-## 4. Phase-2 experiment decisions
+## 4. Phase-2 conclusions retained
 
-### Norid organisation-number domain lookup
+Rejected / do-not-repeat under current constraints:
 
-Decision: **DROP / DO NOT IMPLEMENT**.
+- guessed `.com` expansion
+- broad rule/ML legal-name candidate ranking with zero net-new exact sites
+- annual-report domain hints after prior zero-yield screen
+- Norid public lookup because rights/purpose restrictions are incompatible
+- exact-parent subunit homepage hints: 0/3 exact target sites, run `37208360582`, artifact `11306100222`
+- exact-parent subunit email-domain hints: 0/10 exact target sites, run `37209911261`, artifact `11306935410`
+- same-domain secondary identity verification: 0/4, run `37211887561`, artifact `11307036767`, digest `sha256:b552fe0a4961148a9a0e3dfac520dc9535cfe3171af624cf3efc90a885c59937`
+- NAV exact-org vacancy feed: 0/100 target companies after complete 180-day traversal, run `37214017085`, artifact `11307433276`, digest `sha256:917ad28cc991fdeb70a8f78617cbb8c0c1fbbf49e8c6ce598455630127d7e5db`
+- provider-dependent model/search PRs #78/#84 unless Builderr resolves provider/key/budget and the $0 constraint changes
 
-Public lookup rights/purpose restrictions are incompatible with Signalpost production use; anonymous RDAP does not provide an equivalent organisation-number subscriber-domain search path.
+Failure funnel on the frozen 100:
 
-### Exact-parent BRREG subunit homepage hints
+- H1c deterministic `.no`: 96 attempts; 79 blocked; **78 DNS non-resolution**; 12 loaded; 3 exact sites verified
+- H1g hyphenated `.no`: 73 attempts; **73/73 DNS non-resolution**; 0 verified
 
-Decision: **DROP**.
+This is sufficient evidence to shelve more speculative domain generation for now.
 
-- branch `experiment/phase2-subunit-homepage-screen`
-- run `37208360582`: PASS
-- artifact ID `11306100222`
-- 3 candidate companies / 3 attempts / **0 accepted exact target sites**
-- 6 logical / 12 conservative requests; $0; zero wrong-company publications
+## 5. Phase-3 sitemap activity screen
 
-### Exact-parent BRREG subunit email-domain hints
+Decision: **DROP / NOT QUALIFIED / NOT MERGED**.
 
-Decision: **DROP**.
-
-- branch `experiment/phase2-subunit-email-domain-screen`
-- head `5321ab9689d754bd2f2415f392a8d0179050b6ae`
-- run `37209911261`: PASS
-- artifact ID `11306935410`, digest `sha256:fab8b2d62950eea9e5991bcf1cf61512a4532680ddcc9f1330c30ba36b19038e`
-- 10 unresolved companies with non-generic domain candidates / 10 attempts / **0 accepted**
-- 16 logical / 32 conservative requests; $0; zero wrong-company publications
-- `AGILE SOLUTIONS AS` matched its legal name at `agilesolutions.no` but lacked the predeclared exact organisation-number or BRREG-location proof; do not weaken the rule post-hoc
-
-### Same-domain secondary identity verification for quarantined BRREG websites
-
-Decision: **DROP**.
-
-- branch `experiment/phase2-registry-secondary-identity-screen`
-- exact measured head `03b9ab870c00ac681cbf47ca74a57920e9a76e5f`
-- run `37211887561`: PASS
-- artifact `phase2-registry-secondary-identity-screen`, ID `11307036767`
-- digest `sha256:b552fe0a4961148a9a0e3dfac520dc9535cfe3171af624cf3efc90a885c59937`
+- branch: `experiment/phase3-dated-activity-discovery`
+- measured head: `5f6540fffe5ce3656f2c8611da8cc390409ecddd`
+- run `37215062164`: PASS
+- artifact `phase3-sitemap-activity-screen`, ID `11308151116`
+- digest `sha256:fcbd1aa10c91b7f468894a81e6fe88d797224fe1d058ac472a4d049f8e800d35`
 - publication disabled; full regressions passed
-- 4 loaded quarantined registry-linked sites / 4 secondary attempts / **0 accepted**
-- decisions: 1 conflicting explicit organisation number, 1 insufficient proof, 2 secondary pages unavailable
-- 8 logical / 16 conservative screen charge; runtime 9.468 s; $0/search0
-- request theorem held: existing registry homepage 2 + one secondary page max 2 = four logical site requests, no fifth request
-- positive proof was hardened to be page-local to the secondary page; homepage + secondary split evidence is explicitly regression-rejected
+- verified sites screened: 7/7
+- robots sitemap hints: 5 companies
+- sitemap indexes requiring an extra child-sitemap request: 4
+- direct urlsets: 1, with no bounded activity candidate
+- accepted dated-activity companies: **0**
+- actual experiment requests: 13
+- projected production incremental site requests with cached robots policy: 6
+- projected combined conservative charge: 1,344/2,000
+- runtime: 8.614 s
+- cost: $0; search requests: 0; wrong-company publications: 0
 
-Manual conflict audit: `VIKHOV B4 BORETTSLAG` at `bonitas.no/personvernerklaering` explicitly identified organisation number `987579773`, not the target, so rejection was correct.
+Sitemap `<lastmod>` remained ranking-only and could never authorize publication. Four sitemap indexes would require an extra child-sitemap request and therefore do not fit the two-idle-request / four-site-request theorem.
 
-## 5. Phase-2 failure funnel / root cause
+## 6. Phase-3 RSS/Atom activity screen
 
-Frozen consumed-cohort evidence shows the dominant failure is candidate generation:
+Final decision: **DROP / NOT QUALIFIED / NOT MERGED**.
 
-- H1c deterministic legal-name `.no`: 96 attempts
-  - 79 blocked
-  - **78 failed because hostname did not resolve**
-  - 12 loaded
-  - 5 source errors
-  - 3 exact websites ultimately verified
-- H1g hyphenated `.no`: 73 attempts
-  - **73/73 failed because hostname did not resolve**
-  - 0 verified
+Initial screen:
 
-Combined with 0/3 subunit-homepage, 0/10 subunit-email-domain and 0/4 secondary-identity transfer, this is sufficient negative evidence to stop spending cycles on more speculative $0 domain heuristics. Identity precision remains intact; the missing ingredient is a genuinely new candidate source.
+- run `37215447605`: PASS
+- artifact `phase3-rss-activity-screen`, ID `11308540417`
+- digest `sha256:8d8688618568204f6aea2d9c3b56d2604f15e267c85b96ba21dfb67f83a1548b`
+- 2/7 sites declared RSS feeds
+- one apparent Bike2Work hit was produced by the existing detail-date extractor
 
-## 6. NAV exact-org vacancy-feed screen
+Manual precision audit rejected that apparent hit. The RSS item was the standard WordPress placeholder `Hello world!`, dated 16 Nov 2021, while the detail extractor selected a separate `04/10/2026` date-labelled element from the page. Feed dates were never treated as positive publication evidence.
 
-Decision: **DROP / DO NOT PROMOTE / NOT MERGED**.
+Precision-hardened rerun:
 
-NAV was screened as an exact-ID alternative to website-dependent hiring acquisition.
+- exact head: `5ed4f3a83eab592c0a2a2c7d96e0865cf874bce0`
+- run `37215793652`: PASS
+- artifact `phase3-rss-activity-screen`, ID `11308790825`
+- digest `sha256:f2c10fbeb86d0f04bdd8a53e3594bd2aaf2e1ef957ae36eb5bdfd29c41714cde`
+- full regressions: PASS
+- publication disabled
+- verified sites screened: 7/7
+- companies with declared feed hint: 2
+- RSS feeds parsed: 2
+- accepted precision-clean dated-activity companies: **0**
+- decisions: 4 no feed hint, 1 feed with no activity item, 1 robots unavailable, 1 generic CMS placeholder reject
+- actual experiment network requests: 16
+- actual bytes: 1,631,210
+- projected production incremental site requests: 3
+- projected combined conservative charge: 1,338/2,000
+- projected headroom: 662
+- runtime: 13.374 s
+- third-party cost: $0; search requests: 0; wrong-company publications: 0
 
-- branch `experiment/nav-exact-org-vacancy-screen`
-- exact measured head `c156fda6a5ac711b285e864270273446262d19ac`
-- first run `37213928445` failed before any NAV request because the workflow referenced the wrong frozen-report key; full regressions were green and the harness-only issue was corrected
-- corrected run `37214017085`: PASS
-- artifact `nav-exact-org-vacancy-screen`, ID `11307433276`
-- digest `sha256:917ad28cc991fdeb70a8f78617cbb8c0c1fbbf49e8c6ce598455630127d7e5db`
-- publication disabled; personal contact fields not retained
-- 180-day feed window; 10,000 events/page
-- feed requests: 38
-- feed bytes: 181,234,775
-- raw events: 368,428
-- unique vacancies: 90,917
-- active unique vacancies: 9,723
-- feed traversal complete: yes
-- shortlisted target/subunit business-name vacancies: **0**
-- detail requests: 0
-- exact active vacancies: 0
-- exact active-vacancy target companies: **0/100**
-- NAV logical requests: 39
-- NAV conservative charge: 78
-- projected combined charge with Phase-A baseline: **1,410/2,000**, 590 headroom
-- runtime: 62.381 s
-- third-party cost: $0; search API requests: 0; wrong-company publications: 0
-
-The screen would authorize a detail only when `employer.orgnr` equals the main target organisation number or an exact BRREG subunit organisation number whose recorded parent is the target. No candidate reached that detail stage. The public experiment token is also not a stable production-access mechanism. Do not spend a fresh cohort or broaden name matching post-hoc against this consumed cohort.
+The hardened experiment added two generic vetoes: standard CMS placeholder posts cannot become company activity, and a feed/detail year contradiction can veto an apparent detail fact. Feed metadata remains ranking/conflict evidence only, never positive publication proof.
 
 ## 7. Precision and budget invariants
 
 - exact organisation number remains the legal-entity anchor
 - candidate generation is never publication proof
-- parent/subsidiary/subunit relation alone cannot authorize a website claim
-- exact BRREG subunit -> parent mapping may authorize only the specific relation semantics explicitly designed for that source
 - wrong-company publication is a hard failure
-- exact-page provenance remains mandatory
+- exact-page URL + retrieval/hash provenance remains mandatory
+- dates must be page-local and semantically tied to the article/update; archive/sitemap/feed dates cannot independently publish a fact
 - missing/blocked/ambiguous stays explicit
 - third-party API spend remains $0
 - no paid/search API path is active
@@ -181,51 +184,19 @@ The screen would authorize a detail only when `employer.orgnr` equals the main t
 - new site enrichment must fit by adaptive ordering/substitution, not a fifth site request
 - fresh cohorts remain reserved for promotion after meaningful consumed-cohort transfer
 
-## 8. Verified-site surface inventory
+## 8. Known blockers
 
-On the frozen consumed 100 there are 7 exact verified sites. Across those 7 homepages:
+1. Exact website reach remains only ~7–8/100 under current rights-safe $0 sources.
+2. Phase-2 candidate generation is dominated by non-resolving guessed domains.
+3. Phase-3 sitemap/RSS activity transfer was zero after precision hardening.
+4. The existing first-party date selector can prefer an unrelated/dynamic date-labelled element over the true publication date when a page contains multiple dates. This is now a known precision defect and is the immediate Phase-4 target.
 
-- homepage careers links: 0 companies
-- homepage news-detail links: 0 companies
-- structured homepage job candidates: 0 companies
-- explicit homepage publication-date candidates: 0 companies
-- social links: present on 3 companies
-- same-domain identity/contact-type links: present on 6 companies
+## 9. Exact next 1–3 actions
 
-The prior idle contact-page experiment already failed to add net-new contact-family coverage, so the next experiment must not simply repeat a generic contact fallback.
+1. Create a clean Phase-4 branch from current `main`; do not merge the Phase-3 experiment branch.
+2. Add adversarial regressions for competing page dates and generic CMS placeholder updates, then harden `first_party_activity` date selection so stronger explicit publication metadata / ordered page-local candidates win and ambiguous dynamic/comment dates abstain.
+3. Run full CI plus a consumed-cohort output diff. Promote only if existing qualified claims are preserved or made more conservative, with no new false positive and no request increase. No fresh cohort yet.
 
-## 9. Selected next strategy
+## 10. NEXT
 
-Advance to **Phase 3 / Phase 7 combined consumed-cohort screen: bounded RSS/sitemap discovery for dated first-party activity on already verified exact domains**.
-
-Why this is the next distinct opportunity:
-
-- it uses only domains whose legal identity is already verified
-- it addresses a scored information family that current verified homepages do not expose
-- C12 M3 currently depends on homepage-nominated news detail links, which are absent on all 7 frozen verified homepages
-- RSS/Atom or sitemap metadata can nominate dated article/detail URLs without weakening company identity
-- only page-local explicit dates / structured `NewsArticle` or `Article` evidence can support publication
-- the screen can consume only currently idle final site-request capacity and must remain within the existing four-request theorem
-
-Initial experiment rules:
-
-1. publication disabled
-2. consumed cohort only; no fresh cohort
-3. verified exact domains only
-4. at most one discovery fetch plus one detail fetch per eligible verified company
-5. prefer homepage-declared feed/sitemap hints; otherwise deterministic same-domain `/sitemap.xml` or common RSS endpoint only when the request theorem permits
-6. never crawl an entire sitemap; rank at most a tiny bounded set of recent article/news candidates
-7. detail page must remain same verified registered domain
-8. require explicit page-local publication date and concrete article/update content
-9. preserve URL, retrieval timestamp, content hash and exact supporting evidence
-10. PROMOTE only for meaningful net-new dated-activity company coverage with zero identity/evidence errors
-
-## 10. Exact next 1–3 actions
-
-1. Create `experiment/phase3-dated-activity-discovery` from current `main`.
-2. Build a publication-disabled RSS/sitemap activity discovery screen on the same frozen consumed 100, limited to verified exact sites and two idle logical site requests/company.
-3. Measure discovery reach, dated-detail acceptance, exact page evidence, request/runtime cost and manually audit every accepted activity before any promotion decision.
-
-## 11. NEXT
-
-**NEXT: Phase 3 consumed-cohort RSS/sitemap dated-activity screen on already verified exact domains; at most one discovery + one detail page, publication disabled, no fresh cohort.**
+**NEXT: Phase 4 page-level dated-activity evidence hardening. Fix competing-date selection and generic-placeholder acceptance before any further source expansion; consumed cohort only, no fresh qualification yet.**
