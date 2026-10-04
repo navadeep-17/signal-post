@@ -154,6 +154,13 @@ def normalize_locations(body: Any) -> dict[str, Any]:
 
 
 def normalize_entity(body: Any) -> dict[str, Any]:
+    """Retain exact-org BRREG fields needed by downstream evidence-safe projection.
+
+    This normalizer is deliberately lossless for evaluator-relevant scalar/contact/narrative
+    fields already present in the one live entity response. Retaining them adds no requests
+    and does not make them publishable by itself; the V2 registry projectors still attach
+    exact source paths and fail closed when a value is absent.
+    """
     body = body if isinstance(body, dict) else {}
     return {
         "organisation_number": body.get("organisasjonsnummer"),
@@ -167,6 +174,12 @@ def normalize_entity(body: Any) -> dict[str, Any]:
         "business_address": body.get("forretningsadresse"),
         "postal_address": body.get("postadresse"),
         "latest_submitted_accounts": body.get("sisteInnsendteAarsregnskap"),
+        "registration_date": body.get("registreringsdatoEnhetsregisteret"),
+        "activity": body.get("aktivitet"),
+        "registered_purpose": body.get("vedtektsfestetFormaal"),
+        "contact_email": body.get("epostadresse"),
+        "contact_phone": body.get("telefon"),
+        "contact_mobile": body.get("mobil"),
     }
 
 
