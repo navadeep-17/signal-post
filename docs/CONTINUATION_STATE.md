@@ -20,6 +20,7 @@ Current production `main` SHA before Phase-A merge:
 - PR #94: `Phase A: exact-live BRREG zero-request breadth recovery`
 - state: **OPEN / READY / NOT MERGED**
 - second-fresh qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
+- cleaned release head before this state-pin commit: `47bfdc67e4280f60556feeaddd4f73ecd31c49c3`
 - release cleanup after qualification removed only the rejected external-phone path, one-off workflows and stale doc noise; qualified official/postal semantics were not broadened after the fresh run.
 
 Other open draft PRs are historical/experimental and are not the active production path.
