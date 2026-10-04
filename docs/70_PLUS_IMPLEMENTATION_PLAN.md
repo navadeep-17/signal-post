@@ -2,328 +2,1054 @@
 
 Last updated: 2026-10-04
 
-This document is the canonical engineering roadmap for the next Signalpost revisions. It exists so implementation can continue across ChatGPT conversation limits without reconstructing strategy from old chats.
+This document is the **canonical engineering roadmap** for the next Signalpost revision cycle. It is intentionally aligned to the full production-grade architecture and the explicit Phase 0-11 implementation order agreed for the project.
 
-## 0. Authority and score target
+Use `docs/CONTINUATION_STATE.md` for the exact live branch/PR/run state. Use `docs/IMPLEMENTATION_LOG.md` for historical experiments and decisions. This file defines **where the architecture is going and in what order**.
 
-When anything in this repository conflicts with the live Builderr challenge page, the live Builderr page wins.
+---
 
-Current Builderr rubric as verified on 2026-10-04:
+## 0. Objective, authority and score target
 
-- Recall & coverage: 50
-- Precision & evidence: 30
-- Synthesis: 12
-- UX: 8
-- Qualification: >=65 overall on an official run
-- A material wrong-company publication can block qualification
-- First submission + up to four revised commit hashes = five versions total
+The goal is not to keep adding features. The goal is:
 
-Internal engineering target for the next major revision:
+> **Build the strongest possible Signalpost revision capable of scoring 70+ on Builderr while preserving exact-entity precision and evidence quality.**
 
-- Recall: 22-24+/50
-- Precision/evidence: 28-29+/30
-- Synthesis: 12/12
-- UX: 8/8
-- Target total: 70-73+
+When this repository conflicts with the live Builderr challenge page, the live Builderr page wins.
+
+Current working score target:
+
+- Recall / coverage: **22-24+/50**
+- Precision / evidence: **28-29+/30**
+- Synthesis: **12/12**
+- UX: **8/8**
+- Target total: **70-73+**
 
 This is an engineering target, not a prediction of Builderr's hidden score.
 
-## 1. Core strategy
+Builderr revisions are scarce. Do **not** submit another version merely because a feature merged. The next submission should bundle coordinated recall improvements, transfer to fresh companies, preserve precision/evidence, and materially outperform the current baseline.
 
-The project should optimize for:
+Core strategy:
 
-> ATTEMPT MORE -> VERIFY STRICTLY -> PUBLISH CONSERVATIVELY
+> **ATTEMPT MORE -> VERIFY STRICTLY -> PUBLISH CONSERVATIVELY**
 
-Do not optimize by lowering identity thresholds. Discovery may be aggressive; publication must remain exact.
+The dominant remaining score lever is **company-level external recall / coverage**.
 
-The main remaining score lever is company-level recall across external information families. The system should maximize **net-new companies covered per information family**, not total claim count.
+Do not increase recall by weakening company identity.
 
-## 2. Production-grade architecture model
+A wrong-company publication can destroy qualification.
 
-Signalpost should converge toward a small evidence-backed company intelligence platform inspired by mature systems, without copying their proprietary implementations.
+---
 
-Production references and the architectural lesson to borrow:
+## 1. Architectural philosophy
 
-| Reference | Relevant lesson |
+Signalpost is being developed as a small production-grade, evidence-backed Norwegian company intelligence platform.
+
+The useful architectural patterns are:
+
+| Reference | Pattern to borrow |
 |---|---|
-| Sayari | canonical legal entity, candidate-vs-verified separation, relationship/source-document provenance |
-| OpenCorporates | sourced statements, primary-register preference, historical provenance |
-| Diffbot Knowledge Graph | verified web pages -> structured organization/person/article observations -> entity fusion with origins |
-| Dun & Bradstreet | resolve -> enrich -> monitor lifecycle |
-| Coresignal | typed company/people/jobs/headcount information families instead of one giant scraper |
+| Sayari | canonical legal entity, candidate-vs-verified separation, relationship/source-document provenance, monitoring |
+| OpenCorporates | sourced statements, primary registry preference, historical provenance |
+| Diffbot Knowledge Graph | multi-page web enrichment, typed Organization/Person/JobPosting/NewsArticle observations, origins |
+| Dun & Bradstreet | **resolve -> enrich -> monitor** lifecycle |
+| Coresignal | separate typed company/people/jobs/headcount modules instead of one giant scraper |
 | OpenSanctions | source ingestion, canonical entities, statement-level lineage, deterministic normalization |
-| OCCRP Aleph | heterogeneous entity graph, timeline/events, source-backed relationships |
+| OCCRP Aleph | heterogeneous entity graph, structured + unstructured records, timelines, provenance |
 | Firmaradar / Proff | useful Norwegian company-intelligence information architecture |
 
-Target architecture:
+These are architectural references, not sources to scrape or implementations to copy.
+
+The intended product behaves conceptually like a compact:
+
+> **OpenCorporates + Sayari + Diffbot + D&B**
+
+adapted to Norwegian legal entities, Builderr's evaluator, strict evidence requirements, deterministic refresh, and a bounded request budget.
+
+---
+
+## 2. Target architecture
 
 ```text
 ORGANISATION NUMBER
         |
         v
-EXACT LEGAL ENTITY (BRREG)
+EXACT ENTITY ANCHOR
+BRREG / legal entity
         |
-        +-------------------------------+
-        |                               |
-        v                               v
-OFFICIAL SOURCES                 EXTERNAL DISCOVERY
-financials/roles/etc.            registry website
-                                 email-domain hints
-                                 deterministic domains
-                                 Wikidata exact-org hints
-                                 other bounded candidates
-                                         |
-                                         v
-                                  CANDIDATE DOMAINS
-                                         |
-                                         v
-                                  EXACT IDENTITY GATE
-                                         |
-                                         v
-                                    VERIFIED SITE
-                                         |
-                      +------------------+------------------+
-                      |                  |                  |
-                      v                  v                  v
-                  HOMEPAGE           SITEMAP/RSS      TARGETED PAGES
-                                                          |
-                              +-----------+-----------+----+----+
-                              |           |           |         |
-                           CONTACT      PEOPLE      CAREERS    NEWS
-                              |           |           |         |
-                              v           v           v         v
-                            email       leaders      jobs    activity
-                            phone       locations
-                            social
-                              \           |           |        /
-                               +----------+-----------+-------+
-                                          |
-                                          v
-                                  SOURCE OBSERVATIONS
-                                  exact source URL
-                                  retrieved_at
-                                  content hash
-                                  evidence span
-                                  extraction method
-                                  identity proof
-                                  reporting/effective date
-                                          |
-                                          v
-                                   CANONICAL CLAIMS
-                                          |
-                          +---------------+---------------+
-                          |               |               |
-                          v               v               v
-                       PROFILE         CHANGES         SYNTHESIS/UX
+        +----------------------------------+
+        |                                  |
+        v                                  v
+OFFICIAL SOURCES                    EXTERNAL DISCOVERY
+registry                            registry website
+financials                         registry email domain
+roles                              deterministic domains
+locations                          Wikidata exact-org hints
+group                              stored domain hints
+changes                            optional bounded discovery
+        |                                  |
+        |                                  v
+        |                           CANDIDATE DOMAINS
+        |                                  |
+        |                                  v
+        |                           EXACT IDENTITY GATE
+        |                                  |
+        |                            VERIFIED DOMAIN
+        |                                  |
+        |            +---------------------+--------------------+
+        |            |                     |                    |
+        |            v                     v                    v
+        |         SITEMAP               HOMEPAGE             RSS/FEEDS
+        |            |
+        |       TARGETED PAGE CRAWL
+        |            |
+        |    +-------+--------+----------+----------+
+        |    |       |        |          |          |
+        |    v       v        v          v          v
+        |  ABOUT   CONTACT   TEAM      CAREERS     NEWS
+        |    |       |        |          |          |
+        |    v       v        v          v          v
+        | people   email    leaders   JobPosting  NewsArticle
+        |          phone               jobs        dated activity
+        |          social
+        |            |
+        +------------+------------------------------------------+
+                             |
+                             v
+                       OBSERVATION LAYER
+                  value + exact source page
+                  retrieval timestamp
+                  content SHA-256
+                  claim span
+                  extraction method
+                  identity proof
+                  effective/reporting date
+                             |
+                             v
+                       CANONICAL CLAIMS
+                             |
+                 +-----------+-----------+
+                 |           |           |
+                 v           v           v
+              PROFILE      HISTORY    SYNTHESIS/UX
+                             |
+                           CHANGES
 ```
 
-## 3. Non-negotiable safety invariants
+This is the direction. New implementation work should be judged by whether it moves the production evaluator toward this architecture.
 
-1. Candidate discovery is never identity evidence by itself.
-2. Exact organisation-number evidence is strongest.
-3. Registry-filed domain is strong identity evidence.
-4. Full legal name + strong registered-location/address corroboration may qualify when current rules permit it.
-5. Name-only, municipality-only, brand similarity, directory pages, parent/group sites and franchise sites must not qualify.
-6. Every external claim keeps exact page-level provenance.
-7. Do not use a homepage hash to support a value found only on another page.
-8. Missing/blocked/ambiguous never becomes zero.
-9. Financial values remain deterministic official-source facts.
-10. One source/network failure must not drop a company envelope.
-11. Refresh must be deterministic and idempotent.
-12. No experimental source enters production without measurable net-new company coverage and a clean precision audit.
-13. Keep third-party API spend at $0 unless the user explicitly changes this project constraint.
-14. Respect the evaluator request/runtime envelope and preserve explicit request accounting.
+---
 
-## 4. Current production foundation
+## 3. Non-negotiable identity and publication rules
 
-As of main commit `fb4c8711b9a3c58c16c6ff1c26aada93c036938a`:
+1. Candidate generation is **not** publication evidence.
+2. Exact organisation-number evidence remains the strongest legal-entity anchor.
+3. A registry-filed website/domain is strong identity evidence.
+4. Full legal name + strong full registered-address/location corroboration may qualify only when current rules permit it.
+5. Legal name alone, municipality alone, postcode alone, brand similarity, keyword similarity, search ranking or URL similarity do not qualify a site.
+6. Parent/group sites, franchise sites, directory pages, marketplaces and similarly named companies must not be treated as the target entity.
+7. Ambiguous identity means **abstain**.
+8. Every external fact must retain exact page-level provenance.
+9. Do not use a homepage hash to support a fact found only on another page.
+10. Missing / blocked / ambiguous is never converted to zero or false absence.
+11. Financial and registry values remain deterministic official-source facts.
+12. A source/network failure must never drop the company envelope.
+13. Refresh must be deterministic and idempotent.
+14. No experimental source enters production without meaningful net-new company coverage and a clean precision audit.
+15. Third-party API spend remains **$0** unless the user explicitly changes that constraint.
+16. Request/runtime accounting must remain explicit and evaluator-safe.
 
-- exact BRREG entity anchoring is productionized;
-- official financials, roles, locations and other registry data are productionized;
-- canonical claims/evidence/change output exists;
-- deterministic refresh/change tracking exists;
-- one-command evaluator runner and request accounting exist;
-- exact website discovery/verification includes hardened deterministic, email-domain, Wikidata and hyphenated-domain paths;
-- verified company-declared social links and first-party contact emails are productionized;
-- official registry and annual-report workforce evidence is productionized;
-- C12 M3 retains bounded dated first-party news detail evidence;
-- C12 M4 now publishes bounded current first-party jobs from verified company-owned hiring surfaces;
-- the site-request ceiling remains intentionally bounded;
-- third-party API spend remains $0.
-
-The current public Builderr board may reflect an older submitted SHA. Never assume the public score represents current `main` until that exact SHA has been officially evaluated.
-
-## 5. 70+ work program
-
-### Phase A — Current-main score/coverage audit (mandatory before new features)
-
-Goal: establish what `main` already collects and what it actually publishes.
-
-Tasks:
-
-- [ ] run a fresh evaluator-shaped cohort on the current M4 `main`;
-- [ ] produce a field-family matrix: collected internally -> canonical claim -> evidence -> companies covered;
-- [ ] identify any collected-but-unpublished facts;
-- [ ] measure unique companies covered for website, contact, social, jobs, dated activity, people, locations, workforce and registry changes;
-- [ ] record request/runtime/cost and wrong-company audits;
-- [ ] compare against the last submitted/evaluated version without tuning on Builderr's checked collection.
-
-Promotion principle: fix zero-risk projection/serialization omissions before adding new network work.
-
-### Phase B — Verified-site enrichment 2.0
-
-Goal: make every already-verified website yield more high-confidence families while preserving exact page provenance.
-
-Implement or audit:
-
-- sitemap discovery from `robots.txt`, `/sitemap.xml`, sitemap indexes;
-- RSS/Atom discovery from HTML and sitemap hints;
-- ranked same-domain targeted pages:
-  - about / om-oss
-  - contact / kontakt
-  - team / ansatte / ledelse
-  - careers / jobs / jobb / karriere / ledige-stillinger
-  - news / nyheter / aktuelt / presse / press
-- structured extraction:
-  - `Organization`
-  - `LocalBusiness`
-  - `Person`
-  - `JobPosting`
-  - `NewsArticle`
-  - `Article`
-- OpenGraph, canonical tags, `<time datetime>`, `mailto:`, `tel:` and `sameAs`;
-- exact page URL + hash + evidence span for every promoted fact.
-
-Do not perform an unbounded crawl. Rank pages by expected score-relevant yield.
-
-Success metrics:
-
-- net-new companies with contact/social/jobs/activity/people/location facts;
-- no wrong-company publication;
-- no evidence-span mismatch;
-- acceptable added requests per net-new company.
-
-### Phase C — Adaptive request scheduler
-
-Goal: spend the limited request budget where it can add a missing information family.
-
-A request candidate should conceptually have:
+The guiding pattern is:
 
 ```text
-expected_company_coverage_gain
-identity_risk
-request_cost
-latency_risk
+many candidate attempts
+        |
+        v
+strict verification
+        |
+        v
+few false positives
+        |
+        v
+higher true coverage
 ```
 
-Rules:
+Never replace this with weak matching merely to publish more facts.
 
-- no verified site -> stop site enrichment early;
-- verified site with missing contact/social -> prioritize contact/about;
-- explicit vacancy count or structured job candidate -> job detail before generic news;
-- missing activity and no hiring signal -> news/RSS detail;
-- already-covered families should not consume scarce requests merely to produce more claims;
-- stop when the remaining expected gain is low.
+---
 
-Keep deterministic publication gates even if ranking later uses ML.
+## 4. Observation layer vs canonical claims
 
-### Phase D — Job coverage expansion
+This separation is central to the architecture.
 
-Current M4 gives us a safe company-owned path. Next, measure whether it transfers to random-company cohorts.
+### Observation
 
-Tasks:
+An observation is something seen in **one exact source**.
 
-- [ ] measure M4 current first-party job company coverage on fresh 100/300 cohorts;
-- [ ] audit concrete `JobPosting` JSON-LD support;
-- [ ] preserve generic-careers-page != active-job invariant;
-- [ ] require specific role title and specific role/application URL;
-- [ ] require current/future deadline or equally concrete current-job evidence where the rule supports it;
-- [ ] preserve exact target-employer context; parent companies cannot inherit subsidiary jobs.
+Example:
 
-Secondary experiment only if worthwhile:
+```text
+source_page: https://company.no/contact
+observed: email = post@company.no
+identity: verified domain for org 123456789
+retrieved_at: ...
+content_sha256: ...
+claim_span: "Kontakt oss på post@company.no"
+extraction_method: mailto / structured / labelled text
+```
 
-- shared NAV feed scan once per batch;
-- index by exact employer organisation number;
-- map BRREG subunit -> parent only through official exact relationships;
-- fetch details only for exact target matches;
-- promote only if net-new company coverage is meaningful.
+### Canonical claim
 
-Do not repeat the old inefficient per-company NAV architecture.
+A canonical claim is the normalized profile-level statement:
 
-### Phase E — Dated activity expansion
+```text
+company.contact.email = post@company.no
+```
 
-Goal: increase companies with at least one reliable, dated first-party update.
+linked back to its source observation/evidence.
+
+This architecture is required for safe multi-page extraction, source fusion, refresh/change detection and evaluator evidence.
+
+If any new module cannot preserve this lineage cleanly, fix the lineage before expanding extraction.
+
+---
+
+## 5. Typed information-family architecture
+
+Prefer typed internal modules/concepts such as:
+
+```text
+IdentityProfile
+RegistryProfile
+FinancialProfile
+PeopleProfile
+LocationProfile
+WebsiteProfile
+ContactProfile
+SocialProfile
+HiringProfile
+ActivityProfile
+ChangeProfile
+```
+
+Then project them into canonical claims.
+
+Do not evolve the system into one giant loosely structured company scraper.
+
+---
+
+## 6. Current production foundation
+
+The exact current SHA, active branch, PRs, CI runs and qualification state belong in `docs/CONTINUATION_STATE.md`.
+
+The production foundation already includes:
+
+- exact BRREG legal-entity anchoring;
+- official financials;
+- roles and people;
+- registered locations/workplaces;
+- registry/group context where available;
+- exact-live and bulk registry handling;
+- canonical claims/evidence/change output;
+- deterministic refresh/change tracking;
+- terminal-envelope behavior;
+- request/runtime/cost accounting;
+- hardened website candidate discovery using registry website, registry email domain, deterministic `.no`, Wikidata exact-org hints and hyphenated-domain fallback;
+- strict exact-site verification;
+- first-party contact email/social extraction;
+- registry and annual-report workforce evidence;
+- annual-report description fallback;
+- bounded first-party dated-news detail logic;
+- bounded current first-party job-posting logic;
+- a strict site-request ceiling;
+- $0 third-party API spend.
+
+Recent Phase 1 work has also proved that significant recall can exist in data already fetched but not projected into evaluator-visible claims. Therefore **free/zero-request recall must be exhausted before adding unnecessary network work**.
+
+---
+
+# 7. Implementation order — Phase 0 through Phase 11
+
+The following order is authoritative unless measurement justifies a documented change.
+
+## PHASE 0 — Repository reality check
+
+**Status: substantially completed; repeat whenever repository state materially changes.**
+
+Goal: understand the actual production evaluator path before coding.
+
+Trace:
+
+```text
+organisation number
+    -> acquisition
+    -> normalization
+    -> observations/evidence
+    -> canonical projection
+    -> output contract
+    -> final envelope/product UI
+```
+
+Audit the real execution path, including:
+
+- `scripts/run_signalpost_v8.py`;
+- V7/V5/V2/V1 delegation if still present;
+- `scripts/run_signalpost_final.py`;
+- `scripts/run_signalpost_v2.py`;
+- canonical projection;
+- registry projection;
+- BRREG live/bulk handling;
+- financials;
+- roles;
+- people;
+- locations/subunits;
+- group/company relationships;
+- workforce;
+- annual-report intelligence;
+- website discovery/verification;
+- Wikidata/fallback discovery;
+- contact/social;
+- careers/jobs;
+- first-party activity/C12 news;
+- sitemap/homepage extraction;
+- evidence storage;
+- request budget;
+- refresh/change detection;
+- synthesis;
+- evaluator workspace;
+- output-contract serialization.
+
+Do not assume docs are current. GitHub and the actual code path are authoritative.
+
+---
+
+## PHASE 1 — Lost-claim / collected-vs-emitted audit
+
+**Status: active / near completion.**
+
+Goal: recover high-confidence facts already fetched internally but not projected/published.
+
+Maintain a matrix:
+
+| Information family | Acquisition source | Collected internally? | Canonical claim? | Evidence complete? | Companies covered | Weakness |
+|---|---|---:|---:|---:|---:|---|
+
+Audit at minimum:
+
+- legal name;
+- organisation form;
+- NACE/industry;
+- registered purpose/activity;
+- registration/foundation/statutes dates;
+- municipality;
+- registered and postal address;
+- bankruptcy/liquidation/forced-dissolution state;
+- VAT/enterprise-register state and dates;
+- institutional sector;
+- registered capital;
+- CEO / daglig leder;
+- board chair/members/roles;
+- financial periods, revenue, results, assets, equity, debt;
+- workplaces/subunits;
+- group relationships;
+- workforce;
+- verified website;
+- email/phone/mobile;
+- social;
+- careers page;
+- actual jobs;
+- dated public updates;
+- registry changes;
+- annual-report description/workforce.
+
+Promotion rule:
+
+> Fix zero-risk projection/serialization omissions before adding new source requests.
+
+Current active work belongs here until the fresh qualification gate is fully clean.
+
+---
+
+## PHASE 2 — Website discovery improvement
+
+Goal: materially increase the number of companies with an **exact verified website** without weakening publication precision.
+
+Candidate generation may use:
+
+1. BRREG-declared website;
+2. registry email domain;
+3. deterministic legal-name domains;
+4. Wikidata official website linked through exact organisation number;
+5. existing stored domain hints;
+6. annual-report domain hints only if measured useful;
+7. optional bounded search only if allowed, rights-safe and demonstrably worthwhile.
+
+Important:
+
+> **Candidate generation != identity evidence.**
+
+Measure:
+
+- candidates attempted;
+- exact verified websites;
+- ambiguous candidates;
+- rejected wrong-company candidates;
+- net-new verified companies;
+- request impact;
+- runtime impact.
+
+Do not revive previously failed guessed `.com` expansion without new evidence.
+
+---
+
+## PHASE 3 — Sitemap + targeted crawler
+
+Goal: turn each already-verified company domain into a bounded multi-page intelligence source.
+
+After verification, do **not** stop at the homepage.
+
+Discover candidates through:
+
+- homepage links;
+- `robots.txt` sitemap declarations;
+- `/sitemap.xml`;
+- sitemap indexes;
+- HTML `<link rel="alternate">`;
+- RSS/Atom hints;
+- common feed endpoints where bounded and justified.
+
+Rank targeted page classes:
+
+### About
+
+Paths/hints:
+
+- `/about`
+- `/about-us`
+- `/om`
+- `/om-oss`
+
+Potential families:
+
+- description;
+- business activity;
+- leadership;
+- address/location.
+
+### Contact
+
+- `/contact`
+- `/kontakt`
+
+Potential families:
+
+- email;
+- phone;
+- address;
+- social.
+
+### Team / leadership
+
+- `/team`
+- `/people`
+- `/ansatte`
+- `/ledelse`
+
+Potential family:
+
+- named people/leaders, only when their relationship to the exact target company is explicit.
+
+### Careers
+
+- `/careers`
+- `/jobs`
+- `/jobb`
+- `/karriere`
+- `/ledige-stillinger`
+
+Potential families:
+
+- careers surface;
+- specific current job candidates.
+
+### News
+
+- `/news`
+- `/nyheter`
+- `/aktuelt`
+- `/press`
+- `/presse`
+
+Potential families:
+
+- dated company updates;
+- news detail candidates.
+
+### Sitemap scoring
+
+Do not crawl an entire sitemap.
+
+Conceptual priority:
+
+```text
+job/career        high
+news/press        high
+contact           high
+team/leadership   medium-high
+about             medium
+product pages     low
+privacy/legal     near zero
+```
+
+The goal is not page coverage. The goal is **net-new scored information-family coverage per request**.
+
+---
+
+## PHASE 4 — Observation/evidence layer hardening
+
+Goal: guarantee exact page-level lineage before aggressive multi-page extraction expands.
+
+Every external observation must preserve:
+
+- source URL;
+- retrieval timestamp;
+- SHA-256/content hash;
+- exact relevant source span;
+- effective/reporting/publication date where applicable;
+- extraction method;
+- identity proof;
+- source family/class.
+
+The canonical projection must never combine incompatible provenance across pages.
+
+Structured extraction should inspect, where applicable:
+
+- JSON-LD;
+- OpenGraph;
+- canonical tags;
+- `<time datetime>`;
+- semantic HTML;
+- anchors;
+- `mailto:`;
+- `tel:`;
+- `sameAs`;
+- relevant metadata.
+
+Recognize typed structures including:
+
+- `Organization`;
+- `LocalBusiness`;
+- `Person`;
+- `JobPosting`;
+- `NewsArticle`;
+- `Article`.
+
+Prefer trustworthy structured data over fuzzy text heuristics.
+
+---
+
+## PHASE 5 — Contact + social enrichment
+
+Goal: increase companies with exact first-party contact and social information.
+
+Extract from verified company-owned pages:
+
+- email;
+- phone;
+- address;
+- social URLs.
+
+Prefer:
+
+- `mailto:`;
+- `tel:`;
+- labelled contact sections;
+- JSON-LD;
+- `sameAs`;
+- company-owned footer/contact/about declarations.
+
+Allowed social-publication semantics:
+
+> The verified company-owned page declares this social URL.
+
+Potential platforms:
+
+- LinkedIn;
+- Facebook;
+- Instagram;
+- YouTube;
+- X/Twitter.
+
+Do not scrape those social platforms for metrics/posts/followers.
+
+Retain the exact company page that declared each profile.
+
+Track **net-new companies**, not just extra links.
+
+---
+
+## PHASE 6 — Actual job-posting acquisition
+
+Goal: increase company coverage for concrete current jobs while preserving the invariant:
+
+> **careers page != active job posting**
+
+Target pipeline:
+
+```text
+verified domain
+      |
+      v
+careers surface / sitemap / homepage links
+      |
+      v
+candidate job links
+      |
+      v
+specific job detail
+      |
+      v
+exact evidence
+      |
+      v
+canonical job claim
+```
+
+Use:
+
+- sitemap candidates;
+- careers links;
+- homepage job links;
+- JSON-LD `JobPosting`;
+- strongly structured job detail pages.
+
+Require strong signals such as:
+
+- specific role title;
+- specific detail URL;
+- exact target-employer context;
+- company-owned verified domain or allowed exact action URL semantics;
+- JobPosting JSON-LD or equally strong job-detail semantics;
+- current/future deadline or other concrete current-job evidence when required.
+
+Extract where supported:
+
+- title;
+- date posted;
+- valid-through/deadline;
+- employment type;
+- location;
+- application URL.
+
+Never inherit subsidiary jobs to a parent target or vice versa without exact legal relationship semantics permitted by the evaluator.
+
+---
+
+## PHASE 7 — Dated public activity
+
+Goal: increase companies with **at least one** reliable, dated first-party update.
 
 Use:
 
 - company-owned news detail pages;
-- RSS/Atom items;
-- sitemap candidates;
-- `NewsArticle` / `Article` JSON-LD;
-- explicit `<time datetime>` or equivalent structured publication date.
+- sitemap article candidates;
+- RSS;
+- Atom;
+- JSON-LD `NewsArticle`;
+- JSON-LD `Article`;
+- `<time datetime>`;
+- explicit page-local publication dates.
 
-Avoid random date text and third-party news unless rights and identity are exceptionally strong.
+Avoid ambiguous date text and unrelated third-party news.
 
-Optimize for one supported update across many companies, not many articles on one company.
+Optimization rule:
 
-### Phase F — Official broad-source screens
+> One valid update across many companies is better than many updates for one company.
 
-Only after the above, screen sources that can reach companies without requiring a discovered website.
+---
 
-Candidate families:
+## PHASE 8 — NAV experiment
 
-- BRREG Støtteregisteret / state-support activity;
-- Doffin procurement/contract activity;
-- Patentstyret IP activity;
-- NAV jobs using the improved shared-feed architecture.
+Goal: reconsider NAV only through an efficient batch-level exact-org architecture.
 
-Process:
+Do not repeat the earlier inefficient per-company NAV approach.
 
-1. rights and exact-ID check;
-2. theoretical population reach check;
-3. 10-20 company feasibility screen;
-4. only then 100/300 qualification;
-5. drop if random-company reach is weak.
+Potential architecture:
 
-### Phase G — ML request ranking (optional, after deterministic gains)
+```text
+once-per-run NAV vacancy feed scan
+        |
+        v
+index vacancies by employer organisation number
+        |
+        v
+map subunit -> parent only through exact BRREG relationship
+        |
+        v
+identify matching target companies
+        |
+        v
+fetch only matched job details
+```
 
-Use accumulated labelled identity examples to rank candidates/pages, never to authorize publication.
+Promotion requires meaningful **net-new company coverage** on a fresh cohort.
+
+If yield remains tiny, shelve/drop it.
+
+---
+
+## PHASE 9 — BRREG bulk request optimization
+
+Goal: determine whether safe official bulk datasets can replace selected live calls and reserve scarce network budget for higher-yield external enrichment.
+
+Candidate bulk families:
+
+- entities;
+- roles;
+- subunits.
+
+Before changing semantics verify:
+
+- current Builderr cache rules;
+- freshness requirements;
+- evidence requirements;
+- retrieval-timestamp semantics;
+- source rights/licensing;
+- reproducibility.
+
+If allowed, use exact-org local lookups for low-risk official facts and spend freed request budget on:
+
+- website verification/discovery;
+- sitemap;
+- jobs;
+- news;
+- contact/social.
+
+Do not sacrifice required freshness.
+
+---
+
+## PHASE 10 — Adaptive request scheduler
+
+Goal: maximize expected new scored information-family coverage per request.
+
+Do not give every company a rigid identical crawl plan.
+
+Each request candidate should conceptually carry:
+
+```text
+expected_score_or_company_coverage_gain
+identity_risk
+request_cost
+time_or_latency_cost
+```
+
+Prioritize:
+
+```text
+high expected gain
+low identity risk
+low request cost
+```
+
+Examples:
+
+### No verified website
+
+Stop site enrichment early.
+
+### Verified website, no sitemap
+
+Use ranked direct homepage links.
+
+### Verified website + sitemap
+
+Rank useful candidates according to currently missing families, e.g.:
+
+1. specific job detail;
+2. specific news detail;
+3. contact;
+4. team/about.
+
+### Company already has contact/social
+
+Spend remaining requests on missing jobs/activity instead of duplicating already-covered families.
+
+The scheduler may later use ML for ranking, but deterministic identity/publication gates remain authoritative.
+
+---
+
+## PHASE 11 — Fresh large validation and release candidate
+
+Goal: prove that the coordinated revision transfers beyond development companies and is safe to submit.
+
+Maintain three classes of cohorts:
+
+### Development cohort
+
+Tuning allowed.
+
+### Validation cohort
+
+Not used while implementing a change.
+
+### Final untouched cohort
+
+Reserved for release-candidate qualification only.
+
+Track every previously touched organisation number and enforce no-overlap selection.
+
+Before submission require:
+
+- fresh evaluator-shaped 100-company run;
+- 100/100 terminal envelopes;
+- zero contract errors;
+- zero evidence-validation errors;
+- zero known wrong-company publications;
+- manual audit of every newly introduced external family/case in the cohort;
+- request/runtime/cost report;
+- transfer to a fresh zero-overlap cohort where appropriate;
+- exact commit SHA freeze;
+- CI green on exact head;
+- reproducible artifacts;
+- synthesis/UX preserved or improved.
+
+Only then consider consuming a Builderr revision.
+
+---
+
+## 8. Coverage and score-oriented measurement harness
+
+Every experiment must report **company-level coverage**, not just claims.
+
+Minimum report:
+
+| Metric | Required |
+|---|---|
+| input companies | yes |
+| completed terminal envelopes | yes |
+| verified website companies | yes |
+| contact-email companies | yes |
+| phone companies | yes |
+| social companies | yes |
+| companies with >=2 social platforms | yes |
+| careers-page companies | yes |
+| actual job-posting companies | yes |
+| dated-update companies | yes |
+| leadership/people companies | yes |
+| location/workplace companies | yes |
+| financial companies | yes |
+| workforce companies | yes |
+| registry/change-history companies | yes |
+| total published claims | yes |
+| evidence-validation failures | yes |
+| wrong-company publications | yes |
+| ambiguous/rejected candidates | yes |
+| logical requests | yes |
+| conservative request charge | yes |
+| requests/company | yes |
+| p50 runtime/latency where available | yes |
+| p95 runtime/latency where available | yes |
+| third-party cost | yes |
+
+Always compare:
+
+```text
+BASELINE -> NEW -> NET-NEW COMPANIES
+```
+
+Example:
+
+```text
+website +19 companies
+social  +12
+email   +9
+jobs    +4
+news    +11
+```
+
+Do not optimize claim count blindly.
+
+```text
+100 facts on 5 companies
+```
+
+can be less valuable than:
+
+```text
+1 useful scored fact on 50 companies
+```
+
+when the evaluator rewards information-family company coverage.
+
+---
+
+## 9. Promotion criteria for every strategy
+
+Do not promote a source or strategy merely because it technically works.
+
+It must satisfy all relevant gates:
+
+1. meaningful net-new company coverage;
+2. very high exact-entity precision;
+3. complete page/source evidence;
+4. deterministic output;
+5. acceptable source rights;
+6. refresh-compatible semantics;
+7. request/time budget fit;
+8. no meaningful regression elsewhere.
+
+Decision must be explicit:
+
+- **PROMOTE**
+- **RETUNE**
+- **SHELVE**
+- **DROP**
+
+Rejected experiments are valuable evidence and should remain in `docs/IMPLEMENTATION_LOG.md` so they are not repeated accidentally.
+
+---
+
+## 10. Adversarial entity validation
+
+Maintain explicit tests/fixtures for:
+
+- same legal name;
+- similar legal name;
+- parent/subsidiary;
+- group umbrella site;
+- chain/franchise;
+- company-vs-brand collision;
+- directory/listing;
+- same municipality;
+- same postcode;
+- page containing multiple organisation numbers;
+- former company name/rebrand;
+- shared domains between entities;
+- service-provider/hosting/parked pages.
+
+These cases matter more than ordinary happy-path tests because one wrong-company publication can invalidate otherwise strong recall.
+
+---
+
+## 11. Failure resilience
+
+The evaluator must never lose a company envelope because one external source fails.
+
+Handle explicitly:
+
+- timeout;
+- connection reset;
+- 403;
+- 404;
+- 410;
+- 429;
+- 500/502/503/504;
+- redirect loops;
+- robots blocks;
+- invalid HTML;
+- oversized pages;
+- SSL failures.
+
+Use bounded retry/backoff where justified.
+
+One host must not consume the run budget.
+
+A failed refresh must not automatically imply deletion of a previously known fact. Preserve last conclusive state where the product semantics require it.
+
+---
+
+## 12. Refresh and monitoring
+
+The architecture must support deterministic refresh/change tracking for new enrichment families.
+
+Important cases:
+
+- new job appears;
+- old job disappears;
+- new article appears;
+- contact email/phone changes;
+- website changes;
+- social link is withdrawn;
+- role changes;
+- financial period changes.
+
+Monitoring semantics should follow the same observation -> canonical claim architecture and distinguish conclusive change from source failure.
+
+---
+
+## 13. Secondary official sources — later only
+
+Only after website/multi-page enrichment is mature should we screen additional broad official sources such as:
+
+- Patentstyret;
+- BRREG Støtteregisteret;
+- Doffin;
+- other exact organisation-number keyed datasets.
+
+Before implementation:
+
+1. verify rights;
+2. verify exact identity mapping;
+3. estimate theoretical population reach;
+4. run a 10-20 company feasibility screen;
+5. promote to 100/300 only if random-company reach is meaningful and Builderr relevance is clear.
+
+Do not spend primary engineering time on broad connectors merely because they exist.
+
+---
+
+## 14. Optional ML request ranking — only after deterministic gains
+
+ML may rank discovery/page candidates but must **never authorize publication**.
 
 Possible features:
 
 - legal-name/domain similarity;
 - acronym/hyphen similarity;
-- org-number presence;
+- organisation-number presence;
 - municipality/postcode/address overlap;
 - email-domain match;
-- page-title/legal-footer evidence;
+- title/footer legal evidence;
 - wrong-org-number flag;
 - parked/hosting indicators;
 - redirect behavior.
 
-Start with logistic regression or gradient boosting. Keep the deterministic identity gate authoritative.
+Start simple (e.g. logistic regression or gradient boosting) if measurement shows a real need.
 
-### Phase H — Evidence-bounded AI extraction (optional)
+The deterministic identity gate remains authoritative.
 
-Use AI only on already-fetched, already-verified source text.
+---
+
+## 15. Optional evidence-bounded AI extraction — later only
+
+AI may be used only on **already fetched, already verified** source text.
 
 Required contract:
 
 ```text
 verified source text
     -> strict structured extraction
-    -> each fact includes supporting source span
-    -> deterministic span verifier finds exact support
+    -> every fact includes supporting source span
+    -> deterministic span verifier confirms support
     -> publish or reject
 ```
 
 No supporting span = no fact.
 
-Never use the LLM to establish company identity or invent official numeric values.
+Never use an LLM to establish company identity or invent official numeric values.
 
-Potential fields: description, products/services, named leaders, operating locations, concrete jobs, dated activity.
+Possible later fields:
 
-### Phase I — Synthesis to 12/12
+- description;
+- products/services;
+- named leaders;
+- operating locations;
+- jobs;
+- dated activity.
+
+---
+
+## 16. Synthesis target — preserve/improve toward 12/12
 
 Every company brief should answer, using only canonical evidence:
 
@@ -338,13 +1064,17 @@ Every company brief should answer, using only canonical evidence:
 - what remains unknown;
 - freshness/source dates.
 
-No unsupported prose. Unknowns are first-class output.
+Unknowns are first-class output.
 
-### Phase J — UX to 8/8
+Do not generate unsupported narrative merely to make the product feel complete.
 
-The submitted product surface must be directly data-linked to generated output, not merely a builder script.
+---
 
-Required evaluator-facing capabilities:
+## 17. UX target — preserve/improve toward 8/8
+
+The evaluator-facing product should remain directly linked to generated data.
+
+Important capabilities:
 
 - search/select company;
 - clear company brief;
@@ -356,128 +1086,167 @@ Required evaluator-facing capabilities:
 - retrieval/effective dates;
 - changes/history;
 - explicit unavailable/ambiguous/blocked states;
-- desktop + mobile verification;
+- desktop and mobile usability;
 - compare companies if practical.
 
-### Phase K — Release qualification and submission
+Do not spend major effort on visual redesign while recall remains the dominant score gap.
 
-Before consuming another Builderr revision:
+---
 
-- fresh evaluator-shaped 100-company run;
-- 100/100 terminal envelopes;
-- zero contract/evidence errors;
-- zero known wrong-company publications;
-- exact manual audit of every new external family in the cohort;
-- request/runtime/cost report;
-- fresh zero-overlap transfer cohort;
-- exact commit SHA freeze;
-- CI green on exact head;
-- only then submit.
-
-Bundle multiple meaningful recall improvements into a revision. Do not burn a revision for cosmetic changes or one tiny source patch.
-
-## 6. Measurement harness
-
-Every experiment must report **company coverage**, not just claim count.
-
-Minimum report:
-
-| Metric | Required |
-|---|---|
-| companies input | yes |
-| terminal outputs | yes |
-| verified website companies | yes |
-| contact-email companies | yes |
-| phone companies | yes |
-| social-profile companies | yes |
-| companies with >=2 social platforms | yes |
-| actual job-posting companies | yes |
-| dated-activity companies | yes |
-| leadership companies | yes |
-| location/workplace companies | yes |
-| workforce companies | yes |
-| registry-change companies | yes |
-| total claims | yes |
-| evidence validation errors | yes |
-| wrong-company publications | yes |
-| ambiguous candidates | yes |
-| logical requests | yes |
-| conservative request charge | yes |
-| p50/p95 runtime/latency where available | yes |
-| third-party cost | yes |
-
-Always include baseline -> new -> **net-new companies** by family.
-
-## 7. Validation discipline
-
-Use disjoint cohorts:
-
-- development cohort: tuning allowed;
-- validation cohort: promotion gate;
-- final untouched cohort: release audit only.
-
-Maintain adversarial cases:
-
-- same-name legal entities;
-- parent/subsidiary;
-- group umbrella sites;
-- franchises;
-- company-vs-brand collisions;
-- directories/listings;
-- same municipality;
-- pages containing multiple org numbers;
-- former names/rebrands;
-- shared domains.
-
-A green unit test is never sufficient to qualify a data-source strategy.
-
-## 8. What not to prioritize now
+## 18. Things not to prioritize now
 
 Do not spend primary engineering time on:
 
-- broad frontend rewrites;
+- broad frontend redesign;
+- new color palettes/animations;
 - cosmetic README work;
+- architecture-diagram polish;
+- generic AI chat;
 - sentiment;
 - LinkedIn/Facebook/Glassdoor scraping;
 - Google Places scraping;
-- random review sources;
-- guessed third-party news;
-- broad connector hunting without a reach/rights screen.
+- random review scraping;
+- random third-party news search;
+- broad patent/grant/procurement connectors before a reach/rights screen.
 
-The near-term score path is:
+The immediate score path is:
 
-> more exact companies -> verified site/source -> more distinct scored families -> complete evidence -> better synthesis/UX
+> **verified website -> multi-page enrichment -> contact/social/jobs/news -> adaptive request allocation -> fresh release validation**
 
-## 9. Submission strategy
+while continuing to harvest any remaining safe zero-request official recall discovered by audits.
 
-Builderr revisions are scarce. Treat each submission as a release event.
+---
 
-Preferred next submission characteristics:
+## 19. Report format after each phase/experiment
 
-- current C12 M3/M4 first-party activity/jobs included;
-- measurable recall increase on fresh cohorts;
-- evidence/precision preserved or improved;
-- synthesis/product surface fully evaluator-visible;
-- request/runtime limits safe;
-- no material wrong-company case;
-- exact SHA frozen and reproducible.
+Every material phase or experiment should report:
 
-Do not submit merely because a branch merged.
+### Change
+What was implemented.
 
-## 10. Continuity protocol
+### Files
+Files changed.
 
-Every implementation chat must read these first:
+### Tests
+Tests/CI/live runs and exact results.
 
-1. `docs/CONTINUATION_STATE.md`
-2. `docs/70_PLUS_IMPLEMENTATION_PLAN.md`
-3. current branch/PR metadata from GitHub
+### Baseline
+Previous company-level coverage.
 
-At the end of every substantial work session, the implementing chat must:
+### New
+New company-level coverage.
+
+### Net gain
+Explicit net-new companies by family.
+
+### Precision
+Wrong/ambiguous company findings and manual audit result.
+
+### Budget
+Requests, runtime, latency and cost impact.
+
+### Decision
+`PROMOTE`, `RETUNE`, `SHELVE` or `DROP`.
+
+### Lifecycle
+Explicitly distinguish:
+
+- **IMPLEMENTED**
+- **TESTED**
+- **QUALIFIED**
+- **MERGED**
+- **POST-MERGE GREEN**
+
+---
+
+## 20. Submission strategy
+
+Do **not** submit after each feature.
+
+The next Builderr revision should ideally bundle:
+
+- all safe lost-claim/serialization recovery;
+- stronger exact website discovery if it clears precision gates;
+- sitemap + targeted multi-page enrichment;
+- materially improved contact/social coverage;
+- useful actual-job acquisition;
+- materially improved dated activity;
+- complete page-level evidence;
+- adaptive request allocation;
+- preserved/improved synthesis and UX.
+
+The desired release report should look like:
+
+```text
+CURRENT BASELINE
+website: X%
+social: X%
+contact: X%
+jobs: X%
+dated activity: X%
+
+NEW VERSION
+website: materially higher
+social: materially higher
+contact: materially higher
+jobs: non-zero and useful
+dated activity: materially higher
+
+wrong-company publications: 0 in held-out audit
+evidence failures: 0
+terminal envelopes: 100%
+request budget: safe
+runtime: safe
+third-party cost: $0
+synthesis: preserved/improved
+UX: preserved/improved
+```
+
+Only then should another Builderr revision be considered.
+
+---
+
+## 21. Current phase mapping
+
+Use `docs/CONTINUATION_STATE.md` for exact current run/PR state, but architecturally the project is currently here:
+
+- **Phase 0 — Repository reality check:** substantially complete.
+- **Phase 1 — Lost-claim audit:** active / near completion; current BRREG exact-live projection and qualification work belongs here.
+- **Phase 2 — Website discovery improvement:** existing hardened foundation, systematic next-stage improvement not yet completed.
+- **Phase 3 — Sitemap + targeted crawler:** upcoming major work.
+- **Phase 4 — Observation/evidence hardening:** strong existing foundation; must be enforced across all Phase 3 multi-page extraction.
+- **Phase 5 — Contact/social:** partial production foundation; multi-page expansion pending.
+- **Phase 6 — Actual jobs:** C12 M4 foundation exists; broader sitemap/detail acquisition pending.
+- **Phase 7 — Dated activity:** C12 M3 foundation exists; RSS/sitemap/structured expansion pending.
+- **Phase 8 — NAV batch experiment:** later, measurement-gated.
+- **Phase 9 — BRREG bulk optimization:** later, rules/freshness-gated.
+- **Phase 10 — Adaptive scheduler:** future major layer after usable candidate surfaces exist.
+- **Phase 11 — Fresh large validation:** release gate before submission.
+
+The immediate transition after Phase 1 is:
+
+> **Phase 2 exact website coverage -> Phase 3 sitemap/targeted pages -> Phase 4 page-level observation integrity -> Phase 5/6/7 contact/social/jobs/activity.**
+
+Do not skip directly to optional ML/AI or broad new connectors.
+
+---
+
+## 22. Continuity protocol
+
+Every implementation chat must begin with:
+
+1. `docs/CONTINUATION_STATE.md`;
+2. `docs/70_PLUS_IMPLEMENTATION_PLAN.md`;
+3. current GitHub `main`, active branch and PR metadata.
+
+If GitHub is ahead of the state document, reconcile the state first.
+
+At the end of every substantial implementation session:
 
 1. update `docs/CONTINUATION_STATE.md`;
-2. append a material milestone/experiment entry to `docs/IMPLEMENTATION_LOG.md`;
-3. update checkboxes/decisions in this master plan if the roadmap changed;
-4. record exact branch, head SHA, PR, CI/live-run IDs, metrics, blockers and next actions;
-5. never leave critical state only in conversation text.
+2. append significant experiments/milestones to `docs/IMPLEMENTATION_LOG.md`;
+3. update this master plan only when phase decisions or architecture materially change;
+4. record exact branch/head/PR/run IDs/artifacts/metrics/blockers/next actions;
+5. never leave critical project state only in chat history.
 
-The repository, not chat memory, is the project source of truth.
+The repository, not conversation memory, is the source of truth.
