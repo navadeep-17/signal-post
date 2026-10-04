@@ -1,4 +1,4 @@
-name: Phase A2 Consumed E2E
+name: Phase A3 Consumed E2E
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: phasea2-consumed-e2e-${{ github.ref }}
+  group: phasea3-consumed-e2e-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -82,11 +82,11 @@ jobs:
           uv run python scripts/run_signalpost_v8.py \
             --organisations consumed/phase1-fresh-100.jsonl \
             --bulk brreg-enheter.csv \
-            --output out/phasea2-output.jsonl \
-            --report out/phasea2-report.json \
-            --product-output out/phasea2-product.html \
-            --work-dir out/phasea2-work \
-            --run-id phasea2-consumed-phase1-100 \
+            --output out/phasea3-output.jsonl \
+            --report out/phasea3-report.json \
+            --product-output out/phasea3-product.html \
+            --work-dir out/phasea3-work \
+            --run-id phasea3-consumed-phase1-100 \
             --workers 8 \
             --site-timeout 6 \
             --wikidata-timeout 8 \
@@ -97,7 +97,7 @@ jobs:
             --annual-workforce-ocr-pages 8 \
             --annual-workforce-ocr-dpi 110
 
-      - name: Verify Phase A2 coverage, evidence and unchanged request theorem
+      - name: Verify final Phase A coverage, evidence and unchanged request theorem
         run: |
           uv run python - <<'PY'
           import json
@@ -106,9 +106,9 @@ jobs:
           def read_jsonl(path):
               return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
 
-          rows=read_jsonl('out/phasea2-output.jsonl')
-          profiles=read_jsonl('out/phasea2-work/profiles.jsonl')
-          report=json.loads(Path('out/phasea2-report.json').read_text(encoding='utf-8'))
+          rows=read_jsonl('out/phasea3-output.jsonl')
+          profiles=read_jsonl('out/phasea3-work/profiles.jsonl')
+          report=json.loads(Path('out/phasea3-report.json').read_text(encoding='utf-8'))
           assert len(rows)==100 and len(profiles)==100, (len(rows),len(profiles))
           assert report['passed'] is True, report.get('checks')
           assert not report.get('contract_errors'), report.get('contract_errors')
@@ -126,7 +126,9 @@ jobs:
           assert report['source_policy']['search_api_requests']==0, report['source_policy']
 
           exact_fields={
+              'forced_dissolution':('/underTvangsavviklingEllerTvangsopplosning','forced_dissolution','company.forced_dissolution'),
               'foundation_date':('/stiftelsesdato','foundation_date','company.foundation_date'),
+              'articles_date':('/vedtektsdato','articles_date','company.articles_date'),
               'registered_in_enterprise_register':('/registrertIForetaksregisteret','registered_in_enterprise_register','company.registered_in_enterprise_register'),
               'enterprise_register_date':('/registreringsdatoForetaksregisteret','enterprise_register_date','company.enterprise_register_date'),
               'institutional_sector':('/institusjonellSektorkode','institutional_sector','company.institutional_sector'),
@@ -186,10 +188,11 @@ jobs:
                           evidence_errors.append((org,field,'canonical value/field mismatch'))
 
           assert not evidence_errors, evidence_errors[:20]
-          # These are the broad fields the Phase-A audit found in the already-fetched exact
-          # BRREG entity response. We require broad transfer on this consumed cohort, not a
-          # single benchmark-specific hit.
+          # Broad zero-request exact-live transfer gates. These are intentionally company-
+          # level coverage checks, not claim-count checks or benchmark-specific examples.
+          assert len(coverage['forced_dissolution']) >= 95, len(coverage['forced_dissolution'])
           assert len(coverage['foundation_date']) >= 90, len(coverage['foundation_date'])
+          assert len(coverage['articles_date']) >= 80, len(coverage['articles_date'])
           assert len(coverage['registered_in_enterprise_register']) >= 95, len(coverage['registered_in_enterprise_register'])
           assert len(coverage['enterprise_register_date']) >= 90, len(coverage['enterprise_register_date'])
           assert len(coverage['institutional_sector']) >= 90, len(coverage['institutional_sector'])
@@ -200,10 +203,10 @@ jobs:
 
           combined_phone=registered_phone_companies | external_phone_companies
           summary={
-              'schema':'signalpost-phasea2-consumed-e2e-v1',
+              'schema':'signalpost-phasea3-consumed-e2e-v1',
               'companies':len(rows),
               'terminal_companies':report['final_objects'],
-              'phasea2_company_coverage':{field:len(orgs) for field,orgs in sorted(coverage.items())},
+              'phasea3_company_coverage':{field:len(orgs) for field,orgs in sorted(coverage.items())},
               'external_contact_phone_companies':len(external_phone_companies),
               'external_contact_email_companies':len(external_email_companies),
               'registered_phone_or_mobile_companies':len(registered_phone_companies),
@@ -222,7 +225,7 @@ jobs:
               'search_api_requests':0,
               'passed':True,
           }
-          Path('out/phasea2-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+          Path('out/phasea3-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
           print(json.dumps(summary,indent=2))
           PY
 
@@ -230,23 +233,23 @@ jobs:
         run: |
           sha256sum \
             consumed/phase1-fresh-100.jsonl \
-            out/phasea2-output.jsonl \
-            out/phasea2-report.json \
-            out/phasea2-work/profiles.jsonl \
-            out/phasea2-summary.json \
-            > out/phasea2-consumed-e2e.sha256
+            out/phasea3-output.jsonl \
+            out/phasea3-report.json \
+            out/phasea3-work/profiles.jsonl \
+            out/phasea3-summary.json \
+            > out/phasea3-consumed-e2e.sha256
 
       - name: Upload consumed E2E result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phasea2-consumed-e2e
+          name: phasea3-consumed-e2e
           retention-days: 30
           if-no-files-found: warn
           path: |
             consumed/phase1-fresh-100.jsonl
-            out/phasea2-output.jsonl
-            out/phasea2-report.json
-            out/phasea2-work/profiles.jsonl
-            out/phasea2-summary.json
-            out/phasea2-consumed-e2e.sha256
+            out/phasea3-output.jsonl
+            out/phasea3-report.json
+            out/phasea3-work/profiles.jsonl
+            out/phasea3-summary.json
+            out/phasea3-consumed-e2e.sha256
