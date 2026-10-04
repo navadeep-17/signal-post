@@ -75,7 +75,10 @@ def _specific_title(title: str) -> bool:
     folded = _fold(title).strip(" -|:")
     if not folded or folded in GENERIC_ROLE_TITLES:
         return False
-    return len(re.findall(r"[\wæøåÆØÅ-]+", title, flags=re.UNICODE)) >= 2
+    words = re.findall(r"[\wæøåÆØÅ-]+", title, flags=re.UNICODE)
+    if len(words) >= 2:
+        return True
+    return len(words) == 1 and len(words[0].strip("-")) >= 5
 
 
 def _parse_deadline(raw: Any) -> date | None:
