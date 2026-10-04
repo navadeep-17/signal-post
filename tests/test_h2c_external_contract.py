@@ -6,7 +6,6 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from norway_company_agent.canonical_projection import project_canonical_profile, validate_canonical_projection  # noqa: E402
 from norway_company_agent.company_site_contact import attach_company_site_contact_email_observations  # noqa: E402
 from norway_company_agent.external_contract import project_contact_email_observations  # noqa: E402
 from norway_company_agent.output_contract import project_terminal_envelope, validate_contract_object  # noqa: E402
@@ -37,7 +36,7 @@ def _profile() -> dict:
                 "value": {
                     "final_url": source_url,
                     "content_sha256": digest,
-                    "identity_text_excerpt": "Kontakt oss på post@example.no · Telefon: +47 916 86 061",
+                    "identity_text_excerpt": "Kontakt oss på post@example.no",
                     "identity_assessment": {
                         "status": "exact",
                         "score": 1.0,
@@ -63,49 +62,40 @@ def _envelope(profile: dict) -> dict:
     }
 
 
-def test_contract_projects_contact_email_and_phone_with_exact_company_page_evidence() -> None:
+def test_contract_projects_contact_email_with_exact_company_page_evidence() -> None:
     profile = attach_company_site_contact_email_observations(_profile())
     base = project_terminal_envelope(_envelope(profile))
     projected = project_contact_email_observations(base, profile)
 
     assert validate_contract_object(projected) == []
-    email_claims = [claim for claim in projected["claims"] if claim["field"] == "external.contact_email"]
-    phone_claims = [claim for claim in projected["claims"] if claim["field"] == "external.contact_phone"]
-    assert len(email_claims) == 1
-    assert len(phone_claims) == 1
-    assert email_claims[0]["value"] == "post@example.no"
-    assert phone_claims[0]["value"] == "+4791686061"
-    assert email_claims[0]["signal_type"] == "company_profile"
-    assert phone_claims[0]["signal_type"] == "company_profile"
-    assert "registered domain" in email_claims[0]["claim_scope"].lower()
-    assert "explicitly labelled" in phone_claims[0]["claim_scope"].lower()
+    claims = [claim for claim in projected["claims"] if claim["field"] == "external.contact_email"]
+    assert len(claims) == 1
+    assert claims[0]["value"] == "post@example.no"
+    assert claims[0]["signal_type"] == "company_profile"
+    scope = claims[0]["claim_scope"].lower()
+    assert "explicitly present" in scope
+    assert "registered domain" in scope
 
     evidence_by_id = {item["id"]: item for item in projected["evidence"]}
-    email_evidence = evidence_by_id[email_claims[0]["evidence_ids"][0]]
-    phone_evidence = evidence_by_id[phone_claims[0]["evidence_ids"][0]]
-    assert email_evidence["source_url"] == "https://example.no/"
-    assert phone_evidence["source_url"] == "https://example.no/"
-    assert email_evidence["content_sha256"] == "c" * 64
-    assert phone_evidence["content_sha256"] == "c" * 64
-    assert "post@example.no" in email_evidence["claim_span"]
-    assert "+4791686061" in phone_evidence["claim_span"]
+    evidence = evidence_by_id[claims[0]["evidence_ids"][0]]
+    assert evidence["source_url"] == "https://example.no/"
+    assert evidence["content_sha256"] == "c" * 64
+    assert "post@example.no" in evidence["claim_span"]
 
 
-def test_contact_projection_is_idempotent_for_email_and_phone() -> None:
+def test_contact_email_projection_is_idempotent() -> None:
     profile = attach_company_site_contact_email_observations(_profile())
     base = project_terminal_envelope(_envelope(profile))
     once = project_contact_email_observations(base, profile)
     twice = project_contact_email_observations(once, profile)
 
-    for field in ("external.contact_email", "external.contact_phone"):
-        once_claims = [claim for claim in once["claims"] if claim["field"] == field]
-        twice_claims = [claim for claim in twice["claims"] if claim["field"] == field]
-        assert twice_claims == once_claims
-        assert len(twice_claims) == 1
-    assert len([item for item in twice["evidence"] if str(item["id"]).startswith("ev-external-")]) == 2
+    once_claims = [claim for claim in once["claims"] if claim["field"] == "external.contact_email"]
+    twice_claims = [claim for claim in twice["claims"] if claim["field"] == "external.contact_email"]
+    assert twice_claims == once_claims
+    assert len([item for item in twice["evidence"] if str(item["id"]).startswith("ev-external-")]) == 1
 
 
-def test_contact_projection_does_not_remove_other_external_claims() -> None:
+def test_contact_email_projection_does_not_remove_other_external_claims() -> None:
     profile = attach_company_site_contact_email_observations(_profile())
     base = project_terminal_envelope(_envelope(profile))
     base["claims"].append(
@@ -121,34 +111,3 @@ def test_contact_projection_does_not_remove_other_external_claims() -> None:
     projected = project_contact_email_observations(base, profile)
     assert any(claim["field"] == "external.profile_handle" for claim in projected["claims"])
     assert any(claim["field"] == "external.contact_email" for claim in projected["claims"])
-    assert any(claim["field"] == "external.contact_phone" for claim in projected["claims"])
-
-
-def test_contact_phone_is_canonical_website_fact_without_overwriting_registered_phone() -> None:
-    profile = attach_company_site_contact_email_observations(_profile())
-    base = project_terminal_envelope(_envelope(profile))
-    projected = project_contact_email_observations(base, profile)
-    projected["claims"].append(
-        {
-            "field": "registered_phone",
-            "value": "22 33 44 55",
-            "availability": "available",
-            "confidence": 1.0,
-            "evidence_ids": [projected["evidence"][0]["id"]],
-        }
-    )
-    canonical = project_canonical_profile(projected)
-    assert validate_canonical_projection(canonical) == []
-    facts = canonical["canonical_facts"]
-    assert any(
-        fact["type"] == "contact_phone"
-        and fact["canonical_field"] == "website.contact_phone"
-        and fact["value"] == "+4791686061"
-        for fact in facts
-    )
-    assert any(
-        fact["type"] == "registered_phone"
-        and fact["canonical_field"] == "company.contact.phone"
-        and fact["value"] == "22 33 44 55"
-        for fact in facts
-    )
