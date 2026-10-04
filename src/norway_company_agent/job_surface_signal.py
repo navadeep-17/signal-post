@@ -81,7 +81,9 @@ def _specific_title(value: str) -> bool:
     if not title or _fold(title) in GENERIC_ROLE_TITLES:
         return False
     words = re.findall(r"[\wæøåÆØÅ-]+", title, flags=re.UNICODE)
-    return len(words) >= 2
+    if len(words) >= 2:
+        return True
+    return len(words) == 1 and len(words[0].strip("-")) >= 5
 
 
 def _specific_job_path(url: str) -> bool:
