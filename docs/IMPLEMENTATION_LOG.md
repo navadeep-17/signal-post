@@ -12,6 +12,47 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase A exact-live BRREG breadth fresh-qualifies; duplicate external-phone feature dropped
+
+Status: **QUALIFIED / RELEASE CLEANUP / NOT YET MERGED**
+
+Active PR: #94, branch `feature/phaseb-idle-contact-enrichment`.
+
+Second untouched qualification:
+
+- exact measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`;
+- run `37203580574`: PASS end-to-end;
+- failed seed-`20261102` cohort was included in the exclusion before selection;
+- all-touched exclusion: 8,323 unique companies;
+- exclusion SHA `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`;
+- seed `20261103`;
+- fresh cohort 100 unique, overlap 0;
+- cohort SHA `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`;
+- coverage / 100: forced dissolution 100, foundation 100, articles date 99, Foretaksregisteret state 100/date 98, sector 100, capital 98, VAT state 100/date 48, postal address 23, registration date/address 100;
+- V8 passed, 100/100 terminal;
+- evidence / contract / canonical / synthesis errors: 0;
+- observed logical requests 666;
+- conservative charge 1,332/2,000;
+- runtime 460.916 s;
+- third-party cost $0;
+- search requests 0;
+- artifact `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`, digest `31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`.
+
+Decision: retained exact-BRREG/postal Phase-A behavior **QUALIFIES**.
+
+External homepage phone transfer decision:
+
+- consumed Phase-1 cohort had +2 net-new phone-family companies;
+- first fresh cohort had 3 external-phone companies but registered phone/mobile union 38 and combined union still 38 -> 0 net-new;
+- second fresh cohort had 1 external-phone company but registered phone/mobile union 33 and combined union still 33 -> 0 net-new;
+- fresh case `VEST GULV AS` (`924516941`) was precision-correct; homepage explicitly showed `Tel: +47 22 20 11 70`, but exact BRREG live already carried the same registered phone.
+
+Decision: **DROP** external homepage phone from PR #94 before merge because the consumed gain did not transfer at company-family level. Restore email-only external-contact code, remove phone tests/canonical mapping, and remove one-off consumed/fresh workflows from merge scope. This is a monotonic scope reduction after qualification.
+
+Next: exact-head CI on the cleaned branch; if green, retitle/mark PR #94 ready, merge, then verify post-merge `main` CI.
+
+---
+
 ## 2026-10-04 — Phase A3 zero-request breadth passes consumed gate; first final fresh qualification fails optional postal floor
 
 Status: **IMPLEMENTED + TESTED / FIRST FRESH QUALIFICATION FAILED / NOT MERGED**
@@ -55,8 +96,7 @@ Decision:
 
 - do not retroactively relabel the failed run as qualified;
 - treat seed `20261102` cohort as consumed;
-- keep production extraction/publication semantics unchanged;
-- retune validation criteria so broad near-universal fields retain strong floors, while optional source-prevalence fields (postal address, VAT registration date) are reported and exact-evidence audited rather than treated as universal hard floors;
+- retune validation criteria so broad near-universal fields retain strong floors, while optional source-prevalence fields are reported/exact-evidence audited rather than universal hard floors;
 - next untouched exclusion is 8,323 unique companies, SHA `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`;
 - run a second untouched cohort with seed `20261103`; only a green second fresh gate can qualify PR #94.
 
@@ -105,8 +145,7 @@ Decision:
 
 - **DROP** the idle contact-page network fallback because it failed the roadmap promotion bar of measurable net-new company coverage.
 - Restore bounded Wikidata behavior; remove the M5 transfer workflow and contact-surface-specific tests.
-- Keep only the zero-network exact-homepage phone extraction and exact-live postal-address projection from PR #94.
-- Next: Phase A2 exact-live BRREG zero-request recovery, then combined consumed measurement, then one fresh disjoint qualification only after stabilization.
+- Keep the exact-live postal-address projection and continue Phase A2 exact-live BRREG zero-request recovery.
 
 ---
 
@@ -151,13 +190,7 @@ Fresh 100-company results vs same-cohort baseline:
 - third-party cost: $0;
 - search requests: 0.
 
-Decision:
-
-- GO. This demonstrates that evaluator-visible recall can be increased materially with no new source and no request increase by recovering facts already present in exact official evidence.
-
-Next:
-
-- complete the remaining collected-vs-emitted and family-coverage audit on current main before choosing the next network/source feature.
+Decision: GO. This demonstrated material evaluator-visible recall increase with no new source/request by recovering facts already present in exact official evidence.
 
 ---
 
@@ -186,19 +219,7 @@ What changed:
 - four-logical-site-request ceiling preserved;
 - $0 third-party API spend preserved.
 
-Live evidence:
-
-- Granne `838797172`: vacancy count 0 -> no careers follow-up, no job claim.
-- AF GRUPPEN ASA `938702675`: homepage vacancy count 31 -> bounded careers page -> current job claims within 4/4 site requests.
-
-Decision:
-
-- GO; merged after exact-head CI and live positive/negative proofs.
-
-Next:
-
-- stop feature-by-feature guessing;
-- run current-main evaluator-shaped family-coverage and collected-vs-emitted audit before selecting the next recall feature.
+Decision: GO; merged after exact-head CI and live positive/negative proofs.
 
 ---
 
@@ -206,19 +227,6 @@ Next:
 
 Status: **DOCUMENTATION BRANCH**
 
-Branch: `docs/70-plus-continuation-system`
+Branch: `docs/70-plus-continuation-system`.
 
-Added:
-
-- `docs/70_PLUS_IMPLEMENTATION_PLAN.md` — stable master roadmap toward 70+;
-- `docs/CONTINUATION_STATE.md` — short living handoff state for every new chat;
-- `docs/IMPLEMENTATION_LOG.md` — append-only milestone/experiment history.
-
-Reason:
-
-Conversation history had become a poor place to preserve critical implementation state. The repository is now explicitly the source of truth. Every substantial implementation session should update the living handoff before ending.
-
-Next:
-
-- merge this documentation system after review;
-- future implementation chats read `CONTINUATION_STATE.md` + `70_PLUS_IMPLEMENTATION_PLAN.md` before touching code.
+Added `docs/70_PLUS_IMPLEMENTATION_PLAN.md`, `docs/CONTINUATION_STATE.md`, and `docs/IMPLEMENTATION_LOG.md` so repository state, not conversation history, governs continuation.
