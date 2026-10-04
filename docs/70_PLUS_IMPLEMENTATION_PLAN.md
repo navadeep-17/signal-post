@@ -2,15 +2,15 @@
 
 Last updated: 2026-10-04
 
-This document is the canonical engineering roadmap toward a Builderr 70+ result. `docs/CONTINUATION_STATE.md` owns exact live branch/PR/run state; `docs/IMPLEMENTATION_LOG.md` owns historical experiments and decisions. GitHub and the live Builderr challenge rules outrank stale documentation.
+This document is the canonical engineering roadmap toward a Builderr 70+ result. `docs/CONTINUATION_STATE.md` owns exact live branch/PR/run state; `docs/IMPLEMENTATION_LOG.md` owns historical experiments and decisions. GitHub and live Builderr rules outrank stale documentation.
 
-## 0. Objective and score target
+## 0. Objective
 
 Goal:
 
 > Build the strongest possible Signalpost revision capable of scoring 70+ while preserving exact-company precision, evidence quality and evaluator reproducibility.
 
-Working engineering target:
+Working target:
 
 - Recall / coverage: 22–24+/50
 - Precision / evidence: 28–29+/30
@@ -18,268 +18,275 @@ Working engineering target:
 - UX: 8/8
 - Total: 70–73+
 
-This is a target, not a score prediction.
+Primary optimization target: **net-new companies covered per scored information family**, not raw claim count.
 
 Core strategy:
 
 > ATTEMPT MORE -> VERIFY STRICTLY -> PUBLISH CONSERVATIVELY
 
-Primary optimization target: **net-new companies covered per scored information family**, not raw claim count.
+## 1. Non-negotiable invariants
 
-## 1. Architectural philosophy
+1. Exact organisation number is the legal-entity anchor.
+2. Candidate generation is never publication proof.
+3. Parent/group/subsidiary/subunit/franchise relation alone never authorizes inheritance of a website, job or public-activity fact.
+4. Legal-name similarity, search rank, URL similarity or municipality alone never authorize a site.
+5. Ambiguous identity means abstain.
+6. Every external fact keeps exact page URL, retrieval time, page/content SHA-256 and page-local supporting evidence.
+7. One page's hash may never support a fact observed only on another page.
+8. Missing/blocked/ambiguous is never converted to false absence or zero.
+9. Official and financial facts remain deterministic source-backed facts.
+10. Source failure must not drop the terminal company envelope.
+11. Refresh/change processing remains deterministic and idempotent.
+12. Third-party API spend remains $0 unless explicitly changed.
+13. Four logical site requests/profile remains the site ceiling until separately requalified.
+14. Fresh cohorts are scarce and are consumed permanently once used.
+15. No experimental source enters production without meaningful transfer, precision audit, rights review and budget fit.
 
-Signalpost should behave as a compact evidence-backed Norwegian company-intelligence platform:
+## 2. Architecture
 
 ```text
 organisation number
-    -> exact BRREG legal entity
-       -> official exact-ID sources
-       -> bounded external candidate sources
-            -> candidate domains/pages
-            -> exact identity gate
-            -> verified domain/page
-                 -> typed observations
-       -> evidence-backed canonical claims
-       -> history/changes
-       -> synthesis/product
+ -> exact BRREG legal entity
+ -> official exact-ID sources
+ -> bounded external candidates
+ -> exact identity verification
+ -> page-local typed observations
+ -> evidence-backed canonical claims
+ -> changes/history
+ -> synthesis/product
 ```
 
-Useful architectural lessons come from systems such as Sayari, OpenCorporates, Diffbot, Dun & Bradstreet, Coresignal, OpenSanctions and OCCRP Aleph: legal-entity anchoring, candidate-vs-verified separation, typed observations, statement-level provenance, source fusion and deterministic monitoring. These are architectural references, not sources to scrape.
+Typed families remain conceptually separate: identity, registry, financials, people, locations, website, contact, social, hiring, activity and changes.
 
-## 2. Non-negotiable identity and publication rules
+## 3. Current production foundation
 
-1. Candidate generation is never publication proof.
-2. Exact organisation number is the strongest legal-entity anchor.
-3. Registry-filed website/domain is strong identity evidence, but external candidates still require independent page verification where the current gate requires it.
-4. Full legal name + strong registered-address/location corroboration may qualify only under existing documented rules.
-5. Legal name alone, municipality alone, postcode alone, brand similarity, search ranking and URL similarity do not qualify a site.
-6. Parent/group/subsidiary/subunit/franchise relationship alone never authorizes inheritance of a website, job or public-activity fact.
-7. Ambiguous identity means abstain.
-8. Every external fact retains exact page URL, retrieval timestamp, content SHA-256 and supporting span/structured evidence.
-9. Never use one page's hash to support a fact observed only on another page.
-10. Missing/blocked/ambiguous never becomes zero or false absence.
-11. Official and financial values remain deterministic source-backed facts.
-12. A source failure must never drop the terminal company envelope.
-13. Refresh/change processing remains deterministic and idempotent.
-14. No experimental source enters production without meaningful transfer, precision audit, rights review and budget fit.
-15. Third-party API spend remains $0 unless explicitly changed.
-16. The four-logical-site-request ceiling/profile remains authoritative until separately requalified.
-17. Fresh cohorts are scarce: once used, they are permanently consumed.
+Production already includes:
 
-## 3. Observation layer and typed information families
+- exact BRREG entity anchoring and exact-live registry evidence
+- financials, roles, people, locations/workplaces and group context
+- broad Phase-1 exact-live BRREG breadth recovery
+- canonical claims/evidence/change output
+- terminal-envelope behavior
+- deterministic refresh/change tracking
+- request/runtime/cost accounting
+- registry website, registry-email-domain, deterministic `.no`, exact-org Wikidata and hyphenated `.no` discovery
+- strict exact-site verification with namesake/parent/franchise/shared-domain hardening
+- first-party email/social observations
+- registry + annual-report workforce
+- annual-report company-description fallback
+- bounded dated first-party news detail foundation
+- bounded current first-party job-posting foundation
+- $0 third-party API spend
 
-External acquisition should create page-local observations before canonical claims. Observation contracts preserve source URL, retrieval timestamp, content hash, supporting span/structured node, extraction method, identity proof, effective/publication date and source family.
+Phase-1 production merge: `8a729036350c019e107cd68a08641f1fff6796f6`.
 
-Typed internal families remain conceptually separate:
+## 4. Phase status map
 
-```text
-IdentityProfile
-RegistryProfile
-FinancialProfile
-PeopleProfile
-LocationProfile
-WebsiteProfile
-ContactProfile
-SocialProfile
-HiringProfile
-ActivityProfile
-ChangeProfile
-```
-
-The system must not devolve into one loosely structured scraper.
-
-## 4. Current production foundation
-
-Production already includes exact BRREG anchoring; exact-live/bulk registry; financials; roles/people/locations/group context; canonical claims/evidence/changes; terminal envelopes; deterministic refresh; request/runtime/cost accounting; bounded website discovery; strict exact-site verification; first-party contact/social; registry/annual-report workforce; annual-report description; bounded first-party dated news detail; bounded current job-posting logic; and $0 third-party API spend.
-
-Phase 1 recovered broad exact-live BRREG facts already present in fetched data but previously not evaluator-visible: registration/address/purpose/contact facts, postal address, foundation/articles dates, enterprise/VAT states and dates, institutional sector, capital and forced-dissolution state.
-
-## 5. Phase status map
-
-- **Phase 0 — Repository reality check:** substantially complete; repeat when repo state changes materially.
-- **Phase 1 — Lost-claim / collected-vs-emitted recovery:** **CLOSED / QUALIFIED / MERGED / POST-MERGE GREEN**.
-- **Phase 2 — Website discovery improvement:** **SHELVED / CANDIDATE-SOURCE CONSTRAINED** under current $0 rights-safe sources.
-- **Phase 3 — Sitemap/RSS + targeted crawler:** **SCREENED / DROP on current verified-site cohort**.
-- **Phase 4 — Observation/evidence hardening:** **ACTIVE NEXT PHASE**.
-- **Phase 5 — Contact/social:** partial production foundation; no generic contact fallback without new evidence.
-- **Phase 6 — Actual jobs:** C12 M4 foundation exists; NAV batch experiment did not transfer on consumed 100.
-- **Phase 7 — Dated activity:** production foundation exists, but source expansion is paused until Phase 4 date-evidence hardening is complete.
-- **Phase 8 — NAV batch experiment:** **SCREENED / DROP on consumed 100**.
-- **Phase 9 — BRREG bulk request optimization:** later, cache/freshness/evidence-rule gated.
-- **Phase 10 — Adaptive request scheduler:** after more useful verified-domain surfaces exist.
-- **Phase 11 — Fresh large validation/release candidate:** final promotion gate.
+- **Phase 0 — Repository reality check:** substantially complete; repeat whenever repo/live state changes materially.
+- **Phase 1 — Collected-vs-emitted recovery:** **CLOSED / QUALIFIED / MERGED / POST-MERGE GREEN**.
+- **Phase 2 — Exact website discovery improvement:** **SHELVED / CANDIDATE-SOURCE CONSTRAINED** under current $0 rights-safe sources.
+- **Phase 3 — Bounded sitemap/RSS dated activity:** **SCREENED / DROP on current consumed cohort**.
+- **Phase 4 — Page-level observation/evidence hardening:** **ACTIVE NEXT PHASE**.
+- **Phase 5 — Contact/social enrichment:** partial production foundation; revisit only with a new structured/multi-family hypothesis.
+- **Phase 6 — Actual jobs:** C12 M4 foundation exists; NAV exact-org batch screen did not transfer.
+- **Phase 7 — Dated activity:** production C12 M3 foundation remains; Phase-3 RSS/sitemap expansion did not transfer.
+- **Phase 8 — NAV exact-org vacancy screen:** **DROP**.
+- **Phase 9 — BRREG bulk/request optimization:** later and freshness-gated.
+- **Phase 10 — Adaptive request scheduler:** after a new high-yield surface exists.
+- **Phase 11 — Fresh validation/release candidate:** final promotion gate.
 
 Immediate path:
 
-> Phase 4 page-local date/evidence integrity -> selectively reopen Phase 3/5/6 only with a new measured hypothesis -> Phase 10 adaptive allocation -> Phase 11 fresh release qualification.
+> Phase 4 evidence/date hardening -> re-measure existing output conservatively -> only then choose the next deterministic high-yield family/source -> Phase 10 allocation -> Phase 11 fresh release qualification.
 
-## 6. Phase 0 — repository reality check
-
-Trace the evaluator path whenever production changes materially:
-
-```text
-organisation number
- -> acquisition
- -> normalization
- -> observations/evidence
- -> canonical projection
- -> output contract
- -> final envelope/product
-```
-
-Repository code and live GitHub state override assumptions.
-
-## 7. Phase 1 — collected-vs-emitted recovery
+## 5. Phase 1 — collected-vs-emitted recovery
 
 Status: **closed**.
 
 Reusable rule:
 
-> Recover high-confidence facts already fetched before spending new network requests.
+> Recover high-confidence facts already fetched before spending new requests.
 
-Phase 1 proved this can materially improve evaluator-visible coverage at zero new source/request cost.
+This phase materially improved evaluator-visible coverage at zero new source/request cost and remains the best model for future low-risk gains.
 
-## 8. Phase 2 — website discovery improvement
+## 6. Phase 2 — website discovery improvement
 
-Status: **shelved under the current source constraints**.
+Status: **shelved**.
 
-Consumed-cohort website reach remains about 7–8/100. Existing production candidate families remain BRREG-declared website, registry email domain, deterministic legal-name `.no`, exact-org Wikidata, and hyphenated `.no`.
+Consumed-cohort website reach remains about 7–8/100. The dominant failure is candidate-source quality, not verification strictness.
 
 Rejected/do-not-repeat without genuinely new evidence:
 
 - guessed `.com` expansion
-- broad legal-name rule/ML ranking with no useful transfer
-- annual-report domain hints after zero yield
-- Norid organisation-number lookup because public-use terms are incompatible
-- exact-parent BRREG subunit homepage hints: 0/3
-- exact-parent BRREG subunit email domains: 0/10
-- same-domain secondary identity verification for loaded quarantined registry sites: 0/4
+- broad legal-name rule/ML candidate ranking
+- annual-report domain hints
+- Norid public lookup because rights/purpose restrictions are incompatible
+- exact-parent subunit homepage hints: 0/3
+- exact-parent subunit email domains: 0/10
+- same-domain secondary identity verification: 0/4
 - provider/model-search PRs #78/#84 unless Builderr resolves provider/key/budget and the $0 constraint changes
 
-Measured root cause on the frozen 100:
+Measured funnel on frozen 100:
 
 - H1c deterministic `.no`: 96 attempts, 78 DNS non-resolution failures, 12 loaded, 3 verified
 - H1g hyphenated `.no`: 73 attempts, 73 DNS non-resolution failures, 0 verified
 
-Conclusion: candidate-source quality, not a too-strict verification gate, is the dominant Phase-2 bottleneck.
+Conclusion:
 
-## 9. Phase 3 — sitemap/RSS + targeted crawler
+> Reopen Phase 2 only for a genuinely new rights-safe candidate source. Do not weaken identity rules or keep generating speculative domains.
 
-Status: **DROP / SHELVED on the current verified-site cohort**.
+## 7. Phase 3 / 7 — bounded dated first-party activity
 
-Two bounded consumed-cohort screens were completed with publication disabled and no fresh cohort.
+Status: **screened / DROP for current sitemap + RSS expansion**.
 
 ### Sitemap screen
 
-- run `37215062164`
-- artifact `phase3-sitemap-activity-screen`, ID `11308151116`
-- 7/7 verified sites screened
-- robots sitemap hints on 5 companies
-- 4 sitemap indexes required an extra child-sitemap request that does not fit the current two-idle-request theorem
+Run `37215062164`, artifact ID `11308151116`:
+
+- 7 verified domains screened
+- 5 robots sitemap hints
+- 4 sitemap indexes required an extra discovery request
 - 1 direct urlset had no bounded activity candidate
-- accepted dated-activity companies: 0
-- projected combined conservative charge: 1,344/2,000
-- $0, zero wrong-company publications
+- 0 accepted dated-activity companies
+- projected combined conservative charge 1,344/2,000
+
+Sitemap `<lastmod>` remained ranking-only and never publication evidence.
 
 ### RSS/Atom screen
 
-Initial apparent Bike2Work activity was rejected during manual precision audit because a generic WordPress `Hello world!` feed item from 2021 was paired with an unrelated dynamic date-labelled page element from 2026.
+Initial run `37215447605` exposed a precision false positive on a standard WordPress `Hello world!` post. The feed item was dated 2021 while an unrelated/dynamic page element looked like a 2026 date.
 
-Precision-hardened rerun:
+Hardened rerun `37215793652`, artifact ID `11308790825`:
 
-- exact head `5ed4f3a83eab592c0a2a2c7d96e0865cf874bce0`
-- run `37215793652`
-- artifact `phase3-rss-activity-screen`, ID `11308790825`
-- 7/7 verified sites screened
-- 2 sites declared feeds; 2 feeds parsed
-- accepted precision-clean dated-activity companies: 0
-- projected production incremental site requests: 3
-- projected combined conservative charge: 1,338/2,000
+- 7 verified domains screened
+- 2 declared RSS feeds
+- 0 precision-clean dated-activity companies
+- 4 no feed hint
+- 1 no feed activity item
+- 1 robots unavailable
+- 1 generic CMS placeholder rejected
+- projected combined conservative charge 1,338/2,000
 - $0, zero wrong-company publications
 
-Feed/sitemap metadata remains nomination/ranking/conflict evidence only; it cannot independently publish a company update.
+Conclusion:
 
-Decision: do not merge or fresh-qualify Phase 3. Reopen only after Phase 4 evidence hardening and a genuinely new measured discovery hypothesis.
+> Do not productionize the current sitemap/RSS experiment. The useful result is the precision defect it exposed; fix that in Phase 4 first.
 
-## 10. Phase 4 — page-level observation/evidence hardening
+## 8. Phase 4 — page-level observation and evidence hardening
 
-Status: **ACTIVE NEXT PHASE**.
+Status: **ACTIVE**.
 
-Phase 3 exposed a concrete production-risk defect: when a detail page contains multiple dates, the existing first-party activity extractor can select an unrelated dynamic/comment/date-labelled element instead of the true publication date.
+Immediate target: harden first-party dated-activity evidence without adding requests or new sources.
 
-Immediate hardening rules:
+Known defect:
 
-1. Add adversarial regressions for competing page dates, including a correct article publication date plus unrelated current/dynamic/comment dates.
-2. Prefer semantically explicit publication metadata in deterministic order: trusted `NewsArticle`/`Article` JSON-LD `datePublished`, OpenGraph `article:published_time`, explicit `datePublished` metadata, then unambiguous article-local `<time datetime>` / labelled publication date.
-3. A generic date-labelled element must never outrank stronger article publication metadata.
-4. If multiple equally plausible page-local publication dates conflict materially, abstain rather than guess.
-5. Standard CMS placeholder posts such as default WordPress `Hello world!` must not become company activity.
-6. Feed/sitemap/archive timestamps may nominate or veto but are not positive publication evidence by themselves.
-7. Every retained activity fact must preserve the exact detail URL, detail content hash, extraction method, supporting span/structured node and effective/publication date.
-8. No new network requests are required for this phase.
+- a detail page may contain multiple date-like elements;
+- the current extractor concatenates date candidates and applies generic regex matching;
+- an unrelated/dynamic labelled date can outrank the actual article publication date;
+- generic CMS placeholder posts such as `Hello world!` can satisfy the current minimal title-specificity rule.
+
+Implementation plan:
+
+1. Add adversarial production regressions for:
+   - strong publication metadata plus conflicting generic DOM date;
+   - multiple conflicting weak dates;
+   - dynamic/comment/update dates near a real publication date;
+   - standard CMS placeholder titles;
+   - preserved existing qualified C12 positive examples.
+2. Replace order-insensitive concatenated date extraction with typed candidate evaluation.
+3. Prefer strong page-local publication semantics in deterministic order, e.g.:
+   - `article:published_time`
+   - `datePublished`
+   - explicitly publication-labelled metadata
+   - article-local `<time datetime>`
+   - only then weaker labelled DOM dates.
+4. If equally plausible page-local candidates materially conflict and no stronger semantic source resolves them, abstain.
+5. Reject generic CMS placeholder/update titles before projection.
+6. Preserve exact supporting page/hash/evidence path for every retained date.
+7. No new network request in this phase.
+8. Run full CI plus consumed-cohort output diff; no fresh cohort yet.
 
 Promotion bar:
 
-- full CI green
-- existing qualified dated-activity claims preserved or made more conservative
-- adversarial competing-date fixtures pass
-- no new false-positive activity
-- no request/runtime budget increase
-- consumed-cohort output diff manually reviewed
+- existing qualified positives preserved or made more conservative for a documented reason;
+- known false positive removed;
+- zero new false positives in adversarial fixtures/manual audit;
+- zero request increase;
+- output/evidence/canonical/synthesis contracts remain green.
 
-No fresh cohort yet.
+## 9. Phase 5 — contact/social enrichment
 
-## 11. Phase 5 — contact and social enrichment
+Extract only from verified company-owned pages. Structured or explicitly labelled declarations are preferred. Social publication means only that the verified company page declared the profile URL; do not scrape social platforms for follower/post metrics.
 
-Extract from verified company-owned pages only. Prefer structured or explicitly labelled declarations. A social publication means only that the verified company page declared the profile URL; do not scrape social platforms for follower counts/posts.
+Do not revive the prior generic contact fallback unless a new structured or multi-family hypothesis demonstrates net-new company coverage.
 
-Do not revive a generic idle contact-page request without a new multi-family or structured-data hypothesis; the prior fallback did not transfer.
+## 10. Phase 6 / 8 — actual jobs and NAV
 
-## 12. Phase 6 — actual job-posting acquisition
+Invariant:
 
-Invariant: careers page != active job posting.
+> careers page != active job posting
 
-Require a concrete role, specific detail/application URL, exact employer context and current-job evidence. The NAV batch screen is not a production path after zero consumed-cohort transfer.
+Require concrete role, specific detail/application URL, exact employer context and current-job evidence.
 
-## 13. Phase 7 — dated first-party activity
+NAV exact-org batch screen is **DROP on consumed 100**:
 
-Status: **paused for source expansion; Phase 4 hardening active**.
-
-The C12 M3 first-party detail path remains the production foundation. New RSS/sitemap source expansion stays shelved until date evidence is robust against competing/dynamic dates.
-
-## 14. Phase 8 — NAV batch experiment
-
-Status: **DROP on consumed 100 / not merged**.
-
-Measured branch `experiment/nav-exact-org-vacancy-screen`, head `c156fda6a5ac711b285e864270273446262d19ac`, run `37214017085`:
-
-- complete 180-day feed traversal
-- 38 feed requests / 181,234,775 bytes
-- 368,428 raw events / 90,917 unique vacancies / 9,723 active
+- run `37214017085`
+- 38 feed requests over complete 180-day window
+- 90,917 unique vacancies / 9,723 active
 - 0 target/subunit shortlist candidates
-- 0 detail requests
 - 0 exact active-vacancy target companies
-- 39 NAV logical requests / 78 conservative
-- projected combined baseline charge 1,410/2,000
-- $0 and zero wrong-company publications
+- projected combined charge 1,410/2,000
 
-Do not broaden matching post-hoc or spend a fresh cohort.
+Reconsider NAV only if feed semantics or a direct organisation-number index materially changes.
 
-## 15. Phase 9 — BRREG bulk optimization
+## 11. Phase 9 — official-source/request optimization
 
-Later, screen whether official bulk entities/roles/subunits can safely replace selected live calls under Builderr cache/freshness/evidence rules. Any saved request budget must be deliberately reallocated to higher-yield work. Never sacrifice required freshness.
+Later, test whether BRREG bulk entities/roles/subunits can safely replace selected live calls under freshness/evidence requirements. Saved requests must be deliberately reallocated to proven high-yield work; never sacrifice required freshness.
 
-## 16. Phase 10 — adaptive request scheduler
+## 12. Phase 10 — adaptive request scheduler
 
-Prioritize requests by expected net-new scored company-family gain divided by identity risk + request cost + latency risk. ML may rank candidates later but never authorize publication.
+Prioritize by:
 
-## 17. Phase 11 — fresh validation and release candidate
+```text
+expected net-new scored company-family gain
+-------------------------------------------
+identity risk + request cost + latency risk
+```
 
-Before another Builderr revision require a fresh evaluator-shaped 100-company run, 100/100 terminal envelopes, zero integrity errors, zero known wrong-company publications, manual audit of every newly introduced external family/case, request/runtime/cost report, exact SHA freeze, exact-head CI green and reproducible artifacts.
+Already-covered families should not consume scarce requests. ML may rank candidates later but may never authorize publication.
 
-## 18. Measurement harness
+## 13. Phase 11 — fresh validation and release candidate
 
-Every material experiment reports company-level coverage, evidence/contract/canonical/synthesis failures, wrong-company/ambiguous/rejected candidates, logical requests/conservative charge, runtime/latency/bytes, and third-party cost.
+Before another Builderr revision require:
+
+- fresh evaluator-shaped 100-company run
+- 100/100 terminal envelopes
+- zero contract/evidence/canonical/synthesis integrity errors
+- zero known wrong-company publications
+- manual audit of every newly introduced external family/case
+- request/runtime/cost report
+- exact SHA freeze
+- exact-head CI green
+- reproducible artifacts
+- synthesis/UX preserved or improved
+
+## 14. Measurement harness
+
+Every material experiment reports company-level coverage:
+
+- input/terminal companies
+- verified website companies
+- contact/social companies
+- careers and concrete job companies
+- dated-update companies
+- people/leadership/location companies
+- financial/workforce/change-history companies
+- total published claims
+- evidence/contract/canonical/synthesis failures
+- wrong-company and ambiguous/rejected candidates
+- logical requests and conservative charge
+- runtime/latency/bytes where relevant
+- third-party cost
 
 Always compare:
 
@@ -287,42 +294,53 @@ Always compare:
 BASELINE -> NEW -> NET-NEW COMPANIES
 ```
 
-## 19. Promotion criteria
+## 15. Promotion criteria
 
-Promote only with meaningful net-new company coverage, very high exact-entity precision, complete source/page evidence, deterministic behavior, acceptable rights, refresh-compatible semantics, request/time budget fit and no meaningful regression elsewhere.
+Promote only when relevant gates pass:
+
+1. meaningful net-new company coverage or a clear precision/integrity improvement
+2. very high exact-entity precision
+3. complete source/page evidence
+4. deterministic behavior
+5. acceptable rights
+6. refresh-compatible semantics
+7. request/time budget fit
+8. no meaningful regression elsewhere
 
 Decision labels: **PROMOTE**, **RETUNE**, **SHELVE**, **DROP**.
 
-## 20. Adversarial entity validation
+Rejected experiments belong in `docs/IMPLEMENTATION_LOG.md` so they are not repeated.
 
-Maintain tests/fixtures for similar legal names, parent/subsidiary/group sites, subunits/shared domains, chain/franchise, company-vs-brand collisions, same municipality/postcode, multiple organisation numbers, former names/rebrands and parked/hosting/service-provider pages.
+## 16. Adversarial validation
 
-## 21. Failure resilience and monitoring
+Maintain fixtures for similar names, parent/subsidiary/shared domains, chains/franchises, company-vs-brand collisions, same municipality/postcode, multiple organisation numbers, former names/rebrands, parked/provider pages, multiple conflicting dates and generic CMS placeholders.
 
-Handle timeouts, resets, 403/404/410/429/5xx, redirect loops, robots blocks, invalid HTML, oversized pages and SSL failures without losing the terminal company envelope. Refresh must distinguish conclusive change from source failure.
+## 17. Failure resilience
 
-## 22. Later-only work
+Handle timeouts, resets, 403/404/410/429/5xx, redirects, robots blocks, invalid/oversized content and SSL failures without losing terminal envelopes. Refresh must distinguish conclusive change from source failure.
 
-Secondary official sources such as Patentstyret, Støtteregisteret or Doffin require rights/reach/exact-ID screening first. Optional ML ranking and evidence-bounded AI extraction come only after deterministic gains. AI may never establish legal identity or invent official numbers.
+## 18. Later-only work
 
-## 23. Synthesis and UX targets
+Secondary official sources such as Patentstyret, Støtteregisteret or Doffin require rights/reach/exact-ID screening first. Optional ML ranking and evidence-bounded AI extraction come only after deterministic gains. AI may extract only from already-fetched verified text with deterministic supporting evidence; it may never establish legal identity or invent official numbers.
 
-Preserve/improve evidence-bounded synthesis and the evaluator-facing data-linked product. Do not prioritize cosmetic redesign while recall remains the main score gap.
+## 19. Synthesis and UX
 
-## 24. Submission strategy
+Preserve evidence-bounded synthesis covering business activity, finances, people, locations, workforce, hiring, activity, changes, unknowns and source/effective dates. Keep search/select, evidence drill-down, freshness/change context and explicit unavailable states. Do not prioritize cosmetic redesign while recall remains the main score gap.
 
-Do not submit after each feature. The next Builderr revision should bundle coordinated safe recall gains while preserving synthesis/UX and zero known wrong-company publications.
+## 20. Submission strategy
 
-## 25. Continuity protocol
+Do not submit after each feature. Submit only after a meaningful qualified bundle with exact SHA, reproducible artifacts, manual precision audit, CI green, request/runtime/cost proof and updated continuation state.
 
-Every implementation chat must begin with `docs/CONTINUATION_STATE.md`, this file, and current GitHub `main`/open PR metadata. If GitHub is ahead, reconcile docs first.
+## 21. Continuity protocol
 
-At the end of every substantial implementation session:
+At the end of every substantial session update:
 
-1. update `docs/CONTINUATION_STATE.md`
-2. append material experiments/milestones to `docs/IMPLEMENTATION_LOG.md`
-3. update this roadmap when phase status, acceptance criteria or strategy changes
-4. record exact branch/head/PR/run IDs/artifacts/coverage/precision/budget/blockers/next actions
-5. distinguish IMPLEMENTED, TESTED, QUALIFIED, MERGED and POST-MERGE GREEN
+1. `docs/CONTINUATION_STATE.md`
+2. `docs/IMPLEMENTATION_LOG.md`
+3. this roadmap whenever phase status, acceptance criteria or strategy changes
 
-The repository, not chat history, is the source of truth.
+Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and **POST-MERGE GREEN**.
+
+## 22. NEXT
+
+**Phase 4: harden page-level dated-activity evidence. Fix competing-date selection and generic CMS placeholder acceptance on a clean branch from current `main`; consumed cohort only, no fresh qualification yet.**
