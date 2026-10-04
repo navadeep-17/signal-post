@@ -14,9 +14,9 @@ from norway_company_agent.final_site_discovery import (  # noqa: E402
     discover_final_website,
 )
 
-ORG = "813396092"
-NAME = "SAMEIE JESSHEIM PARK DRIFT"
-WEBSITE = "https://www.bori.no/"
+ORG = "982897327"
+NAME = "LUCERNA AS"
+WEBSITE = "https://www.lucerna.no/"
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
         "organisation_number": ORG,
         "name": NAME,
         "website": WEBSITE,
-        "municipality": "LILLESTRØM",
+        "municipality": "HAMMERFEST",
         "evidence": {},
         "external_observations": [],
     }
@@ -56,7 +56,7 @@ def main() -> None:
         if claim.get("field") == "external.company_update"
     ]
     report = {
-        "schema": "signalpost-c12-m3-bori-probe-v1",
+        "schema": "signalpost-c12-m3-lucerna-probe-v1",
         "organisation_number": ORG,
         "legal_name": NAME,
         "registry_listed_website": WEBSITE,
