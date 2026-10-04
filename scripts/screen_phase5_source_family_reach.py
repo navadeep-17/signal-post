@@ -13,6 +13,7 @@ import csv
 import hashlib
 import json
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
@@ -21,7 +22,13 @@ ORG_RE = re.compile(r"(?<!\d)(?:NO\s*)?(\d{3})[\s.\-]?(\d{3})[\s.\-]?(\d{3})(?!\
 
 
 def normalize_header(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+    # NFKD does not decompose Norwegian ø/Ø, so transliterate the three Norwegian
+    # letters explicitly before stripping remaining combining marks/punctuation.
+    value = value.casefold().replace("ø", "o").replace("æ", "ae").replace("å", "a")
+    value = "".join(
+        char for char in unicodedata.normalize("NFKD", value) if not unicodedata.combining(char)
+    )
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
 
 def valid_org_number(value: str) -> bool:
@@ -97,6 +104,12 @@ def candidate_org_columns(headers: Iterable[str], source: str) -> list[str]:
                 "national identifier",
             )
         )
+        if source == "stotteregisteret":
+            # The full award export contains both recipient and granting-authority org
+            # numbers. Only recipient identity is relevant to company-level award reach.
+            if has_org_marker and "mottaker" in norm and "giver" not in norm:
+                selected.append(header)
+            continue
         if has_org_marker:
             selected.append(header)
             continue
@@ -115,7 +128,9 @@ def role_for_header(header: str) -> str:
         return "supplier_or_winner"
     if any(word in norm for word in ("buyer", "contracting", "oppdragsgiver")):
         return "buyer_or_contracting_authority"
-    if any(word in norm for word in ("recipient", "mottaker", "stoettemottaker", "stottemottaker")):
+    if "stottegiver" in norm or ("giver" in norm and "stotte" in norm):
+        return "granting_authority"
+    if any(word in norm for word in ("recipient", "mottaker", "stottemottaker")):
         return "recipient"
     return "unspecified_exact_org_field"
 
