@@ -10,159 +10,132 @@ Repository: `navadeep-17/signal-post`
 
 Production branch: `main`
 
-Live `main` observed before this branch-state update:
+Phase-4 production merge:
 
-`266fc6c3f32f97c31bea1a33a93a0728b164f3ea`
+`07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
 
-Active production candidate:
+PR #95 `Phase 4: harden dated activity evidence selection` is **MERGED**.
 
-- branch: `feature/phase4-activity-date-evidence-hardening`
-- PR: #95, `Phase 4: harden dated activity evidence selection`
-- PR state before this docs update: open draft, mergeable
-- release-shaped code/test head before docs-only updates: `a4b8789a746f6e194186db1ea7dd2a40c78bf7b9`
-- measured semantics head: `a220089fccefd63f88555d675194ebefcdd44723`
-- active lifecycle: **IMPLEMENTED + TESTED / MERGE PENDING / NOT FRESH-QUALIFIED / NOT MERGED**
-
-Open PRs #76, #78 and #84 remain historical/experimental and are not the active production path.
-
-## 2. Lifecycle state
-
-### Phase 1 — collected-vs-emitted exact BRREG recovery
+Lifecycle:
 
 - **IMPLEMENTED:** yes
 - **TESTED:** yes
-- **QUALIFIED:** yes
+- **QUALIFIED:** no fresh qualification requested; precision-only zero-request hardening
 - **MERGED:** yes
 - **POST-MERGE GREEN:** yes
 
-Phase 1 is closed.
+Post-merge Baseline CI:
 
-### Phase 2 — exact website-discovery improvement
+- run `37219278337`: **PASS**
+- merge SHA: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
+- full tests, certified-1000 canonical audit, submission-bundle verification and deterministic refresh replay all passed
 
-- **IMPLEMENTED:** experiment-only strategies
-- **TESTED:** yes
-- **QUALIFIED:** no
-- **MERGED:** no
-- **POST-MERGE GREEN:** n/a
-- **STATE:** **SHELVED / CANDIDATE-SOURCE CONSTRAINED** under current $0 rights-safe sources
+Open PRs #76, #78 and #84 are historical/experimental and are not the active production path.
 
-Measured failure funnel on the frozen 100:
+## 2. Closed phases and retained state
+
+### Phase 1 — collected-vs-emitted exact BRREG recovery
+
+**CLOSED / QUALIFIED / MERGED / POST-MERGE GREEN**.
+
+Last fresh qualified baseline remains run `37203580574`:
+
+- 100 unique companies, overlap 0
+- cohort SHA `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`
+- 100/100 terminal
+- evidence/contract/canonical/synthesis errors: 0
+- 666 logical requests
+- 1,332/2,000 conservative charge
+- runtime 460.916 s
+- third-party cost $0
+- search API requests 0
+- artifact `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`
+- digest `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`
+
+### Phase 2 — exact website discovery
+
+**SHELVED / CANDIDATE-SOURCE CONSTRAINED** under current $0 rights-safe sources.
+
+Failure funnel on frozen 100:
 
 - H1c deterministic `.no`: 96 attempts, 79 blocked, 78 DNS non-resolution, 12 loaded, 3 exact sites verified
 - H1g hyphenated `.no`: 73 attempts, 73 DNS non-resolution, 0 verified
 
-Rejected paths include Norid rights-incompatible lookup, subunit homepage 0/3, subunit email-domain 0/10, same-domain secondary identity 0/4 and NAV exact-org vacancy feed 0/100 target companies.
+Rejected/do-not-repeat without genuinely new evidence:
 
-### Phase 3 — bounded sitemap/RSS dated-activity expansion
+- guessed `.com` and broader legal-name domain generation
+- annual-report domain hints
+- Norid public lookup because rights/purpose terms are incompatible
+- exact-parent subunit homepage hints: 0/3
+- exact-parent subunit email domains: 0/10
+- same-domain secondary identity verification: 0/4
+- NAV exact-org vacancy screen: 0/100 target companies after complete 180-day traversal
+- provider/model-search PRs #78/#84 unless provider/key/budget constraints materially change
 
-- **IMPLEMENTED:** experiment-only
-- **TESTED:** yes
-- **QUALIFIED:** no
-- **MERGED:** no
-- **POST-MERGE GREEN:** n/a
-- **STATE:** **DROP / SHELVED**
+### Phase 3 — sitemap/RSS dated-activity expansion
 
-Sitemap and RSS/Atom screens both produced zero precision-clean net-new dated-activity companies. The RSS screen exposed the date-selection precision defect addressed by Phase 4.
+**DROP / SHELVED** on the consumed cohort.
+
+- sitemap run `37215062164`, artifact `11308151116`: 0 accepted dated-activity companies
+- hardened RSS run `37215793652`, artifact `11308790825`: 0 precision-clean dated-activity companies
+
+The RSS experiment exposed the date-selection false-positive class fixed by Phase 4.
 
 ### Phase 4 — page-level dated-activity evidence hardening
 
-- **IMPLEMENTED:** yes
-- **TESTED:** yes
-- **QUALIFIED:** no fresh qualification requested; this is a precision-only, zero-request hardening phase
-- **MERGED:** no
-- **POST-MERGE GREEN:** n/a
-- **STATE:** **MERGE PENDING**
+**IMPLEMENTED + TESTED + MERGED + POST-MERGE GREEN**.
 
-Implemented behavior:
+Implemented:
 
-- semantically ranked page-local publication-date candidates;
+- typed semantic ranking of page-local publication-date candidates;
 - explicit publication metadata wins over generic/dynamic labelled dates;
-- same-rank conflicting publication dates abstain;
-- unstructured page text is usable only when exactly one unique date remains;
-- generic CMS placeholder titles/content such as WordPress `Hello world!` are rejected;
-- retained company-update evidence records the selected date method and raw page-local date evidence;
-- no new source, network request or identity relaxation was added.
+- same-rank conflicting dates abstain;
+- unstructured page text is accepted only when exactly one unique date remains;
+- generic CMS placeholder updates such as WordPress `Hello world!` are rejected;
+- retained activity evidence records date extraction method and raw page-local date evidence;
+- no new source, request, identity relaxation or third-party spend.
 
-## 3. Phase 4 test and measurement evidence
+Validation:
 
-Exact-head Baseline CI:
-
-- run `37217488481`: **PASS**
-- exact release-shaped head: `a4b8789a746f6e194186db1ea7dd2a40c78bf7b9`
-- full regressions and repository baseline checks passed
-
-Consumed-cohort deterministic diff:
-
-- measured semantics head: `a220089fccefd63f88555d675194ebefcdd44723`
-- run `37217368930`: **PASS**
-- artifact: `phase4-activity-evidence-consumed-diff`
-- artifact ID: `11308328355`
-- artifact digest: `sha256:ddcf4e328edab217a016122801f1ad16f4f60c0a80d3e106b09ba5f67ed59da0`
-- frozen profiles: 100
-- baseline jobs: 0; Phase-4 jobs: 0
-- baseline updates: 0; Phase-4 updates: 0
-- added update URLs: 0
-- dropped update URLs: 0
-- publication-date changes: 0
-- network requests added: 0
-- third-party cost added: $0
-- search API requests added: 0
+- measured semantics head `a220089fccefd63f88555d675194ebefcdd44723`
+- consumed diff run `37217368930`: PASS
+- artifact `phase4-activity-evidence-consumed-diff`, ID `11308328355`
+- artifact digest `sha256:ddcf4e328edab217a016122801f1ad16f4f60c0a80d3e106b09ba5f67ed59da0`
+- frozen 100: jobs 0 -> 0, updates 0 -> 0
+- added update URLs 0; dropped update URLs 0; date changes 0
+- network requests added 0; search requests added 0; cost added $0
 - `precision_monotonic=true`
+- docs-inclusive PR head Baseline CI `37219207340`: PASS
+- merge commit `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
+- post-merge Baseline CI `37219278337`: PASS
 
-The final release-shaped head differs from the measured semantics head only by removing the one-off measurement workflow. Production/test semantics are unchanged.
-
-Adversarial regressions cover:
-
-- strong publication metadata versus a conflicting dynamic/labelled date;
-- equal-strength conflicting publication dates -> abstain;
-- unique unstructured date preservation;
-- multiple weak text dates -> abstain;
-- standard WordPress/CMS placeholder rejection.
-
-## 4. Retained qualified production baseline
-
-Second untouched Phase-A qualification run `37203580574` remains the last fresh qualified production baseline:
-
-- 100 unique, overlap 0
-- cohort SHA `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`
-- 100/100 terminal
-- evidence/contract/canonical/synthesis errors: 0
-- logical requests: 666
-- conservative charge: 1,332/2,000
-- runtime: 460.916 s
-- third-party cost: $0
-- search API requests: 0
-- artifact `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`
-- digest `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`
-
-Phase 4 does not change this request theorem.
-
-## 5. Precision and budget invariants
+## 3. Precision and budget invariants
 
 - exact organisation number remains the legal-entity anchor;
 - candidate generation is never publication proof;
+- parent/subsidiary/subunit relation alone never authorizes inheritance;
 - wrong-company publication is a hard failure;
-- exact page URL + retrieval/hash provenance is mandatory;
+- exact page URL + retrieval/hash provenance remains mandatory;
 - dates must be page-local and semantically tied to the article/update;
-- archive/sitemap/feed dates cannot independently publish a fact;
-- missing/blocked/ambiguous stays explicit;
+- sitemap/feed/archive dates cannot independently publish an activity fact;
+- missing/blocked/ambiguous remains explicit;
 - third-party API spend remains $0;
-- four logical site requests/profile remains the production site ceiling;
-- fresh cohorts are reserved for changes with meaningful transfer, not this precision-only hardening.
+- four logical site requests/profile remains the site ceiling;
+- fresh cohorts remain reserved for promotion of meaningful new transfer, not source ideation.
 
-## 6. Known blockers
+## 4. Current blockers
 
 1. Exact website reach remains about 7–8/100 under current rights-safe $0 sources.
 2. Phase-2 candidate generation is dominated by non-resolving speculative domains.
-3. Phase-3 sitemap/RSS acquisition added zero precision-clean company coverage.
-4. No new deterministic high-yield family/source has yet passed rights + exact-ID + reach screening after Phase 4.
+3. Phase-3 sitemap/RSS expansion produced zero precision-clean net-new activity coverage.
+4. No next deterministic source/family has yet passed rights + exact-ID + reach + budget screening.
 
-## 7. Exact next 1–3 actions
+## 5. Exact next 1–3 actions
 
-1. Update PR #95 metadata to reflect TESTED status, mark it ready and merge only with the exact tested release-shaped semantics.
-2. Verify post-merge Baseline CI on `main`; then update this state with the merge SHA and post-merge run ID and mark Phase 4 **MERGED + POST-MERGE GREEN**.
-3. After Phase 4 closes, run a consumed-only source-selection audit for the next deterministic high-yield exact-ID family/source. Screen rights, expected company reach, exact-ID join quality and request cost before implementing any connector. No fresh cohort yet.
+1. Run a **consumed-only source-selection audit**, not a connector implementation. Compare plausible deterministic official/rights-safe sources such as Doffin, Støtteregisteret and Patentstyret on: rights, exact organisation-number join, likely company-level reach, scored-family value, freshness and request/runtime cost.
+2. Select at most one source/family only if it has a credible path to meaningful net-new company coverage without weakening exact-company precision or exceeding the 2,000/100 theorem. Record PROMOTE/RETUNE/SHELVE/DROP in the repository before implementation.
+3. If one source passes the selection gate, implement it on a consumed cohort first. Otherwise advance to another roadmap phase rather than forcing a low-yield connector. **No fresh cohort yet.**
 
-## 8. NEXT
+## 6. NEXT
 
-**NEXT: finish the Phase-4 merge/post-merge gate for PR #95. After it is POST-MERGE GREEN, choose the next deterministic high-yield exact-ID source/family by a rights/reach/budget screen; do not return to speculative domain generation.**
+**NEXT: consumed-only deterministic source/family selection audit. Screen rights, exact-ID join quality, likely evaluator-shaped reach and budget for Doffin, Støtteregisteret, Patentstyret or another official source before implementing any new connector.**
