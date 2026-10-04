@@ -252,6 +252,56 @@ def _secondary_identity_links(base_url: str, soup: BeautifulSoup) -> list[str]:
     return [url for _, url in ranked[:8]]
 
 
+def _page_date_candidates(soup: BeautifulSoup, *, limit: int = 8) -> list[dict[str, str]]:
+    """Retain bounded explicit publication-date candidates from the fetched page DOM.
+
+    These are raw page-local observations, not interpreted facts. The strict first-party
+    projector decides whether a candidate can support a dated company update.
+    """
+    candidates: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(raw: Any, method: str) -> None:
+        value = " ".join(str(raw or "").split())[:200]
+        if not value:
+            return
+        key = (value, method)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append({"raw": value, "method": method})
+
+    selectors = (
+        ('meta[property="article:published_time"]', "content", "meta_article_published_time"),
+        ('meta[itemprop="datePublished"]', "content", "meta_itemprop_date_published"),
+        ('meta[name="date"]', "content", "meta_name_date"),
+        ('meta[name="pubdate"]', "content", "meta_name_pubdate"),
+        ('time[datetime]', "datetime", "time_datetime"),
+    )
+    for selector, attribute, method in selectors:
+        for node in soup.select(selector):
+            add(node.get(attribute), method)
+            if len(candidates) >= limit:
+                return candidates
+
+    for node in soup.select("time"):
+        add(node.get_text(" ", strip=True), "time_text")
+        if len(candidates) >= limit:
+            return candidates
+
+    date_marker = re.compile(r"(?:^|[-_ ])(?:date|published|publisert|dato)(?:$|[-_ ])", re.I)
+    for node in soup.select("[class], [id]"):
+        marker_parts = [str(node.get("id") or "")]
+        classes = node.get("class") or []
+        marker_parts.extend([classes] if isinstance(classes, str) else [str(value) for value in classes])
+        if not date_marker.search(" ".join(marker_parts)):
+            continue
+        add(node.get_text(" ", strip=True), "date_labelled_element")
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
 def fetch_bounded_homepage(
     url: str | None,
     *,
@@ -302,6 +352,7 @@ def fetch_bounded_homepage(
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         description_tag = soup.select_one('meta[name="description"], meta[property="og:description"]')
         description = str(description_tag.get("content") or "").strip() if description_tag else ""
+        published_date_candidates = _page_date_candidates(soup)
         digest = hashlib.sha256(raw).hexdigest()
         value = {
             "requested_url": normalized,
@@ -311,6 +362,7 @@ def fetch_bounded_homepage(
             "description": description[:2000],
             "identity_text_excerpt": identity_text,
             "main_text_excerpt": text[:5000],
+            "published_date_candidates": published_date_candidates,
             "social_links": _social_links(final_url, soup),
             "careers_links": extract_careers_links(
                 verified_url=final_url,
@@ -333,6 +385,7 @@ def fetch_bounded_homepage(
                 "title": title[:500],
                 "identity_text_excerpt": identity_text,
                 "main_text_excerpt": text[:5000],
+                "published_date_candidates": published_date_candidates,
                 "content_sha256": digest,
             }],
             "crawl_errors": [],

@@ -287,7 +287,13 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
             homepage_news_nomination
             and _specific_non_root_page_url(url, generic_segments=GENERIC_UPDATE_PATH_SEGMENTS)
         )
-        published_date = _first_date(text)
+        date_candidates = page.get("published_date_candidates") or []
+        page_date_text = " ".join(
+            str(item.get("raw") or "")
+            for item in date_candidates
+            if homepage_news_nomination and isinstance(item, dict)
+        )
+        published_date = _first_date(page_date_text) or _first_date(text)
         if (
             has_update_path
             and has_update_detail_url
