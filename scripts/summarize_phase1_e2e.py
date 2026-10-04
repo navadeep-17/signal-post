@@ -100,12 +100,18 @@ def main() -> None:
         state = str(row.get("state") or "")
         states[state] = states.get(state, 0) + 1
 
+    request_budget = report.get("request_budget") or {}
+    runtime = report.get("runtime") or {}
+    source_policy = report.get("source_policy") or {}
     operations = {
-        "logical_requests": report.get("total_requests"),
-        "conservative_request_charge": report.get("conservative_request_charge"),
-        "third_party_cost_usd": report.get("third_party_cost_usd"),
-        "runtime_seconds": report.get("runtime_seconds"),
-        "search_api_requests": report.get("search_api_requests", 0),
+        "logical_requests": request_budget.get("observed_logical_requests"),
+        "conservative_request_charge": request_budget.get("observed_conservative_challenge_request_charge"),
+        "theoretical_conservative_request_ceiling": request_budget.get("theoretical_challenge_request_charge_ceiling"),
+        "third_party_cost_usd": source_policy.get("third_party_cost_usd"),
+        "runtime_seconds": runtime.get("wall_runtime_seconds"),
+        "request_latency_p50_ms": (runtime.get("request_latency_ms") or {}).get("p50"),
+        "request_latency_p95_ms": (runtime.get("request_latency_ms") or {}).get("p95"),
+        "search_api_requests": source_policy.get("search_api_requests", 0),
     }
     summary = {
         "schema_version": "signalpost-phase1-e2e-summary-v1",
@@ -129,7 +135,9 @@ def main() -> None:
             and not canonical_errors
             and not synthesis_errors
             and (operations.get("conservative_request_charge") or 0) <= 2000
+            and (operations.get("theoretical_conservative_request_ceiling") or 0) <= 2000
             and float(operations.get("third_party_cost_usd") or 0.0) == 0.0
+            and int(operations.get("search_api_requests") or 0) == 0
         ),
     }
     args.summary.parent.mkdir(parents=True, exist_ok=True)
