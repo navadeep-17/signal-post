@@ -64,6 +64,15 @@ def _fold(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
 
 
+def _slug_fold(value: str) -> str:
+    return (
+        _fold(value)
+        .replace("æ", "ae")
+        .replace("ø", "o")
+        .replace("å", "a")
+    )
+
+
 def _normalized_host(url: str) -> str:
     try:
         host = (urllib.parse.urlparse(url).hostname or "").casefold().rstrip(".")
@@ -102,6 +111,41 @@ def _specific_job_path(url: str) -> bool:
         return False
     positions = [index for index, part in enumerate(segments) if part in CAREER_PATH_SEGMENTS]
     return bool(positions and positions[-1] < len(segments) - 1)
+
+
+def _title_from_role_url(anchor_text: str, role_url: str) -> str:
+    """Trim wrapped role-card metadata only when the URL slug proves the leading title.
+
+    Some careers cards wrap role title, location, employer and deadline in one anchor. For
+    a specific same-site role URL, use the final slug only as a structural hint: it must
+    match the leading anchor words after conservative Norwegian-to-ASCII folding. If it
+    does not match, preserve the original anchor text unchanged.
+    """
+    title = " ".join(str(anchor_text or "").split()).strip()
+    if not title:
+        return title
+    try:
+        parsed = urllib.parse.urlparse(role_url)
+    except ValueError:
+        return title
+    segments = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+    if not segments:
+        return title
+    slug = segments[-1].strip().casefold()
+    if not slug or slug.isdigit():
+        return title
+    slug_words = [part for part in re.split(r"[-_]+", slug) if part]
+    if not slug_words or len(slug_words) > 8:
+        return title
+    anchor_words = re.findall(r"[\wæøåÆØÅ-]+", title, flags=re.UNICODE)
+    if len(anchor_words) < len(slug_words):
+        return title
+    leading = [_slug_fold(word) for word in anchor_words[: len(slug_words)]]
+    normalized_slug = [_slug_fold(word) for word in slug_words]
+    if leading != normalized_slug:
+        return title
+    cleaned = " ".join(anchor_words[: len(slug_words)]).strip()
+    return cleaned if _specific_title(cleaned) else title
 
 
 def _nearest_dated_context(anchor: Tag, *, max_chars: int = 900) -> str:
@@ -231,7 +275,9 @@ def extract_job_listing_candidates(
             continue
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             continue
-        title = " ".join(anchor.get_text(" ", strip=True).split())
+        same_host = same_company_host(role_url, final_url)
+        raw_title = " ".join(anchor.get_text(" ", strip=True).split())
+        title = _title_from_role_url(raw_title, role_url) if same_host else raw_title
         if not _specific_title(title):
             continue
 
@@ -240,7 +286,6 @@ def extract_job_listing_candidates(
         if not deadline:
             continue
 
-        same_host = same_company_host(role_url, final_url)
         if same_host and not _specific_job_path(role_url):
             continue
 
