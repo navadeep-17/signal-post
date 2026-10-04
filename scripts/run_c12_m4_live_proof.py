@@ -104,7 +104,7 @@ def _summarize(case: dict) -> dict:
 def main() -> None:
     rows = [_summarize(case) for case in CASES]
     report = {
-        "schema": "signalpost-c12-m4-live-proof-v3",
+        "schema": "signalpost-c12-m4-live-proof-v4",
         "cases": rows,
         "third_party_api_cost_usd": 0.0,
     }
@@ -132,6 +132,7 @@ def main() -> None:
     assert af["careers_surface_retained"] is True, "AF careers surface was not retained"
     assert af["material_jobs"], "AF exact first-party current role did not become a job claim"
     assert any((job.get("value") or {}).get("deadline") for job in af["material_jobs"]), "AF job claim lacks current deadline"
+    assert any((job.get("value") or {}).get("title") == "Bedriftslege" for job in af["material_jobs"]), "AF Bedriftslege role title was not normalized cleanly"
 
 
 if __name__ == "__main__":
