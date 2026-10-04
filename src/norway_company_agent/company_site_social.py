@@ -4,8 +4,6 @@ import hashlib
 import urllib.parse
 from typing import Any
 
-from .website import structured_social_links
-
 
 SOCIAL_PROFILE_HOSTS = {
     "linkedin": "linkedin.com",
@@ -79,23 +77,19 @@ def _primary_page_provenance(
 
 
 def _direct_homepage_declarations(value: dict[str, Any]) -> list[dict[str, str]]:
-    """Return social URLs directly retained from one exact homepage snapshot.
+    """Return raw HTML social URLs retained from one exact homepage snapshot.
 
-    ``apply_website_identity_gate`` keeps the original HTML links in
-    ``discovered_social_links`` before applying the old handle-name heuristic. JSON-LD
-    ``Organization.sameAs`` declarations are equally page-local and are recovered from the
-    retained structured data. This function intentionally does not use model/search output.
+    ``apply_website_identity_gate`` stores the original extracted HTML links in
+    ``discovered_social_links`` before applying the older handle-name heuristic. C12 can
+    safely materialize those links when the retained snapshot consists of exactly one
+    proven homepage. JSON-LD ``sameAs`` intentionally stays on the previously qualified
+    V6e recovery path so that existing production semantics remain unchanged.
     """
 
     found: dict[tuple[str, str], dict[str, str]] = {}
     for item in value.get("discovered_social_links") or []:
         if not isinstance(item, dict):
             continue
-        platform = str(item.get("platform") or "").strip()
-        profile_url = str(item.get("url") or "").strip()
-        if platform and profile_url:
-            found[(platform, profile_url)] = {"platform": platform, "url": profile_url}
-    for item in structured_social_links(value.get("structured_organisations") or []):
         platform = str(item.get("platform") or "").strip()
         profile_url = str(item.get("url") or "").strip()
         if platform and profile_url:
@@ -164,9 +158,6 @@ def _observation(
         "evidence_span": f"Exact company homepage declares {platform} profile {profile_url}",
         "profile_url": profile_url,
         "metrics": {
-            # Existing contract confidence reads this key. For a direct declaration the
-            # confidence is the already-qualified company-page identity score, not a claim
-            # that the external platform page was independently verified.
             "identity_score": max(0.0, min(1.0, website_score)),
             "claim_scope": (
                 "Social profile URL directly declared by the retained exact-company homepage; "
@@ -184,15 +175,13 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
 
     C12 showed that valid social URLs were already present in retained website evidence but
     were lost because publication additionally required the social handle itself to resemble
-    the legal company name. For a narrow declaration claim that second gate is unnecessary:
-    if an exact-company homepage directly declares a canonical social-profile URL, we can
-    publish that declaration while explicitly *not* claiming that the platform page itself
-    was fetched or independently verified.
+    the legal company name. For the narrow claim that an exact-company homepage declared a
+    canonical social URL, the second name-match gate is unnecessary.
 
-    To preserve precision for older multi-page snapshots that merged links without per-link
-    provenance, the relaxed declaration rule applies only when the retained snapshot contains
-    exactly one page whose URL/hash matches the top-level homepage. Multi-page legacy records
-    continue to rely on the old handle-name-qualified recovery path.
+    The relaxed rule is deliberately limited to single-page snapshots with immutable
+    homepage URL/hash provenance. Multi-page legacy snapshots can contain merged social
+    candidates without per-link provenance and therefore continue to abstain here, leaving
+    the previously qualified V6e recovery path unchanged.
     """
 
     website = ((profile.get("evidence") or {}).get("website") or {})
@@ -213,8 +202,6 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
 
     observations: dict[tuple[str, str], dict[str, Any]] = {}
 
-    # C12 direct-declaration recovery: only a single exact page, so every retained raw
-    # social candidate has unambiguous homepage provenance.
     if len(pages) == 1:
         for item in _direct_homepage_declarations(value):
             platform = str(item.get("platform") or "").strip()
@@ -232,8 +219,6 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
                 strategy="verified_company_homepage_declaration_c12_v1",
             )
 
-    # Preserve the original stricter H2a behavior as a compatibility fallback. This can
-    # still emit a handle when the handle itself passed the deterministic identity gate.
     if len(pages) == 1:
         for item in value.get("social_link_assessments") or []:
             if not isinstance(item, dict) or not item.get("publishable"):
