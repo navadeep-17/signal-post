@@ -1,6 +1,17 @@
+from __future__ import annotations
+
+import importlib.util
 from pathlib import Path
 
-from scripts.normalize_phase5_csv_encoding import detect_encoding, normalize_csv
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "normalize_phase5_csv_encoding.py"
+spec = importlib.util.spec_from_file_location("normalize_phase5_csv_encoding", SCRIPT)
+assert spec and spec.loader
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+detect_encoding = module.detect_encoding
+normalize_csv = module.normalize_csv
 
 
 def test_detects_and_normalizes_utf16le_export(tmp_path: Path):
