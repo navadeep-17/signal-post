@@ -14,6 +14,7 @@ MANAGED_FIELDS = (
     "liquidating",
     "registration_date",
     "registered_address",
+    "postal_address",
     "registered_contact_email",
     "registered_phone",
     "registered_mobile",
@@ -25,6 +26,7 @@ SOURCE_PATHS = {
     "liquidating": "/underAvvikling",
     "registration_date": "/registreringsdatoEnhetsregisteret",
     "registered_address": "/forretningsadresse",
+    "postal_address": "/postadresse",
     "registered_contact_email": "/epostadresse",
     "registered_phone": "/telefon",
     "registered_mobile": "/mobil",
@@ -54,6 +56,25 @@ def _registry_live_record(profile: dict[str, Any]) -> dict[str, Any]:
 def _text_value(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _clean_address(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    cleaned = {
+        key: raw.get(key)
+        for key in (
+            "adresse",
+            "postnummer",
+            "poststed",
+            "kommune",
+            "kommunenummer",
+            "land",
+            "landkode",
+        )
+        if raw.get(key) not in (None, "", [])
+    }
+    return cleaned or None
 
 
 def _exact_live_value(record: dict[str, Any], field: str) -> Any:
@@ -102,23 +123,10 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
         return _text_value(value.get("registration_date"))
 
     if field == "registered_address":
-        raw = value.get("business_address")
-        if not isinstance(raw, dict):
-            return None
-        cleaned = {
-            key: raw.get(key)
-            for key in (
-                "adresse",
-                "postnummer",
-                "poststed",
-                "kommune",
-                "kommunenummer",
-                "land",
-                "landkode",
-            )
-            if raw.get(key) not in (None, "", [])
-        }
-        return cleaned or None
+        return _clean_address(value.get("business_address"))
+
+    if field == "postal_address":
+        return _clean_address(value.get("postal_address"))
 
     if field == "registered_contact_email":
         return _text_value(value.get("contact_email"))
