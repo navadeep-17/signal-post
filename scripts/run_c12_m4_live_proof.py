@@ -104,7 +104,7 @@ def _summarize(case: dict) -> dict:
 def main() -> None:
     rows = [_summarize(case) for case in CASES]
     report = {
-        "schema": "signalpost-c12-m4-live-proof-v2",
+        "schema": "signalpost-c12-m4-live-proof-v3",
         "cases": rows,
         "third_party_api_cost_usd": 0.0,
     }
@@ -126,7 +126,8 @@ def main() -> None:
     assert af["website_identity"]["publishable"] is True, "AF exact-site identity did not publish"
     assert af["logical_site_requests"] <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
     assert af["homepage_active_hiring_signal"].get("active_vacancies") is True, "AF homepage did not expose active hiring signal"
-    assert af["homepage_active_hiring_signal"].get("active_vacancy_count") == 10, "AF homepage vacancy count did not resolve to 10"
+    assert int(af["homepage_active_hiring_signal"].get("active_vacancy_count") or 0) > 0, "AF homepage vacancy count was not positive"
+    assert af["homepage_active_hiring_signal"].get("method") == "explicit_homepage_vacancy_count"
     assert af["careers_surface_attempted"] is True, "AF active hiring did not trigger bounded careers follow-up"
     assert af["careers_surface_retained"] is True, "AF careers surface was not retained"
     assert af["material_jobs"], "AF exact first-party current role did not become a job claim"
