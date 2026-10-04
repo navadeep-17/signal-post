@@ -56,7 +56,7 @@ def main() -> None:
         if claim.get("field") == "external.company_update"
     ]
     report = {
-        "schema": "signalpost-c12-m3-lucerna-probe-v1",
+        "schema": "signalpost-c12-m3-lucerna-probe-v2",
         "organisation_number": ORG,
         "legal_name": NAME,
         "registry_listed_website": WEBSITE,
@@ -81,6 +81,7 @@ def main() -> None:
                 "url": item.get("url"),
                 "anchor_text": item.get("anchor_text"),
                 "marker": item.get("marker"),
+                "dated_context": item.get("dated_context"),
             }
             for item in (value.get("news_detail_links") or [])
             if isinstance(item, dict)
