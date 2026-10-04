@@ -9,9 +9,11 @@ on:
       - "src/norway_company_agent/company_site_contact.py"
       - "src/norway_company_agent/external_contract.py"
       - "src/norway_company_agent/canonical_projection.py"
+      - "src/norway_company_agent/v2_registry_projection.py"
       - "src/norway_company_agent/wikidata_discovery.py"
       - "tests/test_company_site_contact.py"
       - "tests/test_h2c_external_contract.py"
+      - "tests/test_phase1b_postal_address_projection.py"
       - "tests/test_phaseb_idle_contact_surface.py"
       - "tests/test_phaseb_contact_surface_extraction.py"
       - ".github/workflows/phaseb-consumed-e2e.yml"
@@ -95,7 +97,7 @@ jobs:
             --annual-workforce-ocr-pages 8 \
             --annual-workforce-ocr-dpi 110
 
-      - name: Verify contact enrichment and unchanged safety theorem
+      - name: Verify contact enrichment, postal projection and unchanged safety theorem
         run: |
           uv run python - <<'PY'
           import json
@@ -115,7 +117,10 @@ jobs:
           assert not (report.get('synthesis') or {}).get('validation_errors'), report.get('synthesis')
 
           rb=report['request_budget']
+          assert rb['official_logical_requests_per_profile_ceiling']==5, rb
           assert rb['site_logical_requests_per_profile_ceiling']==4, rb
+          assert rb['total_logical_requests_per_profile_ceiling']==9, rb
+          assert rb['annual_report_workforce_logical_request_ceiling'] <= 100, rb
           assert rb['theoretical_challenge_request_charge_ceiling'] <= 2000, rb
           assert rb['max_challenge_requests']==2000, rb
           assert rb['observed_conservative_challenge_request_charge'] <= 2000, rb
@@ -125,6 +130,7 @@ jobs:
           claim_companies={}
           phone_values=[]
           phone_evidence=[]
+          postal_evidence=[]
           for row in rows:
               org=str(row['organisation_number'])
               evidence={str(item.get('id')):item for item in row.get('evidence') or [] if item.get('id')}
@@ -144,6 +150,15 @@ jobs:
                           assert len(str(item.get('content_sha256') or ''))==64, item
                           assert value in str(item.get('claim_span') or ''), item
                           phone_evidence.append(item)
+                  if field=='postal_address':
+                      assert isinstance(claim.get('value'),dict) and claim.get('value'), claim
+                      for evidence_id in claim.get('evidence_ids') or []:
+                          item=evidence[str(evidence_id)]
+                          assert item.get('source_class')=='official', item
+                          assert item.get('source_field')=='/postadresse', item
+                          assert str(item.get('source_url') or '').startswith('https://data.brreg.no/'), item
+                          assert len(str(item.get('content_sha256') or ''))==64, item
+                          postal_evidence.append(item)
 
           canonical_phone_companies={
               str(row['organisation_number'])
@@ -160,6 +175,21 @@ jobs:
           assert canonical_phone_companies==phone_companies, (canonical_phone_companies,phone_companies)
           assert phone_evidence, 'contact phones must carry evidence'
 
+          canonical_postal_companies={
+              str(row['organisation_number'])
+              for row in rows
+              if any(
+                  fact.get('type')=='postal_address'
+                  and fact.get('canonical_field')=='company.postal_address'
+                  and fact.get('availability')=='available'
+                  for fact in row.get('canonical_facts') or []
+              )
+          }
+          postal_companies=claim_companies.get('postal_address',set())
+          assert postal_companies, 'consumed cohort should retain exact BRREG postal addresses'
+          assert canonical_postal_companies==postal_companies, (canonical_postal_companies,postal_companies)
+          assert postal_evidence, 'postal addresses must carry exact live BRREG evidence'
+
           retained_contact=[]
           contact_surface_observations=[]
           source_strategies=Counter()
@@ -169,10 +199,16 @@ jobs:
               has_contact=(evidence.get('website_contact_surface') or {}).get('status')=='available'
               has_careers=(evidence.get('website_careers_surface') or {}).get('status')=='available'
               has_news=(evidence.get('website_news_detail') or {}).get('status')=='available'
+              has_h1g='website_h1g_hyphenated_no_discovery' in evidence
               assert not (has_contact and has_careers), org
               assert not (has_contact and has_news), org
-              # 5 exact official requests + at most 4 site requests.
-              assert int((profile.get('run_metrics') or {}).get('logical_requests') or 0) <= 9, profile.get('run_metrics')
+              assert not (has_contact and has_h1g), org
+              # Base evaluator theorem is 5 exact official + <=4 site = <=9.
+              # H2g may then add exactly one separately-budgeted annual-report PDF request,
+              # and attach_annual_report_workforce_batch deliberately adds that request to
+              # profile.run_metrics. Therefore the final per-profile observed total is <=10.
+              logical=int((profile.get('run_metrics') or {}).get('logical_requests') or 0)
+              assert logical <= 10, (org, profile.get('run_metrics'))
               if has_contact:
                   retained_contact.append(org)
                   identity=(evidence['website_contact_surface'].get('value') or {}).get('contact_surface_identity') or {}
@@ -185,14 +221,17 @@ jobs:
                       source_strategies[strategy]+=1
 
           summary={
-              'schema':'signalpost-phaseb-consumed-e2e-v1',
+              'schema':'signalpost-phaseb-consumed-e2e-v2',
               'companies':len(rows),
               'external_contact_phone_companies':len(phone_companies),
               'external_contact_email_companies':len(claim_companies.get('external.contact_email',set())),
+              'postal_address_companies':len(postal_companies),
               'retained_contact_surface_companies':len(retained_contact),
               'contact_surface_observations':len(contact_surface_observations),
               'strategy_counts':dict(sorted(source_strategies.items())),
               'request_budget':{
+                  'base_per_profile_logical_ceiling':rb['total_logical_requests_per_profile_ceiling'],
+                  'annual_report_request_ceiling':rb['annual_report_workforce_logical_request_ceiling'],
                   'observed_logical_requests':rb['observed_logical_requests'],
                   'observed_conservative_charge':rb['observed_conservative_challenge_request_charge'],
                   'theoretical_charge_ceiling':rb['theoretical_challenge_request_charge_ceiling'],
