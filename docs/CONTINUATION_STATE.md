@@ -12,17 +12,22 @@ Production branch: `main`
 
 Current production `main` SHA:
 
-`fb4c8711b9a3c58c16c6ff1c26aada93c036938a`
+`911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`
 
 Latest merged PR:
 
-- PR #90 — `feat(c12): qualify current first-party job surfaces`
-- merge commit: `fb4c8711b9a3c58c16c6ff1c26aada93c036938a`
+- PR #92 — `Phase 1: recover evaluator-visible exact BRREG claims`
+- merge commit: `911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`
 
 Post-merge Baseline CI:
 
-- run `37183602277`
+- run `37193327713`
 - status: **PASS**
+
+Previous major milestone:
+
+- PR #90 — C12 M4 bounded current first-party jobs
+- merge commit `fb4c8711b9a3c58c16c6ff1c26aada93c036938a`
 
 Do not infer state from older chat messages if GitHub disagrees with this file.
 
@@ -65,6 +70,49 @@ Internal next-major-revision target:
 - output-contract projection;
 - request/runtime/cost accounting.
 
+### Phase 1 lost-claim recovery now merged
+
+PR #92 recovered evaluator-visible exact BRREG facts that were already available in live registry evidence but were previously discarded or insufficiently projected.
+
+Production now retains/projects:
+
+- registration date;
+- registered business address;
+- registered business/activity description;
+- registered purpose;
+- registered contact email;
+- phone;
+- mobile;
+- exact source-field lineage into canonical facts.
+
+Fresh zero-overlap qualification for PR #92:
+
+- 100 unique companies; overlap 0;
+- seed `20261101`;
+- cohort SHA `92fc871ee9c94a928908cf00f007aef67eea02fe788caf70e8e734e82bd76b5d`;
+- run `37192494569`;
+- artifact `phase1-fresh-disjoint-100`, ID `11299633898`;
+- artifact digest `812941edf79709cc2324b907d9efc4b889fc56ee7df9e095bfad2890a9ba5f3d`;
+- 100/100 terminal completed;
+- company description: 100/100 vs baseline 14/100 on same cohort;
+- registered purpose: 96/100 vs baseline 0;
+- registration date: 100/100 vs baseline 0;
+- registered address: 100/100 vs baseline 0;
+- registered contact email: 21/100 vs baseline 0;
+- phone: 17/100 vs baseline 0;
+- mobile: 16/100 vs baseline 0;
+- exact BRREG evidence audit: 100 rows, 0 evidence errors;
+- output-contract errors: 0;
+- canonical errors: 0;
+- synthesis errors: 0;
+- logical requests: 669;
+- conservative request charge: 1,338/2,000;
+- runtime: 449.589 s;
+- third-party cost: $0;
+- search requests: 0.
+
+This is the first completed item under Phase A of the 70+ roadmap: **zero-risk collected-but-unpublished fact recovery**.
+
 ### Website discovery and identity
 
 Production includes hardened:
@@ -90,7 +138,7 @@ Publication remains fail-closed.
 - C12 bounded dated first-party news detail;
 - C12 bounded current first-party job postings.
 
-## 4. Latest completed milestone — C12 M4 jobs
+## 4. Previous major milestone — C12 M4 jobs
 
 PR #90 is merged.
 
@@ -107,12 +155,12 @@ Production behavior:
 - site ceiling remains four logical site requests/profile;
 - third-party API cost remains $0.
 
-Live proofs used for M4:
+Live proofs:
 
-- Granne `838797172`: exact site, vacancy count 0, no wasted careers follow-up, 0 jobs.
-- AF GRUPPEN ASA `938702675`: exact site, homepage vacancy count 31, bounded careers surface, current jobs published within 4/4 site requests.
+- Granne `838797172`: vacancy count 0, no careers follow-up, 0 jobs.
+- AF GRUPPEN ASA `938702675`: homepage vacancy count 31, bounded careers surface, current jobs published within 4/4 site requests.
 
-M4 live proof artifact:
+M4 proof artifact:
 
 - `c12-m4-live-proof`
 - artifact ID `11295658686`
@@ -120,25 +168,24 @@ M4 live proof artifact:
 
 ## 5. Known measured production strengths
 
-From prior certified/release qualification work:
-
 - exact terminal-output behavior is strong;
 - evidence completeness and hashes are strong;
 - refresh/idempotency is strong;
 - runtime/request accounting is strong;
 - $0 third-party API policy is preserved;
 - workforce coverage became near-universal after H2g;
-- website precision has been protected through repeated manual audits and regressions.
+- website precision has been protected through repeated manual audits and regressions;
+- Phase 1 proved substantial evaluator-visible recall can be recovered without new sources or added requests.
 
 Do not weaken these strengths to chase recall.
 
 ## 6. Primary remaining risk
 
-**Recall / company coverage.**
+**Recall / company coverage**, especially non-registry information families.
 
-The project is no longer mainly blocked by infrastructure. It needs more checked information types across more companies while preserving exact identity and evidence.
+Phase 1 substantially improves official/canonical breadth, but we still need more distinct checked information families across more companies while preserving exact identity and evidence.
 
-The next effort must optimize **net-new companies covered per information family**, especially:
+Optimize **net-new companies covered per information family**, especially:
 
 - concrete jobs;
 - dated first-party activity;
@@ -149,24 +196,23 @@ Do not optimize merely for total claim count.
 
 ## 7. Exact next action
 
-Do **not** immediately start another connector.
+Phase A is **partially complete**: lost-claim BRREG recovery has shipped.
 
-Start with Phase A from `docs/70_PLUS_IMPLEMENTATION_PLAN.md`:
+Next:
 
-1. run a fresh evaluator-shaped cohort on current M4 `main`;
-2. build a matrix of data collected internally vs canonical claims actually emitted;
-3. measure unique-company coverage by information family;
-4. identify zero-risk collected-but-unpublished facts;
-5. quantify what C12 M3/M4 changed on fresh companies;
-6. only then select the next feature based on measured recall gain.
+1. run/complete a current-main evaluator-shaped **family coverage matrix** after PR #92;
+2. compare all internally collected data against canonical emitted facts to identify any remaining zero-risk projection gaps;
+3. measure current M3/M4 company coverage for concrete jobs and dated activity on a fresh cohort;
+4. measure website/contact/social/people/location company coverage on the same cohort;
+5. select the next implementation only from measured net-new company opportunity.
 
-The likely next architecture work after that audit is verified-site enrichment 2.0 + adaptive request allocation, not a frontend rewrite.
+If no meaningful projection gaps remain, move to **Phase B — verified-site enrichment 2.0 + adaptive request allocation** from `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
 
 ## 8. Do-not-repeat decisions
 
 - Do not loosen exact website identity to recover recall.
 - Do not treat generic careers pages as jobs.
-- Do not revive guessed `.com` discovery without new evidence; the prior H1f screen had no useful net gain and namesake risk.
+- Do not revive guessed `.com` discovery without new evidence; prior H1f produced no useful net gain and namesake risk.
 - Do not scrape LinkedIn/Facebook/Glassdoor for production.
 - Do not rely on random review scraping.
 - Do not use paid search/API services under the current $0 project constraint.
@@ -212,6 +258,4 @@ Never write `done` merely because code exists. Distinguish:
 
 ## 10. NEXT
 
-**NEXT:** Current-main M4 evaluator-shaped coverage audit and collected-vs-emitted claim audit.
-
-After that audit, update this section with the selected next implementation branch and exact acceptance criteria.
+**NEXT:** Post-Phase-1 current-main family-coverage + remaining collected-vs-emitted audit. Then select Phase B only if no meaningful zero-risk projection gaps remain.
