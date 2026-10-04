@@ -88,11 +88,14 @@ def test_verified_registry_site_uses_remaining_two_requests_for_one_news_detail(
                 "nomination_only": True,
             }]
             return record, {"requests": 2, "bytes": 100, "latencies_ms": [5]}
-        return _website_record(
+        detail = _website_record(
             url="https://example.no/aktuelt/fersk-nyhet/",
             title="Fersk nyhet fra Example AS",
             text="Fersk nyhet fra Example AS publisert 2026-10-03. Viktig oppdatering.",
-        ), {"requests": 2, "bytes": 200, "latencies_ms": [6]}
+        )
+        detail["source_type"] = source_type
+        detail["source_class"] = source_type
+        return detail, {"requests": 2, "bytes": 200, "latencies_ms": [6]}
 
     monkeypatch.setattr(final_site, "fetch_bounded_homepage", fake_fetch)
     row, metrics = final_site.discover_final_website(_profile())
