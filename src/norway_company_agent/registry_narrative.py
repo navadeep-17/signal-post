@@ -13,7 +13,18 @@ LIVE_PURPOSE_FIELD = "registered_purpose"
 
 
 def _clean_text(value: Any, *, max_chars: int = 4000) -> str:
-    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    """Normalize literal BRREG narrative text without inventing or reordering content.
+
+    The live entity API sometimes represents a long narrative as an array of text lines.
+    Joining those lines is a serialization cleanup only: every emitted token still comes
+    directly from the exact-org response. Unexpected structured objects are left to their
+    ordinary string representation rather than interpreted semantically.
+    """
+    if isinstance(value, (list, tuple)):
+        raw = " ".join(str(item or "") for item in value if str(item or "").strip())
+    else:
+        raw = str(value or "")
+    text = re.sub(r"\s+", " ", raw).strip()
     if not text:
         return ""
     return text[:max_chars]
