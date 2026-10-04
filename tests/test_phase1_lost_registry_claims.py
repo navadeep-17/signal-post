@@ -155,6 +155,19 @@ def test_exact_live_lost_fields_reach_claims_with_exact_paths() -> None:
         assert row["source_row_key"] == ORG
 
 
+def test_narrative_line_arrays_are_joined_without_python_list_syntax() -> None:
+    profile = _profile()
+    live = profile["evidence"]["registry_live"]["value"]
+    live["activity"] = ["Utvikling av programvare", "og rådgivning."]
+    live["registered_purpose"] = ["Utvikle og selge programvare", "og beslektede tjenester."]
+
+    claims = _claims(_project(profile))
+    assert claims["company_description"]["value"] == "Utvikling av programvare og rådgivning."
+    assert claims["registered_purpose"]["value"] == "Utvikle og selge programvare og beslektede tjenester."
+    assert "[" not in claims["company_description"]["value"]
+    assert "[" not in claims["registered_purpose"]["value"]
+
+
 def test_lost_registry_claims_are_explicit_canonical_company_facts() -> None:
     item = _project()
     assert validate_canonical_projection(item) == []
