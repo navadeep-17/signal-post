@@ -34,6 +34,8 @@ def main() -> None:
     identity = value.get("identity_assessment") or {}
     detail = ((enriched.get("evidence") or {}).get("website_news_detail") or {})
     detail_value = detail.get("value") or {}
+    detail_pages = [p for p in (detail_value.get("pages") or []) if isinstance(p, dict)]
+    detail_page = detail_pages[0] if detail_pages else {}
 
     projected = project_first_party_activity_claims(
         {
@@ -56,7 +58,7 @@ def main() -> None:
         if claim.get("field") == "external.company_update"
     ]
     report = {
-        "schema": "signalpost-c12-m3-lucerna-probe-v2",
+        "schema": "signalpost-c12-m3-lucerna-probe-v3",
         "organisation_number": ORG,
         "legal_name": NAME,
         "registry_listed_website": WEBSITE,
@@ -90,6 +92,9 @@ def main() -> None:
         "detail_source_type": detail.get("source_type"),
         "detail_final_url": detail_value.get("final_url"),
         "detail_content_sha256": detail.get("content_sha256") or detail_value.get("content_sha256"),
+        "detail_retained_title": detail_page.get("title"),
+        "detail_retained_main_text_excerpt": str(detail_page.get("main_text_excerpt") or "")[:700],
+        "detail_retained_identity_text_excerpt": str(detail_page.get("identity_text_excerpt") or "")[:400],
         "material_company_updates": updates,
         "third_party_api_cost_usd": 0.0,
         "raw_page_body_persisted": False,
