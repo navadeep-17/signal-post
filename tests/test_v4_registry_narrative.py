@@ -135,7 +135,7 @@ def test_projection_is_idempotent_and_can_yield_to_later_stronger_description() 
             "content_sha256": "c" * 64,
             "claim_span": "Report description",
         }
-    ]
+    )
     stronger["claims"].append(
         {
             "field": "company_description",
@@ -145,7 +145,7 @@ def test_projection_is_idempotent_and_can_yield_to_later_stronger_description() 
             "evidence_ids": ["ev-report"],
             "signal_type": "official_annual_report",
         }
-    ]
+    )
     projected = project_registry_narrative_claims(stronger, _profile())
     descriptions = _claims(projected, "company_description")
     assert len(descriptions) == 1
