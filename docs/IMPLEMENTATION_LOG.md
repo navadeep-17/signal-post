@@ -12,6 +12,49 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase 4 dated-activity evidence hardening passes consumed gate
+
+Status: **IMPLEMENTED + TESTED / MERGE PENDING / NOT FRESH-QUALIFIED / NOT MERGED**
+
+- PR #95: `Phase 4: harden dated activity evidence selection`
+- branch: `feature/phase4-activity-date-evidence-hardening`
+- measured semantics head: `a220089fccefd63f88555d675194ebefcdd44723`
+- release-shaped code/test head before docs-only commits: `a4b8789a746f6e194186db1ea7dd2a40c78bf7b9`
+- consumed diff run `37217368930`: PASS
+- artifact: `phase4-activity-evidence-consumed-diff`, ID `11308328355`
+- artifact digest: `ddcf4e328edab217a016122801f1ad16f4f60c0a80d3e106b09ba5f67ed59da0`
+- exact-head Baseline CI `37217488481`: PASS
+- full regressions: PASS
+- fresh cohort: not consumed by design
+
+What changed:
+
+- page-local publication dates are evaluated by semantic strength instead of concatenated regex order;
+- stronger explicit publication metadata wins over generic/dynamic labelled dates;
+- equally strong conflicting dates abstain;
+- unstructured page text is accepted only when exactly one unique date remains;
+- standard CMS placeholder updates such as WordPress `Hello world!` are rejected;
+- retained update evidence records the selected extraction method and raw date evidence;
+- no new source or network request was added.
+
+Consumed 100-company deterministic diff:
+
+- baseline jobs 0 -> Phase-4 jobs 0;
+- baseline updates 0 -> Phase-4 updates 0;
+- added update URLs: 0;
+- dropped update URLs: 0;
+- publication-date changes: 0;
+- network requests added: 0;
+- third-party cost added: $0;
+- search API requests added: 0;
+- `precision_monotonic=true`.
+
+Adversarial regressions prove strong publication metadata beats unrelated dynamic dates, same-rank conflicts abstain, multiple weak text dates abstain, unambiguous text dates remain supported and generic WordPress placeholders cannot become company activity.
+
+Decision: **PROMOTE after repository docs + merge/post-merge gate**. A fresh cohort is intentionally not required for this precision-only, zero-request hardening.
+
+---
+
 ## 2026-10-04 — Phase 3 hardened RSS/Atom dated-activity screen rejected
 
 Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
@@ -173,7 +216,7 @@ Measured result:
 - baseline V8: 100/100 terminal, `passed=true`, 8 exact verified websites, 666 logical requests, 1,332/2,000 conservative charge, 439.185 s, $0, search API requests 0;
 - exact-parent subunit email rows: 19;
 - companies with exact-parent subunit email: 19;
-- unresolved companies with non-generic deduplicated email-domain candidates: 10;
+- unresolved companies with non-generic deduplicated candidate domains: 10;
 - attempted candidates: 10;
 - accepted exact target sites: **0**;
 - decisions: 9 existing identity-gate rejects, 1 target-proof reject;
