@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-04 (Asia/Kolkata)
 
-Repository state and live GitHub metadata are authoritative over chat history. Historical detail belongs in `docs/IMPLEMENTATION_LOG.md`; architecture/phase order belongs in `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
+Repository state and live GitHub metadata are authoritative over chat history. Historical detail belongs in `docs/IMPLEMENTATION_LOG.md`; architecture and phase order belong in `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
 
 ## 1. Current source of truth
 
@@ -10,171 +10,152 @@ Repository: `navadeep-17/signal-post`
 
 Production branch: `main`
 
-Phase-A production merge commit:
+Current production `main` SHA before this documentation reconciliation:
 
-`8a729036350c019e107cd68a08641f1fff6796f6`
+`7e299246c620860a13c82b20a2f24564a240e951`
 
-PR #94: `Phase A: exact-live BRREG zero-request breadth recovery`
+That commit is documentation-only on top of Phase-A production merge `8a729036350c019e107cd68a08641f1fff6796f6`.
 
-- state: **MERGED**
+PR #94 `Phase A: exact-live BRREG zero-request breadth recovery` is **MERGED**.
+
 - qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
 - cleaned/reconciled PR head: `d36ea6edefc58e38ad656042d93c6a409c4f02e7`
 - exact-head Baseline CI: `37205694426` PASS
 - merge commit: `8a729036350c019e107cd68a08641f1fff6796f6`
 - post-merge Baseline CI: `37205739214` PASS
+- final handoff Baseline CI on `7e299246...`: `37205977491` PASS
 
-The latest `main` roadmap commit `ea79bf6283497dd991a9a106d7dffb8f3001d418` was reconciled into the PR before merge, so its Phase 0–11 architecture is preserved.
+Open PRs #76, #78 and #84 are historical/experimental and are not the active production path.
 
-Other open draft PRs are historical/experimental and are not the active production path.
+Active implementation branch / PR: **none yet**. Phase 2 should start from current `main` after this state reconciliation.
 
 ## 2. Lifecycle state
 
-### Phase 1 / Phase A collected-vs-emitted exact BRREG recovery
+### Phase 1 / collected-vs-emitted exact BRREG recovery
 
 - **IMPLEMENTED:** yes
 - **TESTED:** yes
 - **QUALIFIED:** yes
-- **MERGED:** yes, PR #94
+- **MERGED:** yes
 - **POST-MERGE GREEN:** yes
 
-Retained production behavior:
+Phase 1 is closed.
 
-- exact-live BRREG postal address;
-- foundation date;
-- statutes/articles date;
-- Foretaksregisteret membership + registration date;
-- institutional sector;
-- registered capital structure;
-- VAT-register membership + registration date;
-- forced-dissolution status;
-- exact source-path / source-row / URL / hash / canonical lineage;
-- explicit `False` remains an available official fact;
-- missing exact-live fields remain `not_available`;
-- no bulk/profile fallback for these managed fields;
-- zero additional source requests.
+Retained production behavior includes exact-live BRREG postal address, foundation/articles dates, Foretaksregisteret state/date, institutional sector, registered capital, VAT state/date and forced-dissolution state with exact source-path/source-row/URL/hash/canonical lineage and zero added source requests.
 
-### Earlier Phase 1 lost-claim recovery
+### Phase 2 / exact website-discovery improvement
 
-PR #92 remains **QUALIFIED + MERGED + POST-MERGE GREEN**. Qualification run `37192494569`; merge commit `911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`; post-merge Baseline CI `37193327713` PASS.
+- **IMPLEMENTED:** no new Phase-2 production strategy yet
+- **TESTED:** current-main consumed baseline measured
+- **QUALIFIED:** no
+- **MERGED:** no
+- **POST-MERGE GREEN:** not applicable
 
-## 3. Phase-A qualification evidence
+Phase 2 is the active architecture stage.
 
-### Consumed gate
+## 3. Phase-A qualification evidence retained as baseline
 
-Run `37200794754`: PASS on `ddd35f0679a9b05bdea5a26cd1b5b8f83a1fc59f`.
+Second untouched qualification run `37203580574` on head `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`:
 
-Artifact `phasea3-consumed-e2e`, ID `11302927164`, digest `sha256:9c7b0014d0e08686f6801e541411da8141a36d331500cd9ca11c6f181e258578`.
+- exclusion union: 8,323 unique companies
+- exclusion SHA: `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`
+- seed: `20261103`
+- fresh cohort: 100 unique, overlap 0
+- cohort SHA: `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`
+- 100/100 terminal
+- V8 `passed=true`
+- evidence/contract/canonical/synthesis errors: 0
+- logical requests: 666
+- conservative charge: 1,332/2,000
+- runtime: 460.916 s
+- third-party cost: $0
+- search API requests: 0
+- artifact: `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`, digest `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`
 
-Coverage / 100: forced dissolution 100, foundation 98, articles 96, Foretaksregisteret state 100/date 98, sector 95, capital 91, VAT state 100/date 48, postal address 30. Evidence/contract/canonical/synthesis errors: 0. Operations: 669 logical, 1,338 conservative charge, 2,000 ceiling, 473.27 s, $0, 0 search requests.
+The earlier seed-`20261102` 100-company attempt remains a correctly failed, consumed cohort and must never be reused as fresh validation data.
 
-### First fresh attempt — FAILED and consumed
+## 4. Current-main Phase-2 baseline on the consumed qualification cohort
 
-Run `37201683517`, seed `20261102`, head `525b80126ac48e8662886422fbb606cce29e2a20`.
+Artifact `11304401011` was re-read after Phase A closed.
 
-- exclusion: 8,223 companies, SHA `4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae`;
-- fresh 100, overlap 0, cohort SHA `f74aed4f1c3a389e2a88699f2df02edb01815c1f81cf87d6858cc276dacd5c29`;
-- V8 PASS and integrity checks clean;
-- postal address 17 vs predeclared `>=20` optional-field prevalence floor;
-- qualification result: **FAIL**;
-- artifact ID `11302933473`, digest `sha256:44045fa0727fb3fab5e79f7721e706d4a2a0cf2478644f3f61983291def12aa0`.
+Website claim status / 100:
 
-This failure remains historical evidence and this cohort must never be reused as fresh validation data.
+- exact verified website: **7**
+- not available: **87**
+- ambiguous: **4**
+- failed: **2**
 
-### Second untouched fresh qualification — PASS
+Verified website sources:
 
-Run `37203580574` on qualified measurement head `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`.
+- company-owned / registry-linked exact sites: 4
+- deterministic legal-name `.no` exact sites: 3
 
-Freshness:
+External families on the same cohort:
 
-- failed first-fresh cohort added to exclusions;
-- exclusion union: 8,323 unique companies;
-- exclusion SHA: `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`;
-- seed: `20261103`;
-- 100 unique companies;
-- overlap: 0;
-- cohort SHA: `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`.
+- `external.profile_handle`: 10 claims
+- `external.contact_email`: 6 claims
+- `external.workforce_snapshot`: 100 claims
 
-Coverage / 100:
+Interpretation: exact website reach is the dominant unlock for later contact/social/jobs/activity phases.
 
-- forced dissolution: 100
-- foundation date: 100
-- articles date: 99
-- Foretaksregisteret state: 100
-- Foretaksregisteret registration date: 98
-- institutional sector: 100
-- registered capital: 98
-- VAT state: 100
-- VAT registration date: 48
-- postal address: 23
-- registration date: 100
-- registered business address: 100
-- company description: 100
-- registered purpose: 98
+## 5. Phase-2 source audit decisions
 
-Quality / operations:
+### Norid organization-number domain lookup
 
-- 100/100 terminal;
-- V8 `passed=true`;
-- evidence errors: 0;
-- contract errors: 0;
-- canonical errors: 0;
-- synthesis errors: 0;
-- logical requests: 666;
-- conservative charge: 1,332/2,000;
-- theoretical ceiling: 2,000;
-- runtime: 460.916 s;
-- third-party cost: $0;
-- search API requests: 0.
+Decision: **DROP / DO NOT IMPLEMENT**.
 
-Artifact: `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`, digest `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`.
+Reason:
 
-## 4. Rejected external-phone paths
+- Norid's public directory does support organisation-number -> domain registrations, but the published terms prohibit commercial use and restrict use to specified contact/security/legal purposes;
+- repeated lookups are rate-limited and the public page requires anti-bot confirmation;
+- anonymous RDAP does not provide a replacement organisation-number domain-search path; relevant subscriber-identity search/count functions are authenticated-registrar capabilities.
 
-### Zero-network homepage phone
+This source is therefore not acceptable for Signalpost discovery under the repository's rights-safe promotion criteria.
 
-The labelled homepage-phone feature was precision-correct but failed the company-family transfer bar:
+### BRREG subunit homepage hints
 
-- consumed Phase-1 cohort: +2 net-new phone-family companies;
-- first fresh: 3 external-phone companies, registered phone/mobile union 38, combined union still 38 -> 0 net-new;
-- second fresh: 1 external-phone company, registered phone/mobile union 33, combined union still 33 -> 0 net-new.
+Selected next screen: **exact parent-linked subunit `hjemmeside` candidates**.
 
-Fresh case `VEST GULV AS` (`924516941`) correctly exposed `+47 22 20 11 70`, but exact BRREG live already supplied the same registered phone.
+Why this is materially different from prior failed domain guessing:
 
-Decision: **DROP**. The extractor/projector/tests/canonical mapping were removed/restored before PR #94 merged.
+- production already spends the official `locations` request against `underenheter?overordnetEnhet=<org>`;
+- BRREG's underunit schema includes `hjemmeside` and exact `overordnetEnhet` linkage;
+- current `normalize_locations()` discards `hjemmeside`, so candidate information is already fetched but lost;
+- retaining the field adds zero official-source requests;
+- a subunit homepage is only a candidate, never proof;
+- publication must still pass the existing exact target-company website identity gate;
+- parent/subunit inheritance is not allowed merely because the relationship exists.
 
-### Idle contact-page network fallback
+## 6. Precision and budget invariants
 
-Consumed transfer run `37197243641` produced zero net-new company-level contact coverage. Decision remains **DROP / DO NOT RESTORE** without new generic evidence.
-
-## 5. Precision and budget invariants
-
-- exact organisation number is the legal-entity anchor;
+- exact organisation number remains the legal-entity anchor;
 - candidate generation is never publication proof;
-- exact-live official fields publish only from exact-org BRREG evidence;
-- page-level external provenance remains mandatory;
-- parent/subsidiary inheritance remains prohibited;
-- generic careers page is not a job;
-- missing/blocked/ambiguous remains explicit;
+- parent/subsidiary/subunit relationship alone cannot authorize a website claim;
+- exact-page external provenance remains mandatory;
+- wrong-company publication is a hard failure;
+- missing/blocked/ambiguous stays explicit;
 - third-party API spend remains $0;
-- base structural ceiling remains 5 official + at most 4 site logical requests/profile;
-- annual-report and shared BRREG-change reservations remain separately accounted;
-- qualified 100-company conservative ceiling remains 2,000.
+- no paid/search API path is active;
+- at most four logical site requests/profile remains the Phase-2 production ceiling;
+- any new candidate strategy must fit that ceiling by ordering/substitution, not by silently adding a fifth site request;
+- fresh cohorts are reserved for promotion only after consumed-cohort transfer is meaningful.
 
-## 6. Phase transition
+## 7. Known rejected / do-not-repeat website-discovery paths
 
-Phase 1 / collected-vs-emitted exact BRREG recovery is **closed**.
+Do not revive without genuinely new evidence:
 
-Per `docs/70_PLUS_IMPLEMENTATION_PLAN.md`, the next architectural stage is Phase 2: **website discovery improvement**, followed by Phase 3 sitemap/targeted-page enrichment and Phase 4 page-level observation integrity.
+- guessed `.com` expansion;
+- broad rule/ML legal-name candidate ranking that previously produced no net-new exact sites;
+- annual-report domain hints after the prior zero-yield screen;
+- Norid public lookup because rights/purpose terms are incompatible;
+- provider-dependent model/search PRs #78/#84 unless Builderr explicitly resolves provider/key/budget and the $0 project constraint changes.
 
-Do not jump directly to optional ML/AI or broad new official connectors.
+## 8. Exact next 1–3 actions
 
-## 7. Exact next actions
+1. Create a Phase-2 experiment branch from the reconciled current `main` and retain `hjemmeside` in normalized exact-parent BRREG subunit/location records without publishing anything.
+2. On the already-consumed seed-`20261103` 100-company cohort, measure how many currently unresolved companies expose one or more subunit homepage hints; independently fetch only a tightly bounded candidate set and apply the existing exact target-company website identity gate. Report attempted candidates, exact verified sites, ambiguous/wrong-company rejects, added site requests, runtime and cost.
+3. Decision gate: PROMOTE only if the strategy adds meaningful net-new exact verified websites with zero wrong-company publications and can be integrated without exceeding four logical site requests/profile. Otherwise RETUNE/SHELVE/DROP and record the result.
 
-1. Re-baseline current `main` company-family coverage after PR #94, especially verified website/contact/social/jobs/activity families.
-2. Audit existing website candidate sources and rejection reasons to identify the highest-yield exact-site discovery gap without weakening identity.
-3. Screen one bounded Phase-2 website-discovery strategy on consumed companies first; require net-new exact verified sites, wrong-company audit, request/runtime/cost accounting, and a PROMOTE/RETUNE/SHELVE/DROP decision.
-4. Only after Phase-2 site reach improves, proceed to sitemap + targeted-page extraction.
+## 9. NEXT
 
-## 8. NEXT
-
-**NEXT: Phase 2 exact website-coverage improvement. Start with a current-main candidate/rejection audit and choose one bounded discovery strategy that can add net-new exact verified company sites without weakening identity.**
+**NEXT: Phase 2 consumed-cohort screen of exact-parent BRREG subunit `hjemmeside` candidates. Retain the already-fetched field first, keep publication disabled, independently verify candidate pages against the target main entity, and do not spend a fresh cohort yet.**
