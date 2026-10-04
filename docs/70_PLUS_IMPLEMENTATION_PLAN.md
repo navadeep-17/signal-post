@@ -41,7 +41,7 @@ Discovery may be broad; publication remains exact and fail-closed.
 6. Official/financial values remain deterministic official-source facts.
 7. One source failure must not drop a company envelope.
 8. Refresh remains deterministic and idempotent.
-9. No experimental source enters production without measurable company coverage and a clean precision audit.
+9. No experimental feature enters production without measurable transfer and a clean precision audit.
 10. Third-party API spend remains $0 unless explicitly changed.
 11. Site logical-request ceiling remains four per company unless a later structural theorem is separately qualified.
 12. Fresh cohorts are scarce; failed/used cohorts are never reused as fresh promotion data.
@@ -65,15 +65,15 @@ Keep candidate-vs-verified separation and statement-level lineage throughout.
 
 ## 4. Current production foundation
 
-Production `main` already includes exact BRREG identity, financials, roles, locations/group context, evidence-linked output/canonical projection, deterministic refresh, bounded exact-site discovery, first-party social/email, workforce, company-description fallbacks, C12 dated first-party news/jobs, and Phase-1 exact-live BRREG recovery for registration date, business address, purpose/activity description and registered contacts.
+Production `main` before the Phase-A merge already includes exact BRREG identity, financials, roles, locations/group context, evidence-linked output/canonical projection, deterministic refresh, bounded exact-site discovery, first-party social/email, workforce, company-description fallbacks, C12 dated first-party news/jobs, and Phase-1 exact-live BRREG recovery for registration date, business address, purpose/activity description and registered contacts.
 
-Current production `main` SHA: `1589e4c5fd8c9cdc44e28574c961ee1912e47bf9`.
+Pre-merge production `main` SHA: `1589e4c5fd8c9cdc44e28574c961ee1912e47bf9`.
 
 ## 5. Work program
 
-### Phase A — collected-vs-emitted recovery
+### Phase A — collected-vs-emitted exact BRREG recovery
 
-Status: **IMPLEMENTED + TESTED / NOT YET QUALIFIED / NOT MERGED**.
+Status: **IMPLEMENTED + TESTED + FRESH-QUALIFIED / NOT YET MERGED**.
 
 Active PR: #94, branch `feature/phaseb-idle-contact-enrichment`.
 
@@ -86,12 +86,11 @@ Retained zero-request candidate:
 - institutional sector;
 - registered capital;
 - VAT state + registration date;
-- forced-dissolution state;
-- labelled phone extracted from the already verified exact homepage only.
+- forced-dissolution state.
 
-All official Phase-A fields must:
+All retained official Phase-A fields:
 
-- come only from retained exact-org `registry_live` evidence;
+- come only from exact-org `registry_live` evidence;
 - carry exact BRREG source URL/hash/source row/source path;
 - preserve explicit `False` as available;
 - map missing fields to `not_available`;
@@ -101,44 +100,41 @@ All official Phase-A fields must:
 
 #### Consumed Phase A3 gate
 
-Run `37200794754` passed on 100/100 terminal companies with 0 evidence/contract/canonical/synthesis errors. Coverage: forced dissolution 100, foundation 98, articles date 96, enterprise state 100/date 98, sector 95, capital 91, VAT state 100/date 48, postal address 30. Operations: 669 logical, 1,338 conservative charge, 2,000 ceiling, 473.27 s, $0, 0 search API requests.
+Run `37200794754` passed on 100/100 terminal companies with zero evidence/contract/canonical/synthesis errors. Coverage: forced dissolution 100, foundation 98, articles date 96, enterprise state 100/date 98, sector 95, capital 91, VAT state 100/date 48, postal address 30. Operations: 669 logical, 1,338 conservative charge, 2,000 ceiling, 473.27 s, $0, 0 search API requests.
 
-#### First final fresh attempt
+#### First final fresh attempt — preserved failure
 
-Run `37201683517` used seed `20261102`, excluded 8,223 previously touched companies, selected 100 unique companies with overlap 0, and ran V8 successfully. Exact-head Baseline CI `37201687696` also passed.
+Run `37201683517`, seed `20261102`, excluded 8,223 previously touched companies, selected 100 unique with overlap 0. V8 itself passed and evidence/output checks were clean, but postal address was 17 against a predeclared `>=20` prevalence floor. Result: **FAIL**. The cohort is consumed and remains documented as a failure.
 
-Fresh coverage: forced dissolution 100, foundation 99, articles date 97, enterprise state 100/date 98, sector 100, capital 93, VAT state 100/date 57, postal address **17**, registration date/address 100. V8 and output/evidence structure were clean; operations were 702 logical, 1,404 conservative charge, 2,000 ceiling, 451.153 s, $0, 0 search API requests.
+#### Second untouched fresh qualification — PASS
 
-**Qualification result: FAIL** because a predeclared `postal_address >= 20` floor was missed at 17.
+Run `37203580574` on exact measurement head `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`.
 
-This failure is preserved. The cohort is consumed.
+- all-touched exclusion: 8,323 unique companies;
+- exclusion SHA: `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`;
+- seed: `20261103`;
+- fresh cohort: 100 unique, overlap 0;
+- cohort SHA: `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`;
+- coverage: forced dissolution 100, foundation 100, articles date 99, enterprise state 100/date 98, sector 100, capital 98, VAT state 100/date 48, postal address 23, registration date/address 100;
+- 100/100 terminal;
+- evidence/contract/canonical/synthesis errors: 0;
+- 666 logical requests;
+- 1,332 conservative charge / 2,000 ceiling;
+- runtime 460.916 s;
+- cost $0;
+- search requests 0;
+- artifact `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`, digest `31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`.
 
-#### Acceptance-criterion retune
+**Phase A retained exact-BRREG/postal behavior is qualified.**
 
-The failure exposed a validation-design issue rather than a production correctness issue: postal address is an optional registry field whose source prevalence varies by cohort. Universal hard prevalence floors are suitable for near-universal status/identity fields but are not suitable correctness gates for optional fields.
+#### External homepage phone — rejected before merge
 
-For the second untouched qualification, predeclare:
+The zero-network labelled-phone feature had +2 net-new phone-family companies on one consumed cohort but did not transfer at company-family level:
 
-Hard gates:
+- first fresh: 3 external-phone companies, registered phone/mobile union 38, combined union still 38 -> 0 net-new;
+- second fresh: 1 external-phone company, registered phone/mobile union 33, combined union still 33 -> 0 net-new.
 
-- 100 unique / 100 terminal / zero overlap;
-- V8 `passed=true`;
-- zero evidence, contract, canonical and synthesis errors;
-- exact source-path/URL/hash/canonical mapping for every available Phase-A fact;
-- broad near-universal fields retain strong company-coverage floors;
-- request/runtime/cost limits pass;
-- third-party cost $0 and search requests 0;
-- every fresh external-phone case manually audited.
-
-Optional-source-prevalence fields:
-
-- postal address and VAT registration date must be reported transparently;
-- they must show non-zero transfer on the new cohort and perfect evidence mapping when available;
-- they are not required to meet an arbitrary universal percentage floor.
-
-This is a **validation-only retune**. Production extraction/publication semantics must not change unless a correctness defect is found.
-
-Second-fresh exclusion must include the failed seed-`20261102` cohort. Expected all-touched union: 8,323 unique companies; SHA `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`. Planned seed: `20261103`.
+The fresh case (`VEST GULV AS`) was precision-correct, but BRREG already carried the same phone. Decision: **DROP** the phone feature and remove it from PR #94 before merge. Do not interpret precision-only duplication as coverage gain.
 
 ### Rejected experiment — idle exact contact-page fallback
 
@@ -148,7 +144,7 @@ Consumed transfer run `37197243641` produced zero net-new company-level contact 
 
 ### Phase B — verified-site enrichment 2.0
 
-Status: **DEFERRED UNTIL PHASE A QUALIFIES/MERGES**.
+Status: **NEXT AFTER PHASE A MERGE**.
 
 Candidates: bounded sitemap/RSS discovery; same-domain about/contact/team/careers/news; structured Organization/Person/JobPosting/Article metadata; OpenGraph/canonical/time/mailto/tel/sameAs. Every extra page must justify itself by net-new family coverage. No unbounded crawl.
 
@@ -172,7 +168,7 @@ Use exact company-owned news detail, RSS/Atom, sitemap candidates and structured
 
 ### Phase F — broad exact-ID official-source screens
 
-Only after Phase A/B/C. Candidate families may include BRREG support data, procurement, IP activity and shared-feed jobs. Each must pass rights/exact-ID/reach screening first.
+After Phase A/B/C. Candidate families may include BRREG support data, procurement, IP activity and shared-feed jobs. Each must pass rights/exact-ID/reach screening first.
 
 ### Phase G/H — optional ML and evidence-bounded AI
 
@@ -188,7 +184,7 @@ Keep product directly linked to final JSONL with search/select, evidence-backed 
 
 ### Phase K — release qualification/submission
 
-Do not consume another Builderr revision until a combined candidate has exact-head CI, evaluator-shaped consumed measurement, a fresh zero-overlap promotion qualification, 100/100 terminal envelopes, zero integrity errors, manual audit of each newly introduced external family, request/runtime/cost compliance and an exact SHA freeze.
+Do not consume another Builderr revision until a combined candidate has exact-head CI, evaluator-shaped consumed measurement, a fresh zero-overlap promotion qualification, 100/100 terminal envelopes, zero integrity errors, manual audit of newly introduced external families, request/runtime/cost compliance and an exact SHA freeze.
 
 ## 6. Measurement requirements
 
@@ -199,23 +195,23 @@ Every experiment reports company coverage, not only claim counts. Always include
 - consumed cohorts: tune/debug;
 - fresh cohorts: promotion gates;
 - once a fresh cohort is run, it is consumed even if the gate fails;
-- acceptance criteria must be declared before the next untouched cohort;
-- a green unit test or clean V8 execution alone is not qualification.
+- acceptance criteria are declared before untouched cohorts;
+- a green unit test or clean V8 execution alone is not qualification;
+- a feature that is precise but adds zero net-new family coverage on fresh transfer data should normally be dropped rather than merged for feature count.
 
 Maintain adversarial cases for namesakes, parent/subsidiary, shared domains, franchises, multiple org numbers, former names and rebrands.
 
 ## 8. Near-term sequence
 
-1. Validation-only retune for optional-field prevalence.
-2. Add failed seed-`20261102` cohort to exclusion; verify 8,323 union SHA.
-3. Run second untouched 100 with seed `20261103` on unchanged production semantics.
-4. Manually audit every external-phone case.
-5. If green: strip validation-only workflow files from PR #94, update docs with QUALIFIED state, mark ready, merge, then verify post-merge `main` CI.
-6. Only after Phase A closes, resume Phase B/C.
+1. Exact-head Baseline CI on the cleaned Phase-A branch after removing rejected phone code and validation-only workflows.
+2. Update PR #94 title/body to the qualified exact-BRREG scope and mark ready.
+3. Merge only if exact-head CI is green.
+4. Verify post-merge `main` CI and record merge SHA.
+5. Then resume Phase B/C, starting from measured current-main company-family coverage rather than feature guesses.
 
 ## 9. Do-not-repeat decisions
 
-Do not restore the rejected idle contact-page fallback, loosen exact website identity, treat generic careers as jobs, revive guessed `.com`, scrape LinkedIn/Facebook/Glassdoor, use random reviews, use paid search/API under the $0 constraint, tune against Builderr’s checked collection, or reuse a consumed fresh cohort.
+Do not restore the rejected idle contact-page fallback or the rejected duplicate external-phone feature without new net-new coverage evidence. Do not loosen exact website identity, treat generic careers as jobs, revive guessed `.com`, scrape LinkedIn/Facebook/Glassdoor, use random reviews, use paid search/API under the $0 constraint, tune against Builderr’s checked collection, or reuse a consumed fresh cohort.
 
 ## 10. Continuity protocol
 
