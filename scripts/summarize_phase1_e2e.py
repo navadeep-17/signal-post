@@ -7,7 +7,7 @@ from typing import Any
 
 from norway_company_agent.canonical_projection import validate_canonical_projection
 from norway_company_agent.output_contract import validate_contract_object
-from norway_company_agent.v5_synthesis import validate_synthesis
+from norway_company_agent.synthesis import validate_company_synthesis
 
 TRACKED_CLAIMS = (
     "company_description",
@@ -93,12 +93,12 @@ def main() -> None:
         org = str(row.get("organisation_number") or "")
         contract_errors.extend(f"{org}: {error}" for error in validate_contract_object(row))
         canonical_errors.extend(f"{org}: {error}" for error in validate_canonical_projection(row))
-        synthesis_errors.extend(f"{org}: {error}" for error in validate_synthesis(row))
+        synthesis_errors.extend(f"{org}: {error}" for error in validate_company_synthesis(row))
 
-    states = {}
+    terminal_states: dict[str, int] = {}
     for row in rows:
-        state = str(row.get("state") or "")
-        states[state] = states.get(state, 0) + 1
+        state = str((row.get("run") or {}).get("terminal_status") or "")
+        terminal_states[state] = terminal_states.get(state, 0) + 1
 
     request_budget = report.get("request_budget") or {}
     runtime = report.get("runtime") or {}
@@ -117,7 +117,7 @@ def main() -> None:
         "schema_version": "signalpost-phase1-e2e-summary-v1",
         "companies": len(rows),
         "unique_companies": len({str(row.get("organisation_number") or "") for row in rows}),
-        "terminal_states": states,
+        "terminal_states": terminal_states,
         "claim_company_coverage": claim_coverage,
         "canonical_company_coverage": canonical_coverage,
         "baseline_company_coverage": BASELINE_COMPANY_COVERAGE,
@@ -130,7 +130,7 @@ def main() -> None:
         "operations": operations,
         "passed": (
             len(rows) == 100
-            and states.get("complete") == 100
+            and terminal_states.get("completed") == 100
             and not contract_errors
             and not canonical_errors
             and not synthesis_errors
