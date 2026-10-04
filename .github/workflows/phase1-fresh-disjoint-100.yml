@@ -83,7 +83,15 @@ jobs:
           gh run download 37050077407 --repo navadeep-17/signal-post --name v6i-registry-contact-transfer --dir archived/v6i
           gh run download 37094118245 --repo navadeep-17/signal-post --name v7-m2c-homepage-careers-transfer --dir archived/m2c
           gh run download 37183847186 --repo navadeep-17/signal-post --name c12-m5-combined-measurement-100 --dir archived/c12m5
-          git show 2c745ed22232a443fe2c9e8fc3f49a66c725be0e:validation/h1e-fresh-300-exclusion.jsonl > historical-h1e-fresh-300-exclusion.jsonl
+          gh api repos/navadeep-17/signal-post/git/blobs/00f2470f9d8c9eb102cf4d0c19be37534fdbffef --jq '.content' | tr -d '\n' | base64 --decode > historical-h1e-fresh-300-exclusion.jsonl
+          test "$(git hash-object historical-h1e-fresh-300-exclusion.jsonl)" = "00f2470f9d8c9eb102cf4d0c19be37534fdbffef"
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(x) for x in Path('historical-h1e-fresh-300-exclusion.jsonl').read_text().splitlines() if x.strip()]
+          orgs=[str(row['organisation_number']) for row in rows]
+          assert len(rows)==300 and len(set(orgs))==300, (len(rows),len(set(orgs)))
+          PY
           echo "$CAREERS_TRANSFER_SHA256  archived/m2c/v7-m2c-transfer-100.jsonl" | sha256sum -c -
           echo "$C12_M5_FRESH_SHA256  archived/c12m5/c12-m5-fresh-100.jsonl" | sha256sum -c -
           echo "$C12_M5_EXCLUDE_SHA256  archived/c12m5/c12-m5-exclude.jsonl" | sha256sum -c -
