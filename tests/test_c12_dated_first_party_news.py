@@ -29,6 +29,7 @@ def _website_record(*, url: str = "https://example.no/", title: str = "Example A
             "description": "",
             "identity_text_excerpt": text,
             "main_text_excerpt": text,
+            "published_date_candidates": [],
             "social_links": [],
             "careers_links": [],
             "news_detail_links": [],
@@ -41,6 +42,7 @@ def _website_record(*, url: str = "https://example.no/", title: str = "Example A
                 "title": title,
                 "identity_text_excerpt": text,
                 "main_text_excerpt": text,
+                "published_date_candidates": [],
                 "content_sha256": digest,
             }],
             "crawl_errors": [],
@@ -107,6 +109,21 @@ def test_root_slug_without_local_date_is_not_news_nomination() -> None:
     ) == []
 
 
+def test_page_date_candidates_retain_semantic_and_labelled_page_dates() -> None:
+    soup = BeautifulSoup(
+        """
+        <html><head><meta property="article:published_time" content="2026-06-03T12:11:00+02:00"></head>
+        <body><span class="published-date">03.06.26, kl 12:11</span></body></html>
+        """,
+        "lxml",
+    )
+    candidates = final_site._page_date_candidates(soup)
+    assert {item["raw"] for item in candidates} >= {
+        "2026-06-03T12:11:00+02:00",
+        "03.06.26, kl 12:11",
+    }
+
+
 def test_verified_registry_site_uses_remaining_two_requests_for_one_news_detail(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
 
@@ -148,6 +165,7 @@ def _profile_with_detail(
     dated: bool = True,
     root_slug: bool = False,
     short_year_date: bool = False,
+    page_date_candidate: bool = False,
 ) -> dict:
     homepage = _website_record()
     homepage["value"]["identity_assessment"] = {
@@ -178,9 +196,16 @@ def _profile_with_detail(
         text=(
             f"Konkret selskapsoppdatering. Publisert {date_text}. Dette er detaljsiden med innhold."
             if dated else
-            "Konkret selskapsoppdatering uten publiseringsdato. Dette er detaljsiden med innhold."
+            "Konkret selskapsoppdatering uten publiseringsdato i ekstraktet. Dette er detaljsiden med innhold."
         ),
     )
+    if page_date_candidate:
+        detail["value"]["published_date_candidates"] = [
+            {"raw": "03.06.26, kl 12:11", "method": "date_labelled_element"}
+        ]
+        detail["value"]["pages"][0]["published_date_candidates"] = list(
+            detail["value"]["published_date_candidates"]
+        )
     detail["source_type"] = "verified_company_news_detail_candidate"
     return {
         "organisation_number": "923609016",
@@ -210,6 +235,18 @@ def test_homepage_nominated_root_slug_with_short_year_date_projects_update() -> 
     )
     assert len(claims) == 1
     assert claims[0]["value"]["url"] == "https://example.no/elbilladere-i-fokus-hos-det-lokale-eltilsyn"
+    assert claims[0]["value"]["published_date"] == "2026-06-03"
+
+
+def test_page_local_date_candidate_can_supply_date_when_text_extractor_omits_it() -> None:
+    claims = _company_update_claims(
+        _profile_with_detail(
+            dated=False,
+            root_slug=True,
+            page_date_candidate=True,
+        )
+    )
+    assert len(claims) == 1
     assert claims[0]["value"]["published_date"] == "2026-06-03"
 
 
