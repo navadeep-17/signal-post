@@ -1,0 +1,35 @@
+name: C12 M3 Lucerna Live Proof
+
+on:
+  push:
+    branches:
+      - feature/c12-dated-first-party-news
+    paths:
+      - "scripts/run_c12_m3_lucerna_probe.py"
+      - ".github/workflows/c12-m3-lucerna-live-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Run Lucerna live proof
+        run: uv run python scripts/run_c12_m3_lucerna_probe.py
+      - name: Upload proof report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c12-m3-lucerna-live-proof
+          path: out/c12-m3-lucerna-live-proof.json
+          if-no-files-found: warn
+          retention-days: 7
