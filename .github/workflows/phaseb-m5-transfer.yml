@@ -1,0 +1,213 @@
+name: Phase B M5 Consumed Transfer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/phaseb-idle-contact-enrichment
+    paths:
+      - ".github/workflows/phaseb-m5-transfer.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-m5-100:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OCR runtime and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          uv sync --locked
+
+      - name: Restore consumed C12 M5 cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p consumed
+          gh run download 37183847186 \
+            --repo navadeep-17/signal-post \
+            --name c12-m5-combined-measurement-100 \
+            --dir consumed
+          test -s consumed/c12-m5-fresh-100.jsonl
+          echo '5bfb49418a1ae692b3145d2d2afe22e598067e5f6dfbcd31b0ecb35845a77ac0  consumed/c12-m5-fresh-100.jsonl' | sha256sum -c -
+
+      - name: Download current BRREG bulk
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Run current V8 evaluator path
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations consumed/c12-m5-fresh-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/m5-output.jsonl \
+            --report out/m5-report.json \
+            --product-output out/m5-product.html \
+            --work-dir out/m5-work \
+            --run-id phaseb-consumed-m5-100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-third-party-cost-usd 0 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Verify scheduler-shaped net-new contact yield
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          rows=read_jsonl('out/m5-output.jsonl')
+          profiles=read_jsonl('out/m5-work/profiles.jsonl')
+          report=json.loads(Path('out/m5-report.json').read_text(encoding='utf-8'))
+          assert len(rows)==100 and len(profiles)==100
+          assert report['passed'] is True, report.get('checks')
+          assert not report.get('contract_errors')
+          assert not (report.get('canonical_projection') or {}).get('validation_errors')
+          assert not (report.get('synthesis') or {}).get('validation_errors')
+          rb=report['request_budget']
+          assert rb['site_logical_requests_per_profile_ceiling']==4, rb
+          assert rb['theoretical_challenge_request_charge_ceiling'] <= 2000, rb
+          assert rb['observed_conservative_challenge_request_charge'] <= 2000, rb
+          assert report['source_policy']['third_party_cost_usd']==0.0
+          assert report['source_policy']['search_api_requests']==0
+
+          rows_by_org={str(row['organisation_number']):row for row in rows}
+          retained=[]
+          surface_obs=[]
+          surface_phone_companies=set()
+          surface_email_companies=set()
+          net_new_phone_companies=set()
+          net_new_email_companies=set()
+          net_new_any_contact_companies=set()
+
+          for profile in profiles:
+              org=str(profile['organisation_number'])
+              ev=profile.get('evidence') or {}
+              has_contact=(ev.get('website_contact_surface') or {}).get('status')=='available'
+              has_careers=(ev.get('website_careers_surface') or {}).get('status')=='available'
+              has_news=(ev.get('website_news_detail') or {}).get('status')=='available'
+              has_h1g='website_h1g_hyphenated_no_discovery' in ev
+              assert not (has_contact and has_careers), org
+              assert not (has_contact and has_news), org
+              assert not (has_contact and has_h1g), org
+              assert int((profile.get('run_metrics') or {}).get('logical_requests') or 0) <= 10, (org,profile.get('run_metrics'))
+              if has_contact:
+                  retained.append(org)
+                  surface=ev['website_contact_surface']
+                  identity=(surface.get('value') or {}).get('contact_surface_identity') or {}
+                  assert identity.get('publishable') is True, (org,identity)
+
+              observations=[o for o in profile.get('external_observations') or [] if isinstance(o,dict)]
+              non_surface_phone=any(o.get('contact_phone') and not str(o.get('strategy') or '').startswith('verified_company_contact_surface_') for o in observations)
+              non_surface_email=any(o.get('contact_email') and not str(o.get('strategy') or '').startswith('verified_company_contact_surface_') for o in observations)
+              claims=[c for c in rows_by_org[org].get('claims') or [] if c.get('availability')=='available']
+              registered_phone=any(c.get('field') in {'registered_phone','registered_mobile'} for c in claims)
+              registered_email=any(c.get('field')=='registered_contact_email' for c in claims)
+              base_any=registered_phone or registered_email or non_surface_phone or non_surface_email
+
+              org_surface=[]
+              for obs in observations:
+                  strategy=str(obs.get('strategy') or '')
+                  if not strategy.startswith('verified_company_contact_surface_'):
+                      continue
+                  org_surface.append(obs)
+                  surface_obs.append((org,obs))
+                  assert obs.get('exact_entity') is True, obs
+                  assert len(str(obs.get('content_sha256') or ''))==64, obs
+                  assert str(obs.get('source_url') or '').startswith(('http://','https://')), obs
+                  if obs.get('contact_phone'):
+                      surface_phone_companies.add(org)
+                      if not registered_phone and not non_surface_phone:
+                          net_new_phone_companies.add(org)
+                  if obs.get('contact_email'):
+                      surface_email_companies.add(org)
+                      if not registered_email and not non_surface_email:
+                          net_new_email_companies.add(org)
+              if org_surface and not base_any:
+                  net_new_any_contact_companies.add(org)
+
+          # Promotion bar: the network fallback must add company-level contact coverage on
+          # a consumed cohort; otherwise it does not justify production complexity/requests.
+          assert surface_obs, 'idle contact fallback produced no page-local observations'
+          assert net_new_phone_companies or net_new_email_companies or net_new_any_contact_companies, {
+              'surface_phone_companies':sorted(surface_phone_companies),
+              'surface_email_companies':sorted(surface_email_companies),
+          }
+
+          summary={
+              'schema':'signalpost-phaseb-m5-consumed-transfer-v1',
+              'companies':100,
+              'retained_contact_surface_companies':len(set(retained)),
+              'contact_surface_observations':len(surface_obs),
+              'surface_phone_companies':sorted(surface_phone_companies),
+              'surface_email_companies':sorted(surface_email_companies),
+              'net_new_phone_companies':sorted(net_new_phone_companies),
+              'net_new_email_companies':sorted(net_new_email_companies),
+              'net_new_any_contact_companies':sorted(net_new_any_contact_companies),
+              'request_budget':{
+                  'observed_logical_requests':rb['observed_logical_requests'],
+                  'observed_conservative_charge':rb['observed_conservative_challenge_request_charge'],
+                  'theoretical_charge_ceiling':rb['theoretical_challenge_request_charge_ceiling'],
+              },
+              'runtime_seconds':report['runtime']['wall_runtime_seconds'],
+              'third_party_cost_usd':0.0,
+              'search_api_requests':0,
+              'passed':True,
+          }
+          Path('out/m5-transfer-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Hash and upload
+        run: |
+          sha256sum \
+            consumed/c12-m5-fresh-100.jsonl \
+            out/m5-output.jsonl \
+            out/m5-report.json \
+            out/m5-work/profiles.jsonl \
+            out/m5-transfer-summary.json \
+            > out/m5-transfer.sha256
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phaseb-m5-consumed-transfer
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            consumed/c12-m5-fresh-100.jsonl
+            out/m5-output.jsonl
+            out/m5-report.json
+            out/m5-work/profiles.jsonl
+            out/m5-transfer-summary.json
+            out/m5-transfer.sha256
