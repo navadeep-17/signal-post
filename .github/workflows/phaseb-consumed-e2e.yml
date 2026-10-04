@@ -1,0 +1,231 @@
+name: Phase B Consumed E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/phaseb-idle-contact-enrichment
+    paths:
+      - "src/norway_company_agent/company_site_contact.py"
+      - "src/norway_company_agent/external_contract.py"
+      - "src/norway_company_agent/canonical_projection.py"
+      - "src/norway_company_agent/wikidata_discovery.py"
+      - "tests/test_company_site_contact.py"
+      - "tests/test_h2c_external_contract.py"
+      - "tests/test_phaseb_idle_contact_surface.py"
+      - "tests/test_phaseb_contact_surface_extraction.py"
+      - ".github/workflows/phaseb-consumed-e2e.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phaseb-consumed-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consumed-phase1-100:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+
+      - name: Sync and run regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Restore frozen consumed Phase 1 cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p consumed
+          gh run download 37192494569 \
+            --repo navadeep-17/signal-post \
+            --name phase1-fresh-disjoint-100 \
+            --dir consumed
+          test -s consumed/phase1-fresh-100.jsonl
+          echo '92fc871ee9c94a928908cf00f007aef67eea02fe788caf70e8e734e82bd76b5d  consumed/phase1-fresh-100.jsonl' | sha256sum -c -
+
+      - name: Download current BRREG bulk
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+
+      - name: Run actual V8 evaluator path on consumed cohort
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations consumed/phase1-fresh-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/phaseb-output.jsonl \
+            --report out/phaseb-report.json \
+            --product-output out/phaseb-product.html \
+            --work-dir out/phaseb-work \
+            --run-id phaseb-consumed-phase1-100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-third-party-cost-usd 0 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Verify contact enrichment and unchanged safety theorem
+        run: |
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          rows=read_jsonl('out/phaseb-output.jsonl')
+          profiles=read_jsonl('out/phaseb-work/profiles.jsonl')
+          report=json.loads(Path('out/phaseb-report.json').read_text(encoding='utf-8'))
+          assert len(rows)==100 and len(profiles)==100, (len(rows),len(profiles))
+          assert report['passed'] is True, report.get('checks')
+          assert not report.get('contract_errors'), report.get('contract_errors')
+          assert not (report.get('canonical_projection') or {}).get('validation_errors'), report.get('canonical_projection')
+          assert not (report.get('synthesis') or {}).get('validation_errors'), report.get('synthesis')
+
+          rb=report['request_budget']
+          assert rb['site_logical_requests_per_profile_ceiling']==4, rb
+          assert rb['theoretical_challenge_request_charge_ceiling'] <= 2000, rb
+          assert rb['max_challenge_requests']==2000, rb
+          assert rb['observed_conservative_challenge_request_charge'] <= 2000, rb
+          assert report['source_policy']['third_party_cost_usd']==0.0, report['source_policy']
+          assert report['source_policy']['search_api_requests']==0, report['source_policy']
+
+          claim_companies={}
+          phone_values=[]
+          phone_evidence=[]
+          for row in rows:
+              org=str(row['organisation_number'])
+              evidence={str(item.get('id')):item for item in row.get('evidence') or [] if item.get('id')}
+              for claim in row.get('claims') or []:
+                  if claim.get('availability')!='available':
+                      continue
+                  field=str(claim.get('field') or '')
+                  claim_companies.setdefault(field,set()).add(org)
+                  if field=='external.contact_phone':
+                      value=str(claim.get('value') or '')
+                      assert value.startswith('+47') and len(value)==11 and value[1:].isdigit(), claim
+                      phone_values.append(value)
+                      for evidence_id in claim.get('evidence_ids') or []:
+                          item=evidence[str(evidence_id)]
+                          assert item.get('source_class')=='company_owned', item
+                          assert str(item.get('source_url') or '').startswith(('http://','https://')), item
+                          assert len(str(item.get('content_sha256') or ''))==64, item
+                          assert value in str(item.get('claim_span') or ''), item
+                          phone_evidence.append(item)
+
+          canonical_phone_companies={
+              str(row['organisation_number'])
+              for row in rows
+              if any(
+                  fact.get('type')=='contact_phone'
+                  and fact.get('canonical_field')=='website.contact_phone'
+                  and fact.get('availability')=='available'
+                  for fact in row.get('canonical_facts') or []
+              )
+          }
+          phone_companies=claim_companies.get('external.contact_phone',set())
+          assert len(phone_companies)>=1, sorted(phone_companies)
+          assert canonical_phone_companies==phone_companies, (canonical_phone_companies,phone_companies)
+          assert phone_evidence, 'contact phones must carry evidence'
+
+          retained_contact=[]
+          contact_surface_observations=[]
+          source_strategies=Counter()
+          for profile in profiles:
+              org=str(profile['organisation_number'])
+              evidence=profile.get('evidence') or {}
+              has_contact=(evidence.get('website_contact_surface') or {}).get('status')=='available'
+              has_careers=(evidence.get('website_careers_surface') or {}).get('status')=='available'
+              has_news=(evidence.get('website_news_detail') or {}).get('status')=='available'
+              assert not (has_contact and has_careers), org
+              assert not (has_contact and has_news), org
+              # 5 exact official requests + at most 4 site requests.
+              assert int((profile.get('run_metrics') or {}).get('logical_requests') or 0) <= 9, profile.get('run_metrics')
+              if has_contact:
+                  retained_contact.append(org)
+                  identity=(evidence['website_contact_surface'].get('value') or {}).get('contact_surface_identity') or {}
+                  assert identity.get('publishable') is True, (org,identity)
+              for obs in profile.get('external_observations') or []:
+                  strategy=str(obs.get('strategy') or '')
+                  if strategy.startswith('verified_company_contact_surface_'):
+                      contact_surface_observations.append((org,obs))
+                  if strategy:
+                      source_strategies[strategy]+=1
+
+          summary={
+              'schema':'signalpost-phaseb-consumed-e2e-v1',
+              'companies':len(rows),
+              'external_contact_phone_companies':len(phone_companies),
+              'external_contact_email_companies':len(claim_companies.get('external.contact_email',set())),
+              'retained_contact_surface_companies':len(retained_contact),
+              'contact_surface_observations':len(contact_surface_observations),
+              'strategy_counts':dict(sorted(source_strategies.items())),
+              'request_budget':{
+                  'observed_logical_requests':rb['observed_logical_requests'],
+                  'observed_conservative_charge':rb['observed_conservative_challenge_request_charge'],
+                  'theoretical_charge_ceiling':rb['theoretical_challenge_request_charge_ceiling'],
+              },
+              'third_party_cost_usd':0.0,
+              'search_api_requests':0,
+              'passed':True,
+          }
+          Path('out/phaseb-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Hash deliverables
+        run: |
+          sha256sum \
+            consumed/phase1-fresh-100.jsonl \
+            out/phaseb-output.jsonl \
+            out/phaseb-report.json \
+            out/phaseb-work/profiles.jsonl \
+            out/phaseb-summary.json \
+            > out/phaseb-consumed-e2e.sha256
+
+      - name: Upload consumed E2E result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phaseb-consumed-e2e
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            consumed/phase1-fresh-100.jsonl
+            out/phaseb-output.jsonl
+            out/phaseb-report.json
+            out/phaseb-work/profiles.jsonl
+            out/phaseb-summary.json
+            out/phaseb-consumed-e2e.sha256
