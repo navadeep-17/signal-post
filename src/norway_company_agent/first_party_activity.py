@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import date
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -83,6 +84,7 @@ GENERIC_UPDATE_TITLES = {
     "presse",
 }
 GENERIC_UPDATE_PATH_SEGMENTS = {"news", "nyheter", "aktuelt", "blog", "press", "presse"}
+SHORT_NUMERIC_DATE_PATTERN = re.compile(r"\b([0-3]?\d)[./-]([01]?\d)[./-](\d{2})\b")
 DATE_PATTERNS = (
     re.compile(r"\b(20\d{2}-[01]\d-[0-3]\d)\b"),
     re.compile(r"\b([0-3]?\d[./-][01]?\d[./-]20\d{2})\b"),
@@ -153,7 +155,30 @@ def _detail_page_url(url: str, *, generic_segments: set[str], allow_query_keys: 
     return False
 
 
+def _specific_non_root_page_url(url: str, *, generic_segments: set[str]) -> bool:
+    """Allow a homepage-nominated root-level article slug, never a home/archive root."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    segments = [segment.casefold() for segment in parsed.path.split("/") if segment]
+    if not segments:
+        return False
+    if len(segments) == 1 and segments[0] in generic_segments:
+        return False
+    return True
+
+
 def _first_date(text: str) -> str | None:
+    short = SHORT_NUMERIC_DATE_PATTERN.search(text)
+    if short:
+        day, month, year = (int(short.group(1)), int(short.group(2)), 2000 + int(short.group(3)))
+        try:
+            parsed = date(year, month, day)
+        except ValueError:
+            pass
+        else:
+            return parsed.isoformat()
     for pattern in DATE_PATTERNS:
         match = pattern.search(text)
         if match:
@@ -171,6 +196,29 @@ def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, li
     if not final_url:
         return None, []
     pages = [page for page in (value.get("pages") or []) if isinstance(page, dict)]
+
+    # C12-M3 retains one bounded article fetch separately so homepage-only social
+    # provenance remains unchanged. Consume it only when the exact verified homepage
+    # nominated that same URL and the detail fetch stayed on the verified company site.
+    detail = ((profile.get("evidence") or {}).get("website_news_detail") or {})
+    detail_value = detail.get("value") or {}
+    detail_pages = [page for page in (detail_value.get("pages") or []) if isinstance(page, dict)]
+    nominated = {
+        str(item.get("url") or "").rstrip("/")
+        for item in (value.get("news_detail_links") or [])
+        if isinstance(item, dict) and item.get("url")
+    }
+    if (
+        detail.get("status") == "available"
+        and detail.get("source_type") == "verified_company_news_detail_candidate"
+        and detail_pages
+    ):
+        page = detail_pages[0]
+        page_url = str(page.get("url") or detail_value.get("final_url") or detail.get("source_url") or "").strip()
+        if page_url.rstrip("/") in nominated and _same_verified_site(page_url, final_url):
+            retained = dict(page)
+            retained["c12_homepage_news_nomination"] = True
+            pages.append(retained)
     return {"record": website, "final_url": final_url}, pages
 
 
@@ -233,9 +281,19 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
                     }
                 )
 
-        has_update_path = any(marker in folded_url for marker in UPDATE_PATH_MARKERS)
-        has_update_detail_url = _detail_page_url(url, generic_segments=GENERIC_UPDATE_PATH_SEGMENTS)
-        published_date = _first_date(text)
+        homepage_news_nomination = bool(page.get("c12_homepage_news_nomination"))
+        has_update_path = any(marker in folded_url for marker in UPDATE_PATH_MARKERS) or homepage_news_nomination
+        has_update_detail_url = _detail_page_url(url, generic_segments=GENERIC_UPDATE_PATH_SEGMENTS) or (
+            homepage_news_nomination
+            and _specific_non_root_page_url(url, generic_segments=GENERIC_UPDATE_PATH_SEGMENTS)
+        )
+        date_candidates = page.get("published_date_candidates") or []
+        page_date_text = " ".join(
+            str(item.get("raw") or "")
+            for item in date_candidates
+            if homepage_news_nomination and isinstance(item, dict)
+        )
+        published_date = _first_date(page_date_text) or _first_date(text)
         if (
             has_update_path
             and has_update_detail_url
