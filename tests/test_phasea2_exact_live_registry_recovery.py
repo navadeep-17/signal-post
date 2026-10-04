@@ -23,7 +23,9 @@ def _raw_entity() -> dict:
         "organisasjonsnummer": ORG,
         "navn": "EXAMPLE AS",
         "organisasjonsform": {"kode": "AS"},
+        "underTvangsavviklingEllerTvangsopplosning": False,
         "stiftelsesdato": "2012-03-04",
+        "vedtektsdato": "2012-03-05",
         "registrertIForetaksregisteret": True,
         "registreringsdatoForetaksregisteret": "2012-04-05",
         "institusjonellSektorkode": {
@@ -52,6 +54,8 @@ def _profile(value: dict | None = None) -> dict:
         "name": "EXAMPLE AS",
         # Deliberately conflicting profile-level values prove the projector cannot fallback.
         "foundation_date": "1900-01-01",
+        "articles_date": "1900-01-02",
+        "forced_dissolution": True,
         "registered_in_vat_register": True,
         "evidence": {
             "registry_live": {
@@ -88,7 +92,9 @@ def _evidence_by_id(projected: dict) -> dict[str, dict]:
 def test_normalizer_retains_phasea2_exact_live_fields_losslessly() -> None:
     normalized = normalize_entity(_raw_entity())
 
+    assert normalized["forced_dissolution"] is False
     assert normalized["foundation_date"] == "2012-03-04"
+    assert normalized["articles_date"] == "2012-03-05"
     assert normalized["registered_in_enterprise_register"] is True
     assert normalized["enterprise_register_date"] == "2012-04-05"
     assert normalized["institutional_sector"] == {
@@ -107,7 +113,9 @@ def test_phasea2_projects_exact_values_with_exact_source_paths() -> None:
     evidence = _evidence_by_id(projected)
 
     expected = {
+        "forced_dissolution": False,
         "foundation_date": "2012-03-04",
+        "articles_date": "2012-03-05",
         "registered_in_enterprise_register": True,
         "enterprise_register_date": "2012-04-05",
         "institutional_sector": {
@@ -149,12 +157,17 @@ def test_phasea2_projects_exact_values_with_exact_source_paths() -> None:
 
 def test_false_registry_booleans_are_available_not_missing() -> None:
     value = normalize_entity(_raw_entity())
+    value["forced_dissolution"] = False
     value["registered_in_enterprise_register"] = False
     value["registered_in_vat_register"] = False
     projected = project_v2_registry_claims(_contract(), _profile(value))
     claims = _claims_by_field(projected)
 
-    for field in ("registered_in_enterprise_register", "registered_in_vat_register"):
+    for field in (
+        "forced_dissolution",
+        "registered_in_enterprise_register",
+        "registered_in_vat_register",
+    ):
         assert claims[field]["availability"] == "available"
         assert claims[field]["value"] is False
 
@@ -162,6 +175,8 @@ def test_false_registry_booleans_are_available_not_missing() -> None:
 def test_missing_live_fields_never_fallback_to_profile_values() -> None:
     value = normalize_entity(_raw_entity())
     value.pop("foundation_date", None)
+    value.pop("articles_date", None)
+    value.pop("forced_dissolution", None)
     value.pop("registered_in_vat_register", None)
 
     projected = project_v2_registry_claims(_contract(), _profile(value))
@@ -169,6 +184,10 @@ def test_missing_live_fields_never_fallback_to_profile_values() -> None:
 
     assert claims["foundation_date"]["availability"] == "not_available"
     assert claims["foundation_date"]["value"] is None
+    assert claims["articles_date"]["availability"] == "not_available"
+    assert claims["articles_date"]["value"] is None
+    assert claims["forced_dissolution"]["availability"] == "not_available"
+    assert claims["forced_dissolution"]["value"] is None
     assert claims["registered_in_vat_register"]["availability"] == "not_available"
     assert claims["registered_in_vat_register"]["value"] is None
 
@@ -189,7 +208,9 @@ def test_phasea2_claims_are_exposed_as_company_canonical_facts() -> None:
     facts = {fact["type"]: fact for fact in canonical["canonical_facts"]}
 
     expected_canonical_fields = {
+        "forced_dissolution": "company.forced_dissolution",
         "foundation_date": "company.foundation_date",
+        "articles_date": "company.articles_date",
         "registered_in_enterprise_register": "company.registered_in_enterprise_register",
         "enterprise_register_date": "company.enterprise_register_date",
         "institutional_sector": "company.institutional_sector",
@@ -202,6 +223,8 @@ def test_phasea2_claims_are_exposed_as_company_canonical_facts() -> None:
         assert facts[fact_type]["source_field"] == fact_type
         assert facts[fact_type] in canonical["canonical_profile"]["company_record"]
 
+    assert facts["forced_dissolution"]["availability"] == "available"
+    assert facts["forced_dissolution"]["value"] is False
     assert facts["registered_in_vat_register"]["availability"] == "available"
     assert facts["registered_in_vat_register"]["value"] is False
     assert facts["vat_registration_date"]["availability"] == "not_available"
