@@ -172,16 +172,7 @@ Status: **active**.
 
 Goal: materially increase companies with an **exact verified website** without weakening identity precision.
 
-Current consumed Phase-A 100-company baseline:
-
-- exact verified websites: 7
-- not available: 87
-- ambiguous: 4
-- failed: 2
-- first-party social-profile claims: 10
-- first-party contact-email claims: 6
-
-Therefore site reach is the key upstream multiplier for later external families.
+Current consumed Phase-A 100-company baseline is approximately 7–8 exact verified sites; live reruns drift slightly because external pages and network outcomes change. First-party social/contact reach remains correspondingly sparse, so exact site reach is the key upstream multiplier for later external families.
 
 Existing candidate families:
 
@@ -192,46 +183,55 @@ Existing candidate families:
 5. hyphenated `.no` fallback;
 6. stored/official hints only when rights-safe and evidence-safe.
 
-Known rejected/do-not-repeat paths without new evidence:
+Known rejected/do-not-repeat paths without genuinely new evidence:
 
 - guessed `.com` expansion;
 - broad legal-name rule/ML candidate ranking that previously produced no useful net-new sites;
 - annual-report domain hints after zero-yield screening;
-- Norid public organisation-number lookup: rights/purpose terms are incompatible with Signalpost use;
+- Norid public organisation-number lookup because rights/purpose terms are incompatible with Signalpost use;
+- exact-parent BRREG subunit homepage hints: consumed screen 0/3 accepted exact target sites;
+- exact-parent BRREG subunit email-domain hints: consumed screen 0/10 accepted exact target sites;
 - provider/model-search PRs #78/#84 unless Builderr explicitly resolves provider/key/budget and the project constraint changes.
 
-### Active Phase-2 experiment candidate: BRREG subunit homepage hints
+The two subunit experiments are important negative evidence: related-entity registry hints can nominate domains, but neither exact parent linkage nor legal-name similarity is sufficient proof that the domain belongs to the target main entity. Do not weaken identity rules post-hoc to rescue consumed examples.
 
-BRREG underunit records are already fetched through the production `locations` module. The public underunit schema includes `hjemmeside` and exact `overordnetEnhet`, but current `normalize_locations()` discards `hjemmeside`.
+### Active Phase-2 experiment candidate: secondary identity verification for BRREG-declared websites
+
+Screen registry-declared **main-entity** website candidates that already load but remain quarantined after homepage-only identity assessment.
+
+Why this is materially different from the rejected candidate-source experiments:
+
+- the domain is already declared on the target main entity's BRREG record rather than inherited from a related entity;
+- no new external candidate source is introduced;
+- production already spends two logical requests on the registry-linked homepage candidate;
+- when that homepage is ambiguous, the remaining two site requests are currently spent on a deterministic H1c guess;
+- the experiment substitutes one same-domain secondary identity-page fetch for that H1c attempt, so it can fit the existing four-site-request ceiling rather than adding a fifth request.
 
 Experiment rules:
 
-- retain the already-fetched subunit `hjemmeside` field; zero added official lookup requests;
-- use the exact parent/subunit relationship only to nominate a candidate;
-- never inherit the subunit site directly to the parent;
-- independently fetch the candidate page;
-- require the existing target-main-entity website identity gate to pass;
-- preserve conflicting-org-number rejection;
-- keep publication disabled during initial screen;
-- integrate only if meaningful net-new exact sites transfer on consumed companies;
-- production integration must stay within four logical site requests/profile by ordering/substitution, not by adding a fifth request.
+- select only non-publishable `registry_linked_company_website` candidates whose homepage loaded successfully;
+- use one homepage-discovered same-domain `identity_links` URL when available; otherwise one deterministic same-domain `/kontakt` fallback for `.no` candidates;
+- fetch at most one secondary identity page per selected company;
+- reject cross-domain redirects/candidates and conflicting explicit organisation numbers;
+- accept only if the secondary page proves the target by exact organisation number, or by full legal name plus BRREG location under the existing documented standard;
+- secondary-page evidence must retain its own URL, retrieval time/hash and supporting identity proof;
+- publication remains disabled during the consumed-cohort screen;
+- manually audit every accepted case and every conflicting legal-ID case;
+- do not consume a fresh cohort until the consumed screen shows meaningful net-new exact-site transfer.
 
 Phase-2 measurement must report:
 
-- unresolved companies screened;
-- companies with one or more subunit homepage hints;
-- candidate domains attempted;
-- exact verified target-company websites;
+- eligible quarantined registry-linked companies;
+- secondary pages attempted and how they were nominated;
+- exact accepted target-company websites;
 - ambiguous/quarantined candidates;
-- wrong-company candidates;
+- wrong-company/conflicting-org candidates;
 - baseline -> new -> net-new verified website companies;
-- added logical requests and conservative charge;
+- logical requests and conservative charge, including proof that the production design substitutes rather than exceeds the four-site-request ceiling;
 - runtime/latency impact;
-- third-party cost.
+- third-party/search cost.
 
 Decision must be explicit: PROMOTE, RETUNE, SHELVE or DROP.
-
-Do not consume a fresh cohort until a consumed-cohort screen demonstrates meaningful transfer.
 
 ## 9. Phase 3 — sitemap + targeted crawler
 
