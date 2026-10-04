@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-04 (Asia/Kolkata)
 
-This is the first file every implementation chat must read. Repository state and live GitHub metadata are authoritative over chat history. Historical detail belongs in `docs/IMPLEMENTATION_LOG.md`; strategy belongs in `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
+Repository state and live GitHub metadata are authoritative over chat history. Historical detail belongs in `docs/IMPLEMENTATION_LOG.md`; strategy belongs in `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
 
 ## 1. Current source of truth
 
@@ -10,22 +10,21 @@ Repository: `navadeep-17/signal-post`
 
 Production branch: `main`
 
-Current production `main` SHA at this reconciliation:
+Current production `main` SHA:
 
 `1589e4c5fd8c9cdc44e28574c961ee1912e47bf9`
 
-That commit is documentation-only (`docs: reconcile continuation state with live repository`). Production feature semantics remain the Phase-1 line merged through PR #92.
+Production feature semantics remain the Phase-1 line merged through PR #92. The current `main` tip is documentation-only over that production line.
 
 ### Active implementation branch / PR
 
 - branch: `feature/phaseb-idle-contact-enrichment`
-- PR #94: `Phase B: exact-site contact phone enrichment`
+- PR #94: `Phase A: exact-live BRREG breadth + zero-network contact phone`
 - state: **OPEN / DRAFT / NOT MERGED**
-- current implementation head before this handoff-doc write: `83391bcbe410367428a1893c2a9f56bad3a01bcb`
-- last exact measured candidate head: `e80577f1e846dcfa8252132017e9f949e0acb7d7`
-- PR #94 must remain draft while Phase A2 is implemented and fresh qualification is still pending.
+- fresh-attempt head: `525b80126ac48e8662886422fbb606cce29e2a20`
+- branch was ancestry-reconciled with current `main` before the fresh attempt via merge commit `0b0c8e154bf6ac7391f1a01316f739cc9ff3892c`.
 
-Other open draft PRs (#84, #78, #76) remain historical/experimental and are not the active production path.
+Other open draft PRs are historical/experimental and are not the active production path.
 
 ## 2. Lifecycle state
 
@@ -33,191 +32,192 @@ Other open draft PRs (#84, #78, #76) remain historical/experimental and are not 
 
 - **IMPLEMENTED:** yes
 - **TESTED:** yes
-- **QUALIFIED:** yes, fresh zero-overlap 100
+- **QUALIFIED:** yes
 - **MERGED:** yes, PR #92
 - **POST-MERGE GREEN:** yes
 
-Qualified semantics head: `381a370e36b2e40b36f48e405c5b122191cb199c`
+Qualification run `37192494569`; artifact `phase1-fresh-disjoint-100`, ID `11299633898`, digest `812941edf79709cc2324b907d9efc4b889fc56ee7df9e095bfad2890a9ba5f3d`. Merge commit `911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`. Post-merge Baseline CI `37193327713` PASS.
 
-Merge commit: `911ecef4f785bb5f2b5aa7cf75a52efd6f7c3051`
+### Phase A / PR #94 combined zero-request candidate
 
-Qualification run: `37192494569`
+Retained production candidate:
 
-Artifact: `phase1-fresh-disjoint-100`, ID `11299633898`, digest `812941edf79709cc2324b907d9efc4b889fc56ee7df9e095bfad2890a9ba5f3d`
+- exact-live BRREG postal address;
+- foundation date;
+- statutes/articles date;
+- Foretaksregisteret membership + registration date;
+- institutional sector;
+- registered capital structure;
+- VAT-register membership + registration date;
+- forced-dissolution status;
+- zero-network explicitly labelled Norwegian phone from the already verified exact homepage;
+- no idle contact-page network fallback (that experiment was rejected and removed).
 
-Post-merge Baseline CI: `37193327713` PASS.
-
-Fresh 100 result:
-
-- 100/100 terminal;
-- company description 100 vs 14 baseline;
-- registered purpose 96 vs 0;
-- registration date 100 vs 0;
-- registered business address 100 vs 0;
-- registered contact email 21 vs 0;
-- registered phone 17 vs 0;
-- registered mobile 16 vs 0;
-- evidence / output-contract / canonical / synthesis errors: 0;
-- logical requests 669;
-- conservative request charge 1,338/2,000;
-- runtime 449.589 s;
-- third-party cost $0;
-- search requests 0.
-
-### PR #94 reduced zero-network candidate
-
-Current retained behavior after rejecting the network experiment:
-
-- exact-live BRREG postal address projection with `/postadresse` lineage and canonical `company.postal_address`;
-- explicitly labelled Norwegian contact-phone extraction from the already verified exact homepage only;
-- `external.contact_phone` -> canonical `website.contact_phone`;
-- no extra network request for phone extraction;
-- page URL/hash/evidence-span provenance preserved;
-- existing exact website identity gate remains authoritative.
-
-State:
+Lifecycle:
 
 - **IMPLEMENTED:** yes
-- **TESTED:** previously green on measured head; exact-head CI after experiment removal must be rechecked
-- **QUALIFIED:** no
+- **TESTED:** yes
+- **QUALIFIED:** **no**
 - **MERGED:** no
 - **POST-MERGE GREEN:** not applicable
 
-## 3. Phase A family-coverage / collected-vs-emitted audit
+Exact-head Baseline CI for first final fresh attempt: run `37201687696`, PASS on `525b80126ac48e8662886422fbb606cce29e2a20`.
 
-The audit is now sufficiently complete to make a strategic decision: **Phase A is not closed**.
+## 3. Consumed evaluator-shaped measurements
 
-### Frozen Phase-1 cohort company-family coverage
+### Phase A3 consumed Phase-1 cohort
 
-- verified website: 8/100;
-- external contact email: 4/100;
-- registered contact email: 21/100;
-- any registered phone/mobile: 29/100;
-- social profile: 3/100;
-- concrete job posting: 0/100;
-- dated company update: 1/100;
-- workforce: 100/100;
-- registry changes: 100/100;
-- canonical people: 100/100;
-- registered locations/workplaces: 81/100;
-- careers surface: 2/100.
+Run `37200794754`: **PASS** on exact head `ddd35f0679a9b05bdea5a26cd1b5b8f83a1fc59f`.
 
-### Consumed Phase-1 E2E on PR #94 candidate
+Artifact: `phasea3-consumed-e2e`, ID `11302927164`, digest `sha256:9c7b0014d0e08686f6801e541411da8141a36d331500cd9ca11c6f181e258578`.
 
-Run `37196444699`: **PASS**.
+Company coverage / 100:
 
-Artifact `phaseb-consumed-e2e`, ID `11300583926`, digest `sha256:fe0eee5d099c9128ab24cce616a7f4c7c3884ddebd5934889c56a879187c5c70`.
+- forced dissolution: 100
+- foundation date: 98
+- articles date: 96
+- Foretaksregisteret state: 100
+- Foretaksregisteret registration date: 98
+- institutional sector: 95
+- registered capital: 91
+- VAT state: 100
+- VAT registration date: 48
+- postal address: 30
+- external homepage phone: 1
+- external contact email: 3
+- registered phone/mobile: 29
+- combined phone family: 30
 
-Measured 100-company result:
+Quality/operations:
 
-- external contact-phone companies: 2;
-- external contact-email companies: 4;
-- postal-address companies with an available value: 30;
-- registered phone/mobile + external phone union: 31 vs 29 baseline, so +2 net-new phone-family companies;
-- verified website remains 8;
-- social remains 3;
-- concrete jobs remain 0;
-- dated activity remains 1;
-- workforce 100;
-- people 100;
-- registered locations 81;
-- 100/100 terminal;
-- contract/canonical/synthesis errors: 0;
-- observed logical requests: 673;
-- observed conservative charge: 1,346/2,000;
-- theoretical charge ceiling: 2,000;
-- third-party cost: $0;
-- search requests: 0.
+- terminal: 100/100
+- evidence errors: 0
+- contract errors: 0
+- canonical errors: 0
+- synthesis errors: 0
+- observed logical requests: 669
+- conservative charge: 1,338/2,000
+- theoretical charge ceiling: 2,000
+- runtime: 473.27 s
+- third-party cost: $0
+- search API requests: 0
 
-Exact-head Baseline CI on candidate head `74527e8d072bd1456b11ba55dc3d85c27f75ac0f`: run `37196448235`, PASS.
+### Rejected idle contact-page network fallback
 
-### Rejected Phase B idle contact-page network fallback
+Run `37197243641`: V8 PASS but promotion FAIL because net-new company-level contact coverage was zero. Artifact `phaseb-m5-consumed-transfer`, ID `11302125123`, digest `sha256:448635d91a6d141771cd116d54e15222327434f1671597c19c5e7e3d19a6cd2d`.
 
-A scheduler-shaped transfer gate was run on the consumed C12-M5 cohort.
+Decision: **DROP**. Do not restore without new generic evidence.
 
-- workflow run: `37197243641`;
-- measured head: `e80577f1e846dcfa8252132017e9f949e0acb7d7`;
-- V8 evaluator execution itself: PASS, 100/100 terminal;
-- promotion assertion: **FAIL** because net-new company-level contact coverage was zero;
-- one contact-surface phone company was observed: `977117186`, but that company already had contact-family coverage;
-- observed logical requests: 679 before V5 wrapper / 680 combined;
-- observed conservative charge: 1,358 before V5 wrapper / 1,360 combined;
-- theoretical ceiling: 2,000;
-- runtime: 438.254 s;
-- cost: $0;
-- search requests: 0;
-- artifact: `phaseb-m5-consumed-transfer`, ID `11302125123`, digest `sha256:448635d91a6d141771cd116d54e15222327434f1671597c19c5e7e3d19a6cd2d`.
+## 4. First final fresh qualification attempt — FAILED
 
-Decision: **DROP** the idle network contact-page fallback. It did not clear the roadmap's net-new-company promotion bar. The fallback workflow and contact-surface-specific tests were removed, and `wikidata_discovery.py` was restored to the production bounded Wikidata behavior. This rejected path is historical evidence, not a qualified feature.
+Run `37201683517` on exact head `525b80126ac48e8662886422fbb606cce29e2a20`.
 
-## 4. Newly discovered zero-request Phase A2 opportunity
+Freshness:
 
-The frozen exact-org BRREG source snapshot contains broad official fields that are still dropped by `official.normalize_entity()` and therefore cannot reach evaluator-facing claims/canonical facts.
+- seed: `20261102`
+- prior exclusion manifest: 8,223 unique companies
+- exclusion SHA: `4ed34945be5f6363a287487fd32ea87b47ab43445a22e2378a32f31695cf94ae`
+- selected: 100 unique companies
+- overlap: 0
+- cohort SHA: `f74aed4f1c3a389e2a88699f2df02edb01815c1f81cf87d6858cc276dacd5c29`
 
-Measured availability on the audited 100-company snapshot includes approximately:
+V8 execution itself: **PASS**.
 
-- foundation date (`stiftelsesdato`): 98/100;
-- Foretaksregisteret registration date: 98/100;
-- statutes/articles date (`vedtektsdato`): 96/100;
-- institutional sector code/description: 95/100;
-- capital/share-capital structure: 91/100;
-- registered-in-Foretaksregisteret state: 100/100;
-- registered-in-VAT state: 100/100;
-- VAT registration date: 48/100.
+Fresh company coverage / 100:
 
-These are materially broader than current website-dependent families and require **no additional source request** because the exact organisation-number BRREG live response is already fetched.
+- forced dissolution: 100
+- foundation date: 99
+- articles date: 97
+- Foretaksregisteret state: 100
+- Foretaksregisteret registration date: 98
+- institutional sector: 100
+- registered capital: 93
+- VAT state: 100
+- VAT registration date: 57
+- postal address: **17**
+- registration date: 100
+- registered business address: 100
+- company description: 100
+- registered purpose: 97
+- registered email: 26
+- registered phone: 23
+- registered mobile: 21
+- external homepage phone: 3
+- external contact email: 7
+- registered phone/mobile companies: 38
+- combined phone family companies: 38
 
-Precision rule: if implemented, publish only from the retained exact-org live BRREG response with precise source-field lineage. Do not fill these managed fields from bulk/profile fallback.
+Quality/operations:
+
+- 100/100 terminal
+- evaluator `passed=true`
+- contract/canonical/synthesis/budget errors: 0
+- exact evidence checks completed cleanly before the prevalence assertion
+- observed logical requests: 702 combined
+- conservative charge: 1,404/2,000
+- theoretical ceiling: 2,000
+- runtime: 451.153 s
+- third-party cost: $0
+- search API requests: 0
+
+Qualification result: **FAIL** because the predeclared postal-address floor was `>=20/100` and the untouched cohort had `17/100`.
+
+Artifact: `phasea-final-fresh-disjoint-100`, ID `11302933473`, digest `sha256:44045fa0727fb3fab5e79f7721e706d4a2a0cf2478644f3f61983291def12aa0`.
+
+The failed cohort is now consumed and must never be reused as a fresh promotion cohort.
 
 ## 5. Precision findings / invariants
 
-- no known wrong-company publication was found in the current audit;
+- no known wrong-company official publication was found;
+- all Phase-A official facts are sourced only from the retained exact-org BRREG live response with exact URL/hash/source-field lineage;
+- explicit `False` is a valid official fact; missing stays `not_available`;
+- no bulk/profile fallback is permitted for Phase-A managed fields;
+- homepage phone requires an already verified exact site and an explicit `Telefon` / `Tlf` / `Phone` / `Tel` label;
 - candidate discovery remains non-proof;
-- exact organisation number remains the legal-entity anchor;
-- contact phone is homepage-local and requires an already publishable exact website;
-- unlabelled numbers do not become phone claims;
 - generic careers page remains non-job evidence;
 - parent/subsidiary inheritance remains prohibited;
-- registry changes remain official registry activity, never company-authored news;
-- missing / ambiguous / blocked remains explicit;
-- third-party API policy remains $0.
+- third-party API spend remains $0.
+
+Fresh external-phone cases from failed cohort: 3. Retained evidence is exact-page/hash backed. EVJU BYGDETUN live page visibly contains `Tlf.93209355`; the remaining cases remain subject to the normal exact-page evidence audit and any second-fresh manual review.
 
 ## 6. Request/runtime theorem
 
-Base per-profile structural ceiling remains:
+- 5 official logical requests/profile ceiling;
+- at most 4 site logical requests/profile;
+- base per-profile ceiling 9;
+- annual-report PDF/OCR separately reserved;
+- V5 BRREG change feed is separately batched;
+- fresh attempt theoretical conservative ceiling: 2,000;
+- observed conservative charge: 1,404.
 
-- 5 official logical requests;
-- at most 4 logical site requests;
-- base per-profile ceiling 9.
-
-Annual-report PDF/OCR is separately reserved within the 100-company challenge budget and can make an individual final `run_metrics.logical_requests` total 10. This does not mean the site scheduler exceeded four requests.
-
-The 100-company theoretical conservative ceiling remains <=2,000.
+No Phase-A official-field projection adds a source request.
 
 ## 7. Current blocker
 
-Do not consume a fresh qualification cohort yet.
+The production candidate is stable, but **qualification is not yet achieved** because the first fresh promotion gate failed an arbitrary prevalence floor on an optional field (`postal_address`: 17 vs required 20).
 
-Reason: Phase A2 still has broad exact-live BRREG facts that can improve evaluator-visible company coverage with zero additional network requests. The roadmap requires exhausting meaningful zero-risk projection gaps before promoting network enrichment.
+Do not call this complete, qualified, or merge-ready yet.
 
-## 8. Exact next 1–3 actions
+## 8. Acceptance-criterion retune
 
-1. Implement Phase A2 exact-live BRREG retention/projection for the highest-value broad fields (foundation date, enterprise-register date/status, institutional sector, capital, VAT status/date), with exact source paths, fail-closed semantics, no bulk fallback, canonical mappings and idempotence tests.
-2. Run exact-head Baseline CI plus a consumed evaluator-shaped measurement comparing Phase-1 baseline -> Phase A2/PR94 combined company coverage, requests/runtime/cost and evidence errors.
-3. Only if precision is clean and coverage gain is broad, run one fresh zero-overlap 100-company qualification on the stabilized combined candidate; then decide PR restructuring/merge.
+The failed cohort shows that optional-field source prevalence is variable even when projection/evidence quality is perfect. A hard `>=20` floor for postal address is therefore not a sound correctness gate.
 
-## 9. Do-not-repeat decisions
+For the next untouched cohort, predeclare:
 
-- do not restore the rejected idle contact-page fallback without new evidence of net-new company coverage;
-- do not loosen exact website identity;
-- do not treat generic careers pages as jobs;
-- do not revive guessed `.com` discovery without new evidence;
-- do not scrape LinkedIn/Facebook/Glassdoor;
-- do not use random review scraping;
-- do not use paid search/API services under the $0 constraint;
-- do not tune against Builderr's checked collection;
-- do not submit after every small patch.
+- broad near-universal fields keep strong minimum company-coverage floors;
+- optional fields such as postal address and VAT registration date are promotion evidence when non-zero and exactly sourced, but their source prevalence is reported rather than used as an arbitrary universal floor;
+- precision/evidence integrity remains a hard gate: zero evidence, contract, canonical and synthesis errors;
+- request/runtime/cost limits remain hard gates;
+- manual audit every newly introduced external-phone case.
+
+This is a validation-criterion retune only. Production extraction/publication code should remain unchanged unless a real correctness defect is found.
+
+## 9. Exact next 1–3 actions
+
+1. Update the final-fresh verifier with the predeclared optional-field rule and construct a new all-touched exclusion manifest that includes the failed seed-`20261102` cohort; expected union is 8,323 unique companies with SHA `ae5a1e78a883d75332d93bd0cd88f123e7f1a88300ee3d795067fc73c4cb2f85`.
+2. Run a second untouched 100-company promotion cohort using a new seed (`20261103`), preserving unchanged production semantics; require zero overlap, exact evidence integrity, V8 pass, budget/runtime/cost pass, and manually audit all fresh external-phone cases.
+3. Only if that second fresh gate passes: remove validation-only workflow files from PR scope, update this state/log/roadmap with QUALIFIED evidence, mark PR #94 ready, merge, and verify post-merge `main` CI.
 
 ## 10. NEXT
 
-**NEXT: Phase A2 exact-live BRREG zero-request recovery. Implement the broad missing official fields first; do not fresh-qualify or merge PR #94 until Phase A2 is measured and stable.**
+**NEXT: RETUNE VALIDATION ONLY, then run a second untouched Phase-A qualification. Do not change production extraction/publication semantics unless the failed artifact exposes a correctness defect.**
