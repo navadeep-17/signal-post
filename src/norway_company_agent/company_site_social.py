@@ -16,15 +16,7 @@ SOCIAL_PROFILE_HOSTS = {
 
 
 def _safe_profile_url(platform: str, profile_url: str) -> bool:
-    """Reject malformed or non-profile social URLs before they become claims.
-
-    Website extraction normalizes social links broadly enough to preserve candidates for
-    later review. H2a is a publication gate, so it is intentionally stricter: the host
-    must match the declared platform and the path must have a profile-shaped structure.
-    This also rejects nested-host artifacts such as
-    ``instagram.com/company/www.instagram.com/vendor`` that can be created by malformed
-    relative links in site-builder templates.
-    """
+    """Reject malformed or non-profile social URLs before they become claims."""
 
     expected_host = SOCIAL_PROFILE_HOSTS.get(platform)
     if not expected_host:
@@ -42,8 +34,6 @@ def _safe_profile_url(platform: str, profile_url: str) -> bool:
     if not raw_parts:
         return False
 
-    # A path component that embeds another social hostname/URL is not a canonical profile
-    # identifier. This specifically blocks stale site-builder attribution/link concatenation.
     social_domains = tuple(SOCIAL_PROFILE_HOSTS.values())
     for part in lowered:
         if part.startswith(("http:", "https:", "www.")):
@@ -62,23 +52,136 @@ def _safe_profile_url(platform: str, profile_url: str) -> bool:
             return raw_parts[0].startswith("@")
         return len(raw_parts) == 2 and lowered[0] in {"channel", "user", "c"}
     if platform == "facebook":
-        # Current Facebook page URLs are normally one slug. The modern /p/<name-id>
-        # form is also a canonical page shape and is retained.
         return len(raw_parts) == 1 or (len(raw_parts) == 2 and lowered[0] == "p")
     return False
 
 
+def _primary_page_provenance(
+    website: dict[str, Any],
+) -> tuple[dict[str, Any], str, str, str] | None:
+    """Prove that pages[0] is the immutable exact homepage snapshot."""
+
+    value = website.get("value") or {}
+    source_url = str(value.get("final_url") or website.get("source_url") or "").strip()
+    content_sha256 = str(value.get("content_sha256") or website.get("content_sha256") or "").strip()
+    retrieved_at = str(website.get("retrieved_at") or "").strip()
+    pages = [page for page in (value.get("pages") or []) if isinstance(page, dict)]
+    if not source_url.startswith(("http://", "https://")) or len(content_sha256) != 64 or not retrieved_at or not pages:
+        return None
+    primary = pages[0]
+    if str(primary.get("url") or "").rstrip("/") != source_url.rstrip("/"):
+        return None
+    if str(primary.get("content_sha256") or "") != content_sha256:
+        return None
+    return primary, source_url, content_sha256, retrieved_at
+
+
+def _direct_homepage_declarations(value: dict[str, Any]) -> list[dict[str, str]]:
+    """Return raw HTML social URLs retained from one exact homepage snapshot.
+
+    ``apply_website_identity_gate`` stores the original extracted HTML links in
+    ``discovered_social_links`` before applying the older handle-name heuristic. C12 can
+    safely materialize those links when the retained snapshot consists of exactly one
+    proven homepage. JSON-LD ``sameAs`` intentionally stays on the previously qualified
+    V6e recovery path so that existing production semantics remain unchanged.
+    """
+
+    found: dict[tuple[str, str], dict[str, str]] = {}
+    for item in value.get("discovered_social_links") or []:
+        if not isinstance(item, dict):
+            continue
+        platform = str(item.get("platform") or "").strip()
+        profile_url = str(item.get("url") or "").strip()
+        if platform and profile_url:
+            found[(platform, profile_url)] = {"platform": platform, "url": profile_url}
+    return [found[key] for key in sorted(found)]
+
+
+def _observation(
+    *,
+    org: str,
+    website_identity: dict[str, Any],
+    platform: str,
+    profile_url: str,
+    source_url: str,
+    content_sha256: str,
+    retrieved_at: str,
+    strategy: str,
+    handle_assessment: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    observation_id = "company-site-handle-" + hashlib.sha256(
+        f"{org}|{platform}|{profile_url}|{source_url}|{content_sha256}|{strategy}".encode("utf-8")
+    ).hexdigest()[:24]
+    website_score = float(website_identity.get("score") or 0.95)
+    proof: list[dict[str, Any]] = [
+        {
+            "type": "website_identity_gate",
+            "status": website_identity.get("status"),
+            "score": website_identity.get("score"),
+            "method": website_identity.get("method"),
+        },
+        {
+            "type": "primary_homepage_provenance",
+            "source_url": source_url,
+            "content_sha256": content_sha256,
+        },
+        {
+            "type": "company_page_declared_social_link",
+            "platform": platform,
+            "profile_url": profile_url,
+            "source_url": source_url,
+        },
+    ]
+    if handle_assessment is not None:
+        proof.append(
+            {
+                "type": "social_handle_identity_gate",
+                "score": handle_assessment.get("identity_score"),
+                "method": handle_assessment.get("method"),
+                "matched_tokens": list(handle_assessment.get("matched_tokens") or []),
+            }
+        )
+
+    return {
+        "id": observation_id,
+        "organisation_number": org,
+        "platform": platform,
+        "signal_type": "profile_handle",
+        "source_url": source_url,
+        "retrieved_at": retrieved_at,
+        "content_sha256": content_sha256,
+        "exact_entity": True,
+        "identity_proof": proof,
+        "acquisition_mode": "permitted_public_page",
+        "rights_status": "approved",
+        "source_class": "company_site",
+        "evidence_span": f"Exact company homepage declares {platform} profile {profile_url}",
+        "profile_url": profile_url,
+        "metrics": {
+            "identity_score": max(0.0, min(1.0, website_score)),
+            "claim_scope": (
+                "Social profile URL directly declared by the retained exact-company homepage; "
+                "the social-platform page/content was not fetched or independently verified."
+            ),
+            "network_requests_added": 0,
+            "social_handle_name_match_required": handle_assessment is not None,
+        },
+        "strategy": strategy,
+    }
+
+
 def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, Any]]:
-    """Project exact company-page social declarations into profile-handle observations.
+    """Project exact company-page social declarations into material typed claims.
 
-    This extractor performs no network access. It only reuses an already-qualified company
-    website snapshot. Because the current website model can merge social links discovered
-    across multiple bounded pages without retaining per-link page provenance, H2a abstains
-    whenever more than one captured page contributed to the snapshot. V6e separately
-    recovers only links whose primary-homepage URL/hash provenance can be proven exactly.
+    C12 showed that valid social URLs were already present in retained website evidence but
+    were lost because publication additionally required the social handle itself to resemble
+    the legal company name. For the narrow claim that an exact-company homepage declared a
+    canonical social URL, the second name-match gate is unnecessary.
 
-    The narrow claim is: "this exact company page declared this social profile URL".
-    No social-platform page, post, metric, currentness or sentiment is implied.
+    The relaxed rule is deliberately limited to single-page snapshots with immutable
+    homepage URL/hash provenance. Multi-page legacy snapshots can contain merged social
+    candidates without per-link provenance and therefore continue to abstain here, leaving
+    the previously qualified V6e recovery path unchanged.
     """
 
     website = ((profile.get("evidence") or {}).get("website") or {})
@@ -91,84 +194,59 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
     if len(org) != 9 or not org.isdigit():
         return []
 
-    source_url = str(value.get("final_url") or website.get("source_url") or "").strip()
-    content_sha256 = str(value.get("content_sha256") or website.get("content_sha256") or "").strip()
-    retrieved_at = str(website.get("retrieved_at") or "").strip()
-    if not source_url.startswith(("http://", "https://")) or len(content_sha256) != 64 or not retrieved_at:
+    provenance = _primary_page_provenance(website)
+    if provenance is None:
         return []
-
+    _primary, source_url, content_sha256, retrieved_at = provenance
     pages = [page for page in (value.get("pages") or []) if isinstance(page, dict)]
-    if len(pages) != 1:
-        return []
-    page = pages[0]
-    if str(page.get("url") or "").rstrip("/") != source_url.rstrip("/"):
-        return []
-    if str(page.get("content_sha256") or "") != content_sha256:
-        return []
 
-    observations: list[dict[str, Any]] = []
-    for item in value.get("social_link_assessments") or []:
-        if not isinstance(item, dict) or not item.get("publishable"):
-            continue
-        platform = str(item.get("platform") or "").strip()
-        profile_url = str(item.get("url") or "").strip()
-        if not platform or not _safe_profile_url(platform, profile_url):
-            continue
+    observations: dict[tuple[str, str], dict[str, Any]] = {}
 
-        observation_id = "company-site-handle-" + hashlib.sha256(
-            f"{org}|{platform}|{profile_url}|{source_url}|{content_sha256}".encode("utf-8")
-        ).hexdigest()[:24]
-        observations.append(
-            {
-                "id": observation_id,
-                "organisation_number": org,
-                "platform": platform,
-                "signal_type": "profile_handle",
-                "source_url": source_url,
-                "retrieved_at": retrieved_at,
-                "content_sha256": content_sha256,
-                "exact_entity": True,
-                "identity_proof": [
-                    {
-                        "type": "website_identity_gate",
-                        "status": website_identity.get("status"),
-                        "score": website_identity.get("score"),
-                        "method": website_identity.get("method"),
-                    },
-                    {
-                        "type": "company_page_declared_social_link",
-                        "platform": platform,
-                        "profile_url": profile_url,
-                        "source_url": source_url,
-                    },
-                    {
-                        "type": "social_handle_identity_gate",
-                        "score": item.get("identity_score"),
-                        "method": item.get("method"),
-                        "matched_tokens": list(item.get("matched_tokens") or []),
-                    },
-                ],
-                "acquisition_mode": "permitted_public_page",
-                "rights_status": "approved",
-                "source_class": "company_site",
-                "evidence_span": f"Exact company page declares {platform} profile {profile_url}",
-                "profile_url": profile_url,
-                "metrics": {
-                    "identity_score": item.get("identity_score"),
-                    "claim_scope": (
-                        "Official profile URL declared by the exact company page; "
-                        "the social-platform page/content was not fetched."
-                    ),
-                },
-                "strategy": "verified_company_page_handle_extraction_v1",
-            }
-        )
+    if len(pages) == 1:
+        for item in _direct_homepage_declarations(value):
+            platform = str(item.get("platform") or "").strip()
+            profile_url = str(item.get("url") or "").strip()
+            if not platform or not _safe_profile_url(platform, profile_url):
+                continue
+            observations[(platform, profile_url)] = _observation(
+                org=org,
+                website_identity=website_identity,
+                platform=platform,
+                profile_url=profile_url,
+                source_url=source_url,
+                content_sha256=content_sha256,
+                retrieved_at=retrieved_at,
+                strategy="verified_company_homepage_declaration_c12_v1",
+            )
 
-    return sorted(observations, key=lambda row: (row["platform"], row["profile_url"], row["id"]))
+    if len(pages) == 1:
+        for item in value.get("social_link_assessments") or []:
+            if not isinstance(item, dict) or not item.get("publishable"):
+                continue
+            platform = str(item.get("platform") or "").strip()
+            profile_url = str(item.get("url") or "").strip()
+            if not platform or not _safe_profile_url(platform, profile_url):
+                continue
+            observations.setdefault(
+                (platform, profile_url),
+                _observation(
+                    org=org,
+                    website_identity=website_identity,
+                    platform=platform,
+                    profile_url=profile_url,
+                    source_url=source_url,
+                    content_sha256=content_sha256,
+                    retrieved_at=retrieved_at,
+                    strategy="verified_company_page_handle_extraction_v1",
+                    handle_assessment=item,
+                ),
+            )
+
+    return sorted(observations.values(), key=lambda row: (row["platform"], row["profile_url"], row["id"]))
 
 
 def attach_company_site_social_observations(profile: dict[str, Any]) -> dict[str, Any]:
-    """Attach H2a plus qualified V6e recovery without adding network requests."""
+    """Attach C12/H2a plus qualified V6e recovery without adding network requests."""
 
     existing = [item for item in (profile.get("external_observations") or []) if isinstance(item, dict)]
     h2a = company_site_social_observations(profile)
@@ -181,9 +259,6 @@ def attach_company_site_social_observations(profile: dict[str, Any]) -> dict[str
         by_id.values(), key=lambda row: (str(row.get("signal_type") or ""), str(row.get("platform") or ""), str(row.get("id") or ""))
     )
 
-    # Local import avoids an import cycle: the recovery module deliberately reuses this
-    # module's strict social-profile URL gate. It sees H2a already attached, so it also
-    # abstains from duplicating a profile already published by the original path.
     from .zero_network_social_recovery import recover_company_site_social_observations
 
     recovered = recover_company_site_social_observations(profile)

@@ -11,6 +11,7 @@ from norway_company_agent.company_site_social import (  # noqa: E402
     attach_company_site_social_observations,
     company_site_social_observations,
 )
+from norway_company_agent.external_contract import project_profile_handle_observations  # noqa: E402
 from norway_company_agent.external_footprint import publishable_observation, validate_observation  # noqa: E402
 
 
@@ -67,6 +68,63 @@ def _profile() -> dict:
     }
 
 
+def _c12_mtm_profile() -> dict:
+    """Regression shape from the live C12 follow-up for organisation 811730912.
+
+    On 2026-10-04 the exact MTM Skogservice homepage declared an opaque YouTube channel URL.
+    The old legal-name/handle heuristic scored that channel 0.3 because the channel ID does
+    not encode the legal company name. The regression tests the narrower, source-backed
+    claim that the exact verified company homepage declared the URL.
+    """
+    digest = "c" * 64
+    source_url = "https://www.mtm-skogservice.no/"
+    youtube_url = "https://youtube.com/channel/UCWQ6axV2SNSqhA0JVoTZk-w"
+    return {
+        "organisation_number": "811730912",
+        "name": "MTM SKOGSERVICE AS",
+        "evidence": {
+            "website": {
+                "status": "available",
+                "source_type": "registry_linked_company_website",
+                "source_url": source_url,
+                "retrieved_at": "2026-10-04T04:58:38Z",
+                "content_sha256": digest,
+                "value": {
+                    "final_url": source_url,
+                    "content_sha256": digest,
+                    "identity_assessment": {
+                        "status": "exact",
+                        "score": 1.0,
+                        "publishable": True,
+                        "method": "deterministic_name_org_evidence_v3",
+                    },
+                    "pages": [
+                        {
+                            "url": source_url,
+                            "content_sha256": digest,
+                            "title": "MTM Skogservice AS",
+                        }
+                    ],
+                    "discovered_social_links": [
+                        {"platform": "youtube", "url": youtube_url}
+                    ],
+                    "social_link_assessments": [
+                        {
+                            "platform": "youtube",
+                            "url": youtube_url,
+                            "identity_score": 0.3,
+                            "publishable": False,
+                            "matched_tokens": [],
+                            "method": "deterministic_social_handle_identity_v1",
+                        }
+                    ],
+                    "structured_organisations": [],
+                },
+            }
+        },
+    }
+
+
 def test_emits_only_publishable_handle_with_exact_company_page_provenance() -> None:
     observations = company_site_social_observations(_profile())
     assert len(observations) == 1
@@ -82,6 +140,60 @@ def test_emits_only_publishable_handle_with_exact_company_page_provenance() -> N
     assert "social-platform page/content was not fetched" in item["metrics"]["claim_scope"]
     assert validate_observation(item) == []
     assert publishable_observation(item) is True
+
+
+def test_c12_exact_homepage_declaration_survives_opaque_handle_name_match() -> None:
+    observations = company_site_social_observations(_c12_mtm_profile())
+    assert len(observations) == 1
+    item = observations[0]
+    assert item["organisation_number"] == "811730912"
+    assert item["platform"] == "youtube"
+    assert item["profile_url"] == "https://youtube.com/channel/UCWQ6axV2SNSqhA0JVoTZk-w"
+    assert item["source_url"] == "https://www.mtm-skogservice.no/"
+    assert item["strategy"] == "verified_company_homepage_declaration_c12_v1"
+    assert item["metrics"]["network_requests_added"] == 0
+    assert item["metrics"]["social_handle_name_match_required"] is False
+    assert validate_observation(item) == []
+    assert publishable_observation(item) is True
+
+
+def test_c12_direct_declaration_becomes_material_external_profile_handle_claim() -> None:
+    profile = attach_company_site_social_observations(_c12_mtm_profile())
+    contract = {
+        "organisation_number": "811730912",
+        "claims": [],
+        "evidence": [],
+        "changes": [],
+        "errors": [],
+    }
+    projected = project_profile_handle_observations(contract, profile)
+    claims = [row for row in projected["claims"] if row.get("field") == "external.profile_handle"]
+    assert len(claims) == 1
+    assert claims[0]["value"] == "https://youtube.com/channel/UCWQ6axV2SNSqhA0JVoTZk-w"
+    assert claims[0]["platform"] == "youtube"
+    assert claims[0]["availability"] == "available"
+    evidence = {row["id"]: row for row in projected["evidence"]}
+    ev = evidence[claims[0]["evidence_ids"][0]]
+    assert ev["source_url"] == "https://www.mtm-skogservice.no/"
+    assert ev["content_sha256"] == "c" * 64
+
+
+def test_direct_declaration_does_not_relax_non_exact_website_identity() -> None:
+    profile = _c12_mtm_profile()
+    profile["evidence"]["website"]["value"]["identity_assessment"]["publishable"] = False
+    assert company_site_social_observations(profile) == []
+
+
+def test_relaxed_declaration_rule_abstains_on_legacy_multi_page_snapshot() -> None:
+    profile = _c12_mtm_profile()
+    profile["evidence"]["website"]["value"]["pages"].append(
+        {
+            "url": "https://www.mtm-skogservice.no/kontakt",
+            "content_sha256": "d" * 64,
+            "title": "Kontakt",
+        }
+    )
+    assert company_site_social_observations(profile) == []
 
 
 def test_abstains_when_website_identity_is_not_publishable() -> None:
@@ -117,17 +229,14 @@ def test_abstains_when_source_hash_or_timestamp_is_missing_or_mismatched() -> No
 
 
 def test_rejects_nested_social_hostname_artifact() -> None:
-    profile = _profile()
-    profile["evidence"]["website"]["value"]["social_link_assessments"] = [
+    profile = _c12_mtm_profile()
+    profile["evidence"]["website"]["value"]["discovered_social_links"] = [
         {
             "platform": "instagram",
             "url": "https://instagram.com/nummerti/www.instagram.com/webnode_ag",
-            "identity_score": 0.98,
-            "publishable": True,
-            "matched_tokens": ["nummerti"],
-            "method": "deterministic_social_handle_identity_v1",
         }
     ]
+    profile["evidence"]["website"]["value"]["social_link_assessments"] = []
     assert company_site_social_observations(profile) == []
 
 
@@ -168,7 +277,7 @@ def test_attach_preserves_other_external_observations_and_is_idempotent() -> Non
 
 
 def test_does_not_treat_declared_profile_as_platform_activity_or_metrics() -> None:
-    item = company_site_social_observations(_profile())[0]
+    item = company_site_social_observations(_c12_mtm_profile())[0]
     assert item["signal_type"] == "profile_handle"
     assert "followers" not in item.get("metrics", {})
     assert "posts" not in item.get("metrics", {})
