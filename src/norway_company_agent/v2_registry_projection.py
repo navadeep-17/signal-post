@@ -12,8 +12,18 @@ MANAGED_FIELDS = (
     "municipality_number",
     "bankrupt",
     "liquidating",
+    "forced_dissolution",
     "registration_date",
+    "foundation_date",
+    "articles_date",
+    "registered_in_enterprise_register",
+    "enterprise_register_date",
+    "institutional_sector",
+    "registered_capital",
+    "registered_in_vat_register",
+    "vat_registration_date",
     "registered_address",
+    "postal_address",
     "registered_contact_email",
     "registered_phone",
     "registered_mobile",
@@ -23,8 +33,18 @@ SOURCE_PATHS = {
     "municipality_number": "/forretningsadresse/kommunenummer",
     "bankrupt": "/konkurs",
     "liquidating": "/underAvvikling",
+    "forced_dissolution": "/underTvangsavviklingEllerTvangsopplosning",
     "registration_date": "/registreringsdatoEnhetsregisteret",
+    "foundation_date": "/stiftelsesdato",
+    "articles_date": "/vedtektsdato",
+    "registered_in_enterprise_register": "/registrertIForetaksregisteret",
+    "enterprise_register_date": "/registreringsdatoForetaksregisteret",
+    "institutional_sector": "/institusjonellSektorkode",
+    "registered_capital": "/kapital",
+    "registered_in_vat_register": "/registrertIMvaregisteret",
+    "vat_registration_date": "/registreringsdatoMerverdiavgiftsregisteret",
     "registered_address": "/forretningsadresse",
+    "postal_address": "/postadresse",
     "registered_contact_email": "/epostadresse",
     "registered_phone": "/telefon",
     "registered_mobile": "/mobil",
@@ -56,15 +76,62 @@ def _text_value(value: Any) -> str | None:
     return text or None
 
 
+def _clean_address(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    cleaned = {
+        key: raw.get(key)
+        for key in (
+            "adresse",
+            "postnummer",
+            "poststed",
+            "kommune",
+            "kommunenummer",
+            "land",
+            "landkode",
+        )
+        if raw.get(key) not in (None, "", [])
+    }
+    return cleaned or None
+
+
+def _clean_sector(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    code = raw.get("kode") if raw.get("kode") not in (None, "") else raw.get("code")
+    description = (
+        raw.get("beskrivelse") if raw.get("beskrivelse") not in (None, "") else raw.get("description")
+    )
+    if code in (None, "") and description in (None, ""):
+        return None
+    return {"code": code or None, "description": description or None}
+
+
+def _clean_capital(raw: Any) -> dict[str, Any] | None:
+    """Keep BRREG capital semantics intact instead of inventing translated meanings."""
+    if not isinstance(raw, dict):
+        return None
+    allowed = (
+        "belop",
+        "antallAksjer",
+        "type",
+        "bundet",
+        "valuta",
+        "innbetalt",
+        "fulltInnbetalt",
+        "innfortDato",
+    )
+    cleaned = {key: raw.get(key) for key in allowed if raw.get(key) not in (None, "", [])}
+    return cleaned or None
+
+
 def _exact_live_value(record: dict[str, Any], field: str) -> Any:
     """Return only values present in the retained exact-org live BRREG response.
 
     ``official.normalize_entity`` preserves these values directly from the response body.
-    A missing key normalizes to ``None``; importantly, explicit ``False`` remains
-    distinguishable and is therefore publishable. Structured addresses are retained only
-    when they contain at least one concrete address component.
+    Missing keys normalize to ``None``; explicit ``False`` remains distinguishable and is
+    publishable. Structured values are retained only when they contain concrete content.
     """
-
     if record.get("status") != "available":
         return None
     value = record.get("value") if isinstance(record.get("value"), dict) else {}
@@ -90,35 +157,36 @@ def _exact_live_value(record: dict[str, Any], field: str) -> Any:
             return None
         return str(municipality_number)
 
-    if field == "bankrupt":
-        raw = value.get("bankrupt")
+    if field in {
+        "bankrupt",
+        "liquidating",
+        "forced_dissolution",
+        "registered_in_enterprise_register",
+        "registered_in_vat_register",
+    }:
+        raw = value.get(field)
         return raw if isinstance(raw, bool) else None
 
-    if field == "liquidating":
-        raw = value.get("liquidating")
-        return raw if isinstance(raw, bool) else None
+    if field in {
+        "registration_date",
+        "foundation_date",
+        "articles_date",
+        "enterprise_register_date",
+        "vat_registration_date",
+    }:
+        return _text_value(value.get(field))
 
-    if field == "registration_date":
-        return _text_value(value.get("registration_date"))
+    if field == "institutional_sector":
+        return _clean_sector(value.get("institutional_sector"))
+
+    if field == "registered_capital":
+        return _clean_capital(value.get("registered_capital"))
 
     if field == "registered_address":
-        raw = value.get("business_address")
-        if not isinstance(raw, dict):
-            return None
-        cleaned = {
-            key: raw.get(key)
-            for key in (
-                "adresse",
-                "postnummer",
-                "poststed",
-                "kommune",
-                "kommunenummer",
-                "land",
-                "landkode",
-            )
-            if raw.get(key) not in (None, "", [])
-        }
-        return cleaned or None
+        return _clean_address(value.get("business_address"))
+
+    if field == "postal_address":
+        return _clean_address(value.get("postal_address"))
 
     if field == "registered_contact_email":
         return _text_value(value.get("contact_email"))
@@ -152,7 +220,6 @@ def project_v2_registry_claims(contract: dict[str, Any], profile: dict[str, Any]
     attached as evidence. If the live response is available but a field is absent, the field
     is explicitly marked ``not_available``. Bulk/profile values never fill the gap.
     """
-
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     if str(profile.get("organisation_number") or "") != org:
         raise ValueError("V2 registry projection organisation number mismatch")
