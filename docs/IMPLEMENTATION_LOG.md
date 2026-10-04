@@ -12,6 +12,44 @@ Rules:
 
 ---
 
+## 2026-10-04 — Phase 2 exact-parent subunit email-domain screen rejected
+
+Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
+
+- branch: `experiment/phase2-subunit-email-domain-screen`
+- exact measured head: `5321ab9689d754bd2f2415f392a8d0179050b6ae`
+- workflow run `37209911261`: PASS
+- artifact: `phase2-subunit-email-domain-screen`, ID `11306935410`
+- artifact digest: `fab8b2d62950eea9e5991bcf1cf61512a4532680ddcc9f1330c30ba36b19038e`
+- full regressions: PASS
+- publication remained disabled
+- cohort: already-consumed Phase-A seed-`20261103` 100
+
+The experiment retained exact-parent `overordnetEnhet` plus public subunit `epostadresse` from the BRREG locations response already fetched by production, filtered generic mailbox providers with the existing registry-email rules, and independently fetched candidate email domains. Exact parent/subunit relation remained nomination evidence only; acceptance required the target main entity to be proven on the fetched page.
+
+Measured result:
+
+- baseline V8: 100/100 terminal, `passed=true`, 8 exact verified websites, 666 logical requests, 1,332/2,000 conservative charge, 439.185 s, $0, search API requests 0;
+- exact-parent subunit email rows: 19;
+- companies with exact-parent subunit email: 19;
+- unresolved companies with non-generic deduplicated candidate domains: 10;
+- attempted candidates: 10;
+- accepted exact target sites: **0**;
+- decisions: 9 existing identity-gate rejects, 1 target-proof reject;
+- wrong-company publications: 0;
+- screen logical site requests: 16;
+- conservative screen charge: 32;
+- screen runtime: 32.192 s;
+- screen bytes: 151,186;
+- third-party cost: $0;
+- search API requests: 0.
+
+Notable consumed case: `AGILE SOLUTIONS AS` at `agilesolutions.no` matched the complete legal name on the homepage but lacked the predeclared exact organisation-number or registry-location corroboration. The gate was not weakened post-hoc.
+
+Decision: **DROP**. Do not integrate or fresh-qualify this candidate path. Next Phase-2 screen targets one same-domain secondary identity page for BRREG-declared websites that already load but remain quarantined; the secondary request must substitute for the current failed H1c attempt so the four-site-request ceiling is unchanged.
+
+---
+
 ## 2026-10-04 — Phase 2 exact-parent subunit homepage screen rejected
 
 Status: **IMPLEMENTED + TESTED + MEASURED / DROP / NOT QUALIFIED / NOT MERGED**
