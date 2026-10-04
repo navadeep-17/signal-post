@@ -1,0 +1,43 @@
+name: C12 M4 Apply Patch
+
+on:
+  push:
+    branches:
+      - feature/c12-current-first-party-jobs
+    paths:
+      - "scripts/patch_c12_m4.py"
+      - ".github/workflows/c12-m4-apply.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/c12-current-first-party-jobs
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync locked dependencies
+        run: uv sync --locked
+      - name: Apply C12 M4 patch
+        run: uv run python scripts/patch_c12_m4.py
+      - name: Run full regression suite
+        run: uv run --with pytest pytest -q
+      - name: Commit production patch
+        run: |
+          git config user.name "navadeep-17"
+          git config user.email "navadeepthota17@gmail.com"
+          git add src/norway_company_agent/final_site_discovery.py src/norway_company_agent/first_party_activity.py
+          if git diff --cached --quiet; then
+            echo "No patch changes"
+            exit 1
+          fi
+          git commit -m "feat(c12): arbitrate bounded careers surfaces and project current jobs"
+          git push origin HEAD:feature/c12-current-first-party-jobs
