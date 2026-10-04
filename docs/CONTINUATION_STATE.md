@@ -18,10 +18,9 @@ Current production `main` SHA before Phase-A merge:
 
 - branch: `feature/phaseb-idle-contact-enrichment`
 - PR #94: `Phase A: exact-live BRREG zero-request breadth recovery`
-- state: **OPEN / READY / NOT MERGED**
+- state: **OPEN / NOT MERGED; READY TRANSITION PENDING**
 - second-fresh qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
-- cleaned release head before this state-pin commit: `47bfdc67e4280f60556feeaddd4f73ecd31c49c3`
-- release cleanup after qualification removed only the rejected external-phone path, one-off workflows and stale doc noise; qualified official/postal semantics were not broadened after the fresh run.
+- cleaned release-line semantics contain only qualified exact-BRREG/postal behavior; rejected external-phone code and one-off workflows are removed.
 
 Other open draft PRs are historical/experimental and are not the active production path.
 
@@ -173,18 +172,19 @@ No retained Phase-A field adds a source request.
 
 Phase A is qualified but not yet merged. The remaining blocker is release hygiene only:
 
-1. exact-head CI on the cleaned branch after phone/workflow removal;
-2. merge if green;
-3. verify post-merge `main` CI.
+1. transition PR #94 out of draft;
+2. exact-head CI on the cleaned branch;
+3. merge if green;
+4. verify post-merge `main` CI.
 
 ## 8. Exact next actions
 
 1. Confirm the cleaned PR diff contains only continuity docs, `official.py`, `v2_registry_projection.py`, `canonical_projection.py`, and the two focused Phase-A tests.
-2. Require exact-head Baseline CI green on the cleaned head.
+2. Mark PR #94 ready and require exact-head Baseline CI green.
 3. Merge PR #94 and update docs with merge SHA.
 4. Verify post-merge `main` CI.
 5. After Phase A closes, resume Phase B/C website-enrichment / adaptive-request work using company-family net-new coverage as the promotion metric.
 
 ## 9. NEXT
 
-**NEXT: exact-head CI on the cleaned qualified Phase-A branch, then merge PR #94 only if green and verify post-merge `main`.**
+**NEXT: mark PR #94 ready, obtain exact-head CI on the cleaned qualified Phase-A branch, then merge only if green and verify post-merge `main`.**
