@@ -1,0 +1,225 @@
+name: C12 M5 Combined Measurement
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - validation/c12-m5-combined-measurement
+    paths:
+      - "scripts/summarize_c12_m5.py"
+      - ".github/workflows/c12-m5-combined-measurement.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c12-m5-combined-measurement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure-fresh-100:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          command -v pdftoppm
+          command -v tesseract
+
+      - name: Sync and run full regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q
+
+      - name: Download current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download Builderr universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Recreate prior primary cohorts
+        run: |
+          uv run python select_entry_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --count 1000 \
+            --seed 20260823 \
+            --output entry-companies.jsonl
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude entry-companies.jsonl \
+            --count 300 \
+            --seed 20260915 \
+            --output prior-validation-300.jsonl \
+            --report prior-validation-300-selection.json
+          test "$(wc -l < entry-companies.jsonl)" -eq 1000
+          test "$(wc -l < prior-validation-300.jsonl)" -eq 300
+          test -s submission/final-release-1000.jsonl
+
+      - name: Build deduplicated exclusion manifest
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          sources = [
+              Path('entry-companies.jsonl'),
+              Path('prior-validation-300.jsonl'),
+              Path('submission/final-release-1000.jsonl'),
+          ]
+          rows = {}
+          for path in sources:
+              for line in path.read_text(encoding='utf-8').splitlines():
+                  if not line.strip():
+                      continue
+                  item = json.loads(line)
+                  org = ''.join(ch for ch in str(item.get('organisation_number') or '') if ch.isdigit())
+                  if len(org) == 9:
+                      rows.setdefault(org, {'organisation_number': org})
+          # Exclude every named C12 live regression example so this measurement does not
+          # reward memorising the evaluator feedback or our hand-audited transfer cases.
+          for org in ('811730912', '813396092', '838797172', '938702675', '982897327'):
+              rows.setdefault(org, {'organisation_number': org})
+          Path('c12-m5-exclude.jsonl').write_text(
+              ''.join(json.dumps(rows[org], separators=(',', ':')) + '\n' for org in sorted(rows)),
+              encoding='utf-8',
+          )
+          print(f'excluded_unique={len(rows)}')
+          PY
+          test -s c12-m5-exclude.jsonl
+          sha256sum c12-m5-exclude.jsonl > c12-m5-exclude.sha256
+
+      - name: Select fresh disjoint 100
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude c12-m5-exclude.jsonl \
+            --count 100 \
+            --seed 20261004 \
+            --evaluation-split c12_m5_fresh_validation \
+            --sample-slice combined_m1_m4_transfer \
+            --output c12-m5-fresh-100.jsonl \
+            --report c12-m5-selection.json
+          test "$(wc -l < c12-m5-fresh-100.jsonl)" -eq 100
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('c12-m5-selection.json').read_text())
+          assert report['count'] == 100, report
+          assert report['overlap_count'] == 0, report
+          assert report['seed'] == 20261004, report
+          print(json.dumps(report, indent=2))
+          PY
+          sha256sum c12-m5-fresh-100.jsonl > c12-m5-fresh-100.sha256
+
+      - name: Run actual V8 evaluator path on fresh 100
+        run: |
+          mkdir -p out
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations c12-m5-fresh-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/c12-m5-output.jsonl \
+            --report out/c12-m5-report.json \
+            --product-output out/c12-m5-product.html \
+            --work-dir out/c12-m5-work \
+            --run-id c12-m5-combined-measurement-100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-third-party-cost-usd 0 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Summarize C12 M1-M4 transfer
+        env:
+          QUALIFICATION_SHA: ${{ github.sha }}
+        run: |
+          uv run python scripts/summarize_c12_m5.py \
+            --input c12-m5-fresh-100.jsonl \
+            --selection-report c12-m5-selection.json \
+            --output out/c12-m5-output.jsonl \
+            --run-report out/c12-m5-report.json \
+            --profiles out/c12-m5-work/profiles.jsonl \
+            --product out/c12-m5-product.html \
+            --summary out/c12-m5-summary.json \
+            --audit out/c12-m5-material-external-audit.jsonl \
+            --repository-sha "$QUALIFICATION_SHA"
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('out/c12-m5-summary.json').read_text())
+          assert summary['passed'] is True, summary
+          assert summary['cohort']['companies'] == 100, summary
+          assert summary['cohort']['terminal_completed'] == 100, summary
+          assert summary['cohort']['selection_overlap_count'] == 0, summary
+          assert summary['c12_m1_official_evidence']['exact_evidence_mapping_errors'] == 0, summary
+          assert summary['c12_m2_m3_m4_external_recall']['company_owned_evidence_mapping_errors'] == 0, summary
+          assert summary['quality']['canonical_validation_errors'] == 0, summary
+          assert summary['quality']['synthesis_validation_errors'] == 0, summary
+          assert summary['quality']['decision_brief_companies'] == 100, summary
+          assert summary['operations']['third_party_api_cost_usd'] == 0.0, summary
+          assert summary['operations']['search_api_requests'] == 0, summary
+          assert summary['operations']['observed_conservative_request_charge'] <= 2000, summary
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Hash measurement deliverables
+        run: |
+          sha256sum \
+            out/c12-m5-output.jsonl \
+            out/c12-m5-report.json \
+            out/c12-m5-product.html \
+            out/c12-m5-work/profiles.jsonl \
+            out/c12-m5-summary.json \
+            out/c12-m5-material-external-audit.jsonl \
+            > out/c12-m5-deliverables.sha256
+
+      - name: Upload C12 M5 measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c12-m5-combined-measurement-100
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            brreg-enheter.sha256
+            signalpost-universe.sha256
+            c12-m5-exclude.sha256
+            c12-m5-exclude.jsonl
+            c12-m5-fresh-100.jsonl
+            c12-m5-fresh-100.sha256
+            c12-m5-selection.json
+            out/c12-m5-output.jsonl
+            out/c12-m5-report.json
+            out/c12-m5-product.html
+            out/c12-m5-work/profiles.jsonl
+            out/c12-m5-summary.json
+            out/c12-m5-material-external-audit.jsonl
+            out/c12-m5-deliverables.sha256
