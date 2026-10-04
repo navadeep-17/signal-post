@@ -17,8 +17,8 @@ Current production `main` SHA before Phase-A merge:
 ### Active implementation branch / PR
 
 - branch: `feature/phaseb-idle-contact-enrichment`
-- PR #94 should be titled `Phase A: exact-live BRREG zero-request breadth recovery`
-- state: **OPEN / NOT MERGED**
+- PR #94: `Phase A: exact-live BRREG zero-request breadth recovery`
+- state: **OPEN / READY / NOT MERGED**
 - second-fresh qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
 - release cleanup after qualification removed only the rejected external-phone path, one-off workflows and stale doc noise; qualified official/postal semantics were not broadened after the fresh run.
 
@@ -173,16 +173,16 @@ No retained Phase-A field adds a source request.
 Phase A is qualified but not yet merged. The remaining blocker is release hygiene only:
 
 1. exact-head CI on the cleaned branch after phone/workflow removal;
-2. update PR #94 title/body and mark ready;
-3. merge if green;
-4. verify post-merge `main` CI.
+2. merge if green;
+3. verify post-merge `main` CI.
 
 ## 8. Exact next actions
 
 1. Confirm the cleaned PR diff contains only continuity docs, `official.py`, `v2_registry_projection.py`, `canonical_projection.py`, and the two focused Phase-A tests.
 2. Require exact-head Baseline CI green on the cleaned head.
-3. Mark PR #94 ready, merge, update docs with merge SHA, and verify post-merge `main` CI.
-4. After Phase A closes, resume Phase B/C website-enrichment / adaptive-request work using company-family net-new coverage as the promotion metric.
+3. Merge PR #94 and update docs with merge SHA.
+4. Verify post-merge `main` CI.
+5. After Phase A closes, resume Phase B/C website-enrichment / adaptive-request work using company-family net-new coverage as the promotion metric.
 
 ## 9. NEXT
 
