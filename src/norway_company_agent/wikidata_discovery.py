@@ -26,14 +26,13 @@ from .final_site_discovery import (
     fetch_bounded_homepage,
 )
 from .identity import apply_website_identity_gate
-from .website import _registered_domain, normalize_homepage
+from .website import normalize_homepage
 from .zero_cost_registry_guard import apply_registry_risk_guard
 
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 WIKIDATA_BATCH_SIZE = 100
 WIKIDATA_MAX_RESPONSE_BYTES = 1_000_000
 WIKIDATA_USER_AGENT = "signal-post/0.1 (+https://github.com/navadeep-17/signal-post)"
-CONTACT_SURFACE_TERMS = ("kontakt", "contact")
 
 
 def _normalise_org(value: Any) -> str:
@@ -236,142 +235,19 @@ def qualify_wikidata_candidate_identity(
     )
 
 
-def _contact_surface_candidates(primary: dict[str, Any]) -> list[str]:
-    """Return explicit same-domain contact links retained from the verified homepage."""
-    value = primary.get("value") or {}
-    base_url = str(value.get("final_url") or primary.get("source_url") or "")
-    base_domain = _registered_domain(base_url)
-    ranked: list[tuple[int, int, str]] = []
-    seen: set[str] = set()
-    for raw in value.get("identity_links") or []:
-        url = str(raw or "").strip()
-        if not url or url in seen or _registered_domain(url) != base_domain:
-            continue
-        path = urllib.parse.unquote(urllib.parse.urlparse(url).path).casefold()
-        marker = next((index for index, term in enumerate(CONTACT_SURFACE_TERMS) if term in path), None)
-        if marker is None:
-            continue
-        seen.add(url)
-        ranked.append((marker, len(path), url))
-    ranked.sort()
-    return [url for _, _, url in ranked]
-
-
-def _attach_idle_contact_surface(
-    profile: dict[str, Any],
-    primary: dict[str, Any],
-    *,
-    total: dict[str, Any],
-    timeout: float,
-) -> bool:
-    """Use the final two site requests only when careers/news left them completely idle.
-
-    The contact page is not identity discovery. It is a secondary enrichment page nominated
-    by an already-verified exact homepage. Publication requires independent page-local exact
-    organisation proof, or full legal name plus BRREG location, and rejects conflicting
-    explicit organisation numbers. No existing careers/news request is displaced.
-    """
-    total.setdefault("contact_surface_attempted", False)
-    total.setdefault("contact_surface_retained", False)
-    if not _publishable(primary):
-        return False
-    if int(total.get("requests") or 0) + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
-        return False
-    candidates = _contact_surface_candidates(primary)
-    if not candidates:
-        return False
-
-    candidate_url = candidates[0]
-    total["contact_surface_attempted"] = True
-    total["contact_surface_candidate_url"] = candidate_url
-    surface, ops = fetch_bounded_homepage(
-        candidate_url,
-        source_type="verified_company_contact_surface_candidate",
-        timeout=timeout,
-    )
-    _add_metrics(total, ops)
-
-    primary_value = primary.get("value") or {}
-    surface_value = surface.get("value") or {}
-    primary_domain = str(primary_value.get("registered_domain") or _registered_domain(str(primary_value.get("final_url") or primary.get("source_url") or "")))
-    surface_domain = str(surface_value.get("registered_domain") or "")
-    final_url = str(surface_value.get("final_url") or surface.get("source_url") or "")
-    same_domain = bool(primary_domain and surface_domain == primary_domain)
-    exact_candidate_url = final_url.rstrip("/") == candidate_url.rstrip("/")
-    conflict = _has_conflicting_explicit_org_number(profile, surface)
-    org_match = _page_contains_org_number(profile, surface)
-    name_match = _page_contains_full_legal_name(profile, surface)
-    location_match = _page_matches_registry_location(profile, surface)
-    strong_identity = bool(org_match or (name_match and location_match))
-    accepted = bool(
-        surface.get("status") == "available"
-        and same_domain
-        and exact_candidate_url
-        and not conflict
-        and strong_identity
-    )
-
-    total["contact_surface_identity"] = {
-        "same_registered_domain": same_domain,
-        "exact_candidate_url": exact_candidate_url,
-        "conflicting_explicit_org_number": conflict,
-        "target_org_number_on_page": org_match,
-        "full_legal_name_on_page": name_match,
-        "registry_location_on_page": location_match,
-        "publishable": accepted,
-    }
-    if not accepted:
-        return False
-
-    surface_value["contact_surface_identity"] = {
-        "status": "exact",
-        "publishable": True,
-        "method": "verified_homepage_contact_surface_exact_page_v1",
-        "target_org_number_on_page": org_match,
-        "full_legal_name_on_page": name_match,
-        "registry_location_on_page": location_match,
-    }
-    surface["value"] = surface_value
-    profile.setdefault("evidence", {})["website_contact_surface"] = surface
-    total["contact_surface_retained"] = True
-    return True
-
-
-def _maybe_attach_idle_contact_surface(
-    row: dict[str, Any],
-    total: dict[str, Any],
-    *,
-    timeout: float,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Attach contact enrichment only for an already-promoted site with two unused requests."""
-    total.setdefault("contact_surface_attempted", False)
-    total.setdefault("contact_surface_retained", False)
-    if not total.get("promoted"):
-        return row, total
-    if total.get("careers_surface_attempted") or total.get("news_detail_attempted"):
-        return row, total
-    if int(total.get("requests") or 0) + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
-        return row, total
-    primary = ((row.get("evidence") or {}).get("website") or {})
-    _attach_idle_contact_surface(row, primary, total=total, timeout=timeout)
-    return row, total
-
-
 def discover_final_website_with_wikidata(
     profile: dict[str, Any],
     *,
     wikidata_candidate: dict[str, Any] | None,
     timeout: float = 6.0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run existing discovery, then Wikidata fallback and idle exact-site contact enrichment."""
+    """Run the existing discovery unchanged, then use Wikidata only as bounded fallback."""
     row, total = discover_final_website(profile, timeout=timeout)
     total["wikidata_candidate_available"] = bool(wikidata_candidate)
     total["wikidata_attempted"] = False
     total["wikidata_verified"] = False
 
-    if total.get("promoted"):
-        return _maybe_attach_idle_contact_surface(row, total, timeout=timeout)
-    if not wikidata_candidate:
+    if total.get("promoted") or not wikidata_candidate:
         return row, total
     if int(total.get("requests") or 0) + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         total["wikidata_skipped_reason"] = "site_request_budget_consumed"
@@ -440,4 +316,4 @@ def discover_final_website_with_wikidata(
 
     if int(total.get("requests") or 0) > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         raise RuntimeError(f"H1e final site discovery exceeded logical request ceiling: {total['requests']}")
-    return _maybe_attach_idle_contact_surface(row, total, timeout=timeout)
+    return row, total
