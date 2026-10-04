@@ -124,27 +124,35 @@ def test_normalize_entity_retains_evaluator_relevant_live_fields() -> None:
     assert value["contact_mobile"] == "91122334"
 
 
-def test_exact_live_registration_address_activity_and_purpose_reach_claims() -> None:
+def test_exact_live_lost_fields_reach_claims_with_exact_paths() -> None:
     item = _project()
     assert validate_contract_object(item) == []
     claims = _claims(item)
 
     assert claims["registration_date"]["value"] == "2019-08-22"
     assert claims["registered_address"]["value"]["adresse"] == ["Testgata 1"]
+    assert claims["registered_contact_email"]["value"] == "post@acme.no"
+    assert claims["registered_phone"]["value"] == "22112211"
+    assert claims["registered_mobile"]["value"] == "91122334"
     assert claims["company_description"]["value"] == "Utvikling og salg av programvare."
     assert claims["registered_purpose"]["value"].startswith("Utvikle og selge")
 
+    expected_paths = {
+        "registration_date": "/registreringsdatoEnhetsregisteret",
+        "registered_address": "/forretningsadresse",
+        "registered_contact_email": "/epostadresse",
+        "registered_phone": "/telefon",
+        "registered_mobile": "/mobil",
+        "company_description": "/aktivitet",
+        "registered_purpose": "/vedtektsfestetFormaal",
+    }
     evidence = {row["id"]: row for row in item["evidence"]}
-    assert evidence[claims["registration_date"]["evidence_ids"][0]]["source_field"] == "/registreringsdatoEnhetsregisteret"
-    assert evidence[claims["registered_address"]["evidence_ids"][0]]["source_field"] == "/forretningsadresse"
-    assert evidence[claims["company_description"]["evidence_ids"][0]]["source_field"] == "/aktivitet"
-    assert evidence[claims["registered_purpose"]["evidence_ids"][0]]["source_field"] == "/vedtektsfestetFormaal"
-    assert all(evidence[claim["evidence_ids"][0]]["source_url"] == LIVE_URL for claim in (
-        claims["registration_date"],
-        claims["registered_address"],
-        claims["company_description"],
-        claims["registered_purpose"],
-    ))
+    for field, source_field in expected_paths.items():
+        claim = claims[field]
+        row = evidence[claim["evidence_ids"][0]]
+        assert row["source_field"] == source_field
+        assert row["source_url"] == LIVE_URL
+        assert row["source_row_key"] == ORG
 
 
 def test_lost_registry_claims_are_explicit_canonical_company_facts() -> None:
@@ -155,11 +163,17 @@ def test_lost_registry_claims_are_explicit_canonical_company_facts() -> None:
     assert facts["company.registration_date"]["value"] == "2019-08-22"
     assert facts["company.registered_address"]["value"]["kommunenummer"] == "0301"
     assert facts["company.registered_purpose"]["value"].startswith("Utvikle og selge")
+    assert facts["company.contact.email"]["value"] == "post@acme.no"
+    assert facts["company.contact.phone"]["value"] == "22112211"
+    assert facts["company.contact.mobile"]["value"] == "91122334"
     assert facts["website.description"]["value"] == "Utvikling og salg av programvare."
     for field in (
         "company.registration_date",
         "company.registered_address",
         "company.registered_purpose",
+        "company.contact.email",
+        "company.contact.phone",
+        "company.contact.mobile",
         "website.description",
     ):
         assert facts[field]["evidence_ids"]
@@ -172,16 +186,25 @@ def test_missing_live_values_fail_closed_without_bulk_fallback() -> None:
     live["business_address"] = None
     live["activity"] = None
     live["registered_purpose"] = None
+    live["contact_email"] = None
+    live["contact_phone"] = None
+    live["contact_mobile"] = None
     profile["registration_date"] = "1999-01-01"
     profile["registered_address"] = {"adresse": ["Wrong bulk address"]}
+    profile["contact_email"] = "wrong@example.com"
 
     item = _project(profile)
     claims = _claims(item)
 
-    assert claims["registration_date"]["availability"] == "not_available"
-    assert claims["registration_date"]["value"] is None
-    assert claims["registered_address"]["availability"] == "not_available"
-    assert claims["registered_address"]["value"] is None
+    for field in (
+        "registration_date",
+        "registered_address",
+        "registered_contact_email",
+        "registered_phone",
+        "registered_mobile",
+    ):
+        assert claims[field]["availability"] == "not_available"
+        assert claims[field]["value"] is None
     assert "registered_purpose" not in claims
     assert not any(
         claim.get("signal_type") == "official_registry_narrative_projection"
