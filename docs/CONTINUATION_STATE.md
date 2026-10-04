@@ -21,7 +21,6 @@ Current production `main` SHA before Phase-A merge:
 - state: **OPEN / DRAFT UNTIL READY MUTATION SUCCEEDS / NOT MERGED**
 - second-fresh qualified measurement head: `a7192c4fe9f47e26fcc2a0d3b632e86a1586cfe0`
 - cleaned release-line semantics contain only qualified exact-BRREG/postal behavior; rejected external-phone code and one-off workflows are removed.
-- this commit exists only to force an exact-head PR synchronize event for Baseline CI after release cleanup.
 
 Other open draft PRs are historical/experimental and are not the active production path.
 
