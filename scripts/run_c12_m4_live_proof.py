@@ -20,14 +20,12 @@ CASES = (
         "organisation_number": "838797172",
         "name": "GRANNE FORSIKRING",
         "website": "https://www.granne.no/",
-        "expect_jobs": False,
     },
     {
         "key": "af_positive",
         "organisation_number": "938702675",
         "name": "AF GRUPPEN ASA",
         "website": "https://www.afgruppen.no/",
-        "expect_jobs": True,
     },
 )
 
@@ -106,7 +104,7 @@ def _summarize(case: dict) -> dict:
 def main() -> None:
     rows = [_summarize(case) for case in CASES]
     report = {
-        "schema": "signalpost-c12-m4-live-proof-v1",
+        "schema": "signalpost-c12-m4-live-proof-v2",
         "cases": rows,
         "third_party_api_cost_usd": 0.0,
     }
@@ -121,11 +119,14 @@ def main() -> None:
 
     assert granne["website_identity"]["publishable"] is True, "Granne exact-site identity did not publish"
     assert granne["logical_site_requests"] <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
+    assert granne["homepage_active_hiring_signal"].get("active_vacancies") is False, "Granne unrelated numbers became an active-hiring signal"
+    assert granne["careers_surface_attempted"] is False, "Granne generic careers page consumed the bounded follow-up slot"
     assert granne["material_jobs"] == [], "Granne generic/no-vacancy surface became a job"
 
     assert af["website_identity"]["publishable"] is True, "AF exact-site identity did not publish"
     assert af["logical_site_requests"] <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
     assert af["homepage_active_hiring_signal"].get("active_vacancies") is True, "AF homepage did not expose active hiring signal"
+    assert af["homepage_active_hiring_signal"].get("active_vacancy_count") == 10, "AF homepage vacancy count did not resolve to 10"
     assert af["careers_surface_attempted"] is True, "AF active hiring did not trigger bounded careers follow-up"
     assert af["careers_surface_retained"] is True, "AF careers surface was not retained"
     assert af["material_jobs"], "AF exact first-party current role did not become a job claim"
