@@ -99,7 +99,7 @@ GENERIC_CMS_PLACEHOLDER_MARKERS = (
 )
 SHORT_NUMERIC_DATE_PATTERN = re.compile(r"\b([0-3]?\d)[./-]([01]?\d)[./-](\d{2})\b")
 DATE_PATTERNS = (
-    re.compile(r"\b(20\d{2}-[01]\d-[0-3]\d)(?=$|[Tt\s])"),
+    re.compile(r"\b(20\d{2}-[01]\d-[0-3]\d)(?!\d)"),
     re.compile(r"\b([0-3]?\d[./-][01]?\d[./-]20\d{2})\b"),
     re.compile(
         r"\b([0-3]?\d\s+(?:jan(?:uar)?|feb(?:ruar)?|mar(?:s|ch)?|apr(?:il)?|mai|may|jun(?:i|e)?|jul(?:i|y)?|aug(?:ust)?|sep(?:tember)?|okt(?:ober)?|oct(?:ober)?|nov(?:ember)?|des(?:ember)?|dec(?:ember)?)\s+20\d{2})\b",
