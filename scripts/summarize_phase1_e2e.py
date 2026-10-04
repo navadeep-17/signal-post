@@ -115,6 +115,7 @@ def main() -> None:
     }
     summary = {
         "schema_version": "signalpost-phase1-e2e-summary-v1",
+        "harness_revision": 2,
         "companies": len(rows),
         "unique_companies": len({str(row.get("organisation_number") or "") for row in rows}),
         "terminal_states": terminal_states,
