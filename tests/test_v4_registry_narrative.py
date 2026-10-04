@@ -27,10 +27,21 @@ def _profile(*, activity: str = "Utvikling av programvare.", purpose: str = "Utv
                 "source_row_key": "123456789",
                 "value": {
                     "organisasjonsnummer": "123456789",
-                    "aktivitet": activity,
-                    "vedtektsfestetFormaal": purpose,
+                    "aktivitet": "WRONG BULK NARRATIVE",
+                    "vedtektsfestetFormaal": "WRONG BULK PURPOSE",
                 },
-            }
+            },
+            "registry_live": {
+                "status": "available",
+                "source_url": "https://data.brreg.no/enhetsregisteret/api/enheter/123456789",
+                "retrieved_at": "2026-10-04T00:00:00Z",
+                "content_sha256": "d" * 64,
+                "value": {
+                    "organisation_number": "123456789",
+                    "activity": activity,
+                    "registered_purpose": purpose,
+                },
+            },
         },
     }
 
@@ -64,7 +75,17 @@ def test_registry_activity_becomes_description_fallback_and_purpose_is_explicit(
     description_evidence = evidence_by_id[descriptions[0]["evidence_ids"][0]]
     assert description_evidence["source_class"] == "official"
     assert description_evidence["source_row_key"] == "123456789"
-    assert description_evidence["claim_span"].startswith("aktivitet=")
+    assert description_evidence["source_url"].endswith("/enheter/123456789")
+    assert description_evidence["content_sha256"] == "d" * 64
+    assert description_evidence["source_field"] == "/aktivitet"
+    assert description_evidence["claim_span"].startswith("/aktivitet=")
+
+
+def test_bulk_narrative_never_fills_missing_live_value() -> None:
+    profile = _profile(activity="", purpose="")
+    row = project_registry_narrative_claims(_contract(), profile)
+    assert _claims(row, "company_description") == []
+    assert _claims(row, "registered_purpose") == []
 
 
 def test_stronger_description_is_never_replaced() -> None:
@@ -130,8 +151,8 @@ def test_projection_is_idempotent_and_can_yield_to_later_stronger_description() 
     assert len(descriptions) == 1
     assert descriptions[0]["value"] == "Filed annual-report description."
     assert all(
-        not item["id"].startswith("ev-v4-registry-narrative-")
-        or item["claim_span"].startswith("vedtektsfestetFormaal=")
+        not item["id"].startswith("ev-c12-registry-narrative-")
+        or item["claim_span"].startswith("/vedtektsfestetFormaal=")
         for item in projected["evidence"]
     )
 
