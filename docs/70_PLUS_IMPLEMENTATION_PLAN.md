@@ -91,15 +91,15 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 - **Phase 4 — Page-level observation/evidence hardening:** **CLOSED / IMPLEMENTED / TESTED / MERGED / POST-MERGE GREEN**.
 - **Phase 5 — Contact/social enrichment:** partial production foundation; revisit only with a new structured/multi-family hypothesis.
 - **Phase 6 — Actual jobs:** C12 M4 foundation exists; NAV exact-org batch screen did not transfer.
-- **Phase 7 — Dated activity:** **CONSUMED-WRAPPER QUALIFIED / MERGE GATE** — Støtteregisteret exact-wrapper V8 qualification is green; final clean-head CI + merge/post-merge CI remain.
+- **Phase 7 — Dated activity:** **CLOSED / QUALIFIED / MERGED / POST-MERGE GREEN** — Støtteregisteret exact-wrapper production path is live on `main`.
 - **Phase 8 — NAV exact-org vacancy screen:** **DROP**.
 - **Phase 9 — BRREG bulk/request optimization:** later and freshness-gated.
 - **Phase 10 — Adaptive request scheduler:** after a new high-yield surface exists.
-- **Phase 11 — Fresh validation/release candidate:** final promotion gate.
+- **Phase 11 — Fresh validation/release candidate:** **ACTIVE** — next main-track gate on a genuinely fresh disjoint 100-company cohort.
 
 Immediate path:
 
-> verify final PR #97 durable diff -> final exact-head Baseline CI -> merge/post-merge CI -> Phase 11 fresh release qualification.
+> Phase 11 fresh disjoint cohort -> actual V8 release qualification -> audit + exact artifact freeze -> Builderr release decision.
 
 ## 5. Phase 1 — collected-vs-emitted recovery
 
@@ -262,7 +262,7 @@ Before another Builderr revision require:
 
 ## 14. Next-source selection gate
 
-This is the active roadmap step after Phase 4.
+Historical source-selection gate completed by the Phase 7 Støtteregisteret decision.
 
 Do not immediately implement another connector. First build a consumed-only source/family selection matrix for plausible deterministic sources such as Doffin, Støtteregisteret or Patentstyret.
 
@@ -329,7 +329,7 @@ Handle timeouts, resets, 403/404/410/429/5xx, redirects, robots blocks, invalid/
 
 ## 19. Later-only work
 
-Secondary official sources such as Patentstyret, Støtteregisteret or Doffin require rights/reach/exact-ID screening first. Optional ML ranking and evidence-bounded AI extraction come only after deterministic gains. AI may extract only from already-fetched verified text with deterministic supporting evidence; it may never establish legal identity or invent official numbers.
+Further secondary official sources such as Patentstyret or Doffin require rights/reach/exact-ID screening first; Støtteregisteret is now production-qualified. Optional ML ranking and evidence-bounded AI extraction come only after deterministic gains. AI may extract only from already-fetched verified text with deterministic supporting evidence; it may never establish legal identity or invent official numbers.
 
 ## 20. Synthesis and UX
 
@@ -351,7 +351,7 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 
 ## 23. NEXT
 
-**PR #97 is exact-wrapper consumed-qualified. Verify the final durable diff, require one final exact-head Baseline CI after qualification-workflow cleanup/docs, merge with expected-head protection, require post-merge Baseline CI, then advance to Phase 11 with a genuinely fresh evaluator-shaped cohort.**
+**Phase 7 is merged and post-merge green. Execute Phase 11 on a genuinely fresh, disjoint evaluator-shaped 100-company cohort; require a clean actual-V8 release gate, manual support/external precision audit, exact SHA/artifact freeze and only then make the next Builderr release decision.**
 
 ---
 
@@ -384,3 +384,11 @@ Artifact `11325335788` (`phase7-v8-consumed-requalification-100-v2`, ZIP SHA-256
 The earlier run `37257936472` remains recorded as a failed gate because its report incorrectly counted canonical facts as 0 despite 46 materialized facts. That report-only defect is fixed and regression-covered; failures are not rewritten into successes.
 
 Roadmap consequence: Phase 7 source + wrapper qualification is complete. Remaining work is repository hygiene/final exact-head CI, merge/post-merge verification, then Phase 11 fresh evaluator-shaped release qualification. No Builderr revision is authorized merely by the Phase-7 merge.
+
+### 2026-10-05 Phase 7 production merge closure
+
+PR #97 passed final clean-head Baseline CI `37261892046`, merged with expected-head protection as `60f385b58a0f1c72f58efd35db71b1566202403a`, and passed post-merge Baseline CI `37262030919`. Phase 7 is now closed as **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED + MERGED + POST-MERGE GREEN**.
+
+The definitive wrapper qualification remains run `37260381903` / artifact `11325335788`: 100/100 terminal, 11 support companies, 46 support claims = 46 canonical facts, report 46/46, zero 46-row identity/provenance audit errors, one support request, one BRREG change-feed request, 1,366 observed conservative charge, exactly 2,000 theoretical, 797.471 s, $0 and zero search API requests.
+
+Roadmap consequence: **Phase 11 is active now**. Consume a genuinely fresh disjoint 100 only for the release gate, freeze the exact production SHA and cohort/exclusion hashes, require 100% terminal + zero integrity/wrong-company failures, audit all fresh Støtteregisteret and other external cases, and only then decide whether to submit the next Builderr revision.

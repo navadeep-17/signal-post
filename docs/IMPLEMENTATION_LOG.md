@@ -644,3 +644,20 @@ Status: **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED / FINAL CLEAN-HEAD C
 - qualification-only workflow was removed after artifact capture.
 
 Decision: **PROMOTE through final repository gate**. Verify clean durable diff, run final exact-head Baseline CI after docs/cleanup, merge with expected-head protection, require post-merge Baseline CI, then advance to Phase 11 fresh evaluator-shaped release qualification. Do not submit Builderr solely because this PR merges.
+
+---
+
+## 2026-10-05 — Phase 7 merged and post-merge Baseline CI green
+
+Status: **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED + MERGED + POST-MERGE GREEN / PHASE 11 ACTIVE**
+
+- PR #97 merged with expected-head protection from clean head `a6187cad81e38a1e24618f6e16f33d40b247063d`;
+- final pre-merge Baseline CI `37261892046`: PASS;
+- merge/main SHA `60f385b58a0f1c72f58efd35db71b1566202403a`;
+- post-merge Baseline CI `37262030919`, job `111611064093`: PASS;
+- full pytest, certified-1000 canonical audit, immutable submission-bundle verification, deterministic refresh replay and refresh qualification verification all passed post-merge;
+- durable PR diff contained 14 expected production/tests/docs files; immutable V1/V2 were absent from the diff; all temporary qualification/docs workflows and updater scripts were removed before merge;
+- definitive exact-wrapper consumed qualification remains run `37260381903`, artifact `11325335788`: 100/100 terminal, 11 support companies, 46 claims = 46 canonical facts, report 46/46, complete 46-row identity/provenance audit with 0 errors, 1,366/2,000 observed conservative charge, exactly 2,000 theoretical, 797.471 s, $0, zero search requests;
+- earlier run `37257936472` remains a recorded failed gate due to the report-only 46/0 counter defect.
+
+Decision: **PHASE 7 CLOSED / PROMOTION COMPLETE**. The main track advances to Phase 11 fresh evaluator-shaped release qualification on a genuinely disjoint 100-company cohort. No Builderr submission is authorized solely from this merge.
