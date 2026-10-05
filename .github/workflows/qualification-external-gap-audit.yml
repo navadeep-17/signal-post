@@ -1,0 +1,116 @@
+name: Qualification External Gap Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/qualification-sprint-external-gap-audit
+    paths:
+      - '.github/workflows/qualification-external-gap-audit.yml'
+      - 'src/norway_company_agent/external_gap_audit.py'
+      - 'scripts/audit_external_gap_coverage.py'
+      - 'tests/test_external_gap_audit.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout audit head
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Download already-consumed Phase 11 owner-veto replay
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed
+          gh run download 37314396820 \
+            --repo navadeep-17/signal-post \
+            --name phase11-owner-veto-consumed-replay \
+            --dir consumed
+          find consumed -maxdepth 7 -type f | sort
+
+      - name: Audit Q4-Q6 coverage bottlenecks
+        run: |
+          OUTPUT_PATH="$(find consumed -type f -path '*/output.jsonl' | head -n 1)"
+          PROFILE_PATH="$(find consumed -type f -path '*/work/profiles.jsonl' | head -n 1)"
+          REPORT_PATH="$(find consumed -type f -path '*/report.json' | head -n 1)"
+          if [ -z "$OUTPUT_PATH" ] || [ -z "$PROFILE_PATH" ] || [ -z "$REPORT_PATH" ]; then
+            echo 'Required consumed replay files not found' >&2
+            exit 1
+          fi
+          uv run python scripts/audit_external_gap_coverage.py \
+            --output-contract "$OUTPUT_PATH" \
+            --profiles "$PROFILE_PATH" \
+            --run-report "$REPORT_PATH" \
+            --report external-gap-audit/report.json
+
+      - name: Verify frozen consumed measurements
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('external-gap-audit/report.json').read_text(encoding='utf-8'))
+          assert report['total_contract_companies'] == 100, report
+          assert report['total_profile_companies'] == 100, report
+          assert report['organisation_sets_match'] is True, report
+
+          fields = report['field_coverage']
+          assert fields['official_website']['companies'] == 6, report
+          assert fields['external.profile_handle']['companies'] == 4, report
+          assert fields['external.contact_email']['companies'] == 6, report
+          assert fields['external.careers_page']['companies'] == 0, report
+          assert fields['external.job_posting']['companies'] == 0, report
+          assert fields['external.company_update']['companies'] == 0, report
+          assert fields['external.workforce_snapshot']['companies'] == 99, report
+          assert fields['official.support_award']['companies'] == 11, report
+
+          conditional = report['conditional_on_verified_site']
+          assert conditional['verified_site_companies'] == 6, report
+          assert conditional['profile_handle']['companies'] == 4, report
+          assert conditional['contact_email']['companies'] == 6, report
+          assert conditional['homepage_surfaces']['careers_links']['companies'] == 0, report
+          assert conditional['homepage_surfaces']['news_detail_links']['companies'] == 0, report
+          assert conditional['homepage_surfaces']['active_hiring']['companies'] == 0, report
+          assert conditional['homepage_surfaces']['job_listing_candidates']['companies'] == 0, report
+
+          decisions = report['decisions']
+          assert decisions['q4_social']['status'] == 'source_reach_bottleneck', report
+          assert decisions['q4_contact']['status'] == 'source_reach_bottleneck', report
+          assert decisions['q5_hiring']['status'] == 'no_surface_in_verified_site_sample', report
+          assert decisions['q6_activity']['status'] == 'no_surface_in_verified_site_sample', report
+
+          request = report['request_context']
+          assert request['observed_logical_requests'] == 682, report
+          assert request['observed_conservative_challenge_request_charge'] == 1364, report
+          assert request['max_challenge_requests'] == 2000, report
+          assert request['observed_unused_challenge_charge'] == 636, report
+          assert request['theoretical_challenge_request_charge_ceiling'] == 2000, report
+          assert request['structural_headroom_available'] is False, report
+          assert request['h1g_attempted'] == 74, report
+          assert request['h1g_verified'] == 0, report
+          assert request['wikidata_candidate_count'] == 0, report
+          PY
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-external-gap-audit
+          path: external-gap-audit/report.json
+          if-no-files-found: error
