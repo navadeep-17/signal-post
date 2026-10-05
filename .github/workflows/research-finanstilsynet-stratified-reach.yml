@@ -1,0 +1,102 @@
+name: Research Finanstilsynet Stratified Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_finanstilsynet_stratified_reach.py
+      - tests/test_screen_finanstilsynet_stratified_reach.py
+      - .github/workflows/research-finanstilsynet-stratified-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run exact service-provider tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_finanstilsynet_stratified_reach.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out/finanstilsynet-pages
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          PY
+
+      - name: Download ten stratified domestic report pages
+        run: |
+          set -euo pipefail
+          for PAGE in 1 10 18 27 36 44 53 62 70 79; do
+            echo "Fetching page ${PAGE}"
+            curl --fail --location --compressed --get \
+              --header 'Accept: application/json' \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --data-urlencode 'passporting=Domestic' \
+              --data-urlencode 'pageSize=1000' \
+              --data-urlencode "page=${PAGE}" \
+              'https://api.finanstilsynet.no/registry/v2/report/json' \
+              --output "out/finanstilsynet-pages/page-${PAGE}.json"
+            test -s "out/finanstilsynet-pages/page-${PAGE}.json"
+          done
+          find out/finanstilsynet-pages -type f -maxdepth 1 -print | sort
+
+      - name: Screen consumed 1000 and deterministic 100
+        run: |
+          uv run python scripts/screen_finanstilsynet_stratified_reach.py \
+            --pages-dir out/finanstilsynet-pages \
+            --companies submission/final-release-1000.jsonl \
+            --today 2026-10-05 \
+            --output-dir out/finanstilsynet-1000
+          uv run python scripts/screen_finanstilsynet_stratified_reach.py \
+            --pages-dir out/finanstilsynet-pages \
+            --companies out/consumed-100.jsonl \
+            --today 2026-10-05 \
+            --output-dir out/finanstilsynet-100
+          echo '=== consumed 1000 ==='
+          cat out/finanstilsynet-1000/report.json
+          echo '=== consumed 100 ==='
+          cat out/finanstilsynet-100/report.json
+
+      - name: Remove source pages before artifact upload
+        if: always()
+        run: rm -rf out/finanstilsynet-pages
+
+      - name: Upload bounded research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-finanstilsynet-stratified-reach
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/finanstilsynet-1000/report.json
+            out/finanstilsynet-1000/matched-companies.jsonl
+            out/finanstilsynet-100/report.json
+            out/finanstilsynet-100/matched-companies.jsonl
