@@ -57,28 +57,57 @@ def iter_scalars(value: Any) -> Iterable[str]:
         yield str(value)
 
 
-def _find_first(value: Any, keys: set[str]) -> str | None:
+def localized_text(value: Any) -> str | None:
+    """Return a stable preferred label from Data.norge localized-value shapes."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("nb", "no", "nn", "en"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for child in value.values():
+            if isinstance(child, str) and child.strip():
+                return child.strip()
+    return None
+
+
+def _find_first_scalar(value: Any, keys: set[str]) -> str | None:
     if isinstance(value, dict):
         for key, child in value.items():
             if key.lower() in keys and not isinstance(child, (dict, list)) and str(child).strip():
                 return str(child).strip()
         for child in value.values():
-            found = _find_first(child, keys)
+            found = _find_first_scalar(child, keys)
             if found:
                 return found
     elif isinstance(value, list):
         for child in value:
-            found = _find_first(child, keys)
+            found = _find_first_scalar(child, keys)
             if found:
                 return found
     return None
+
+
+def _collect_exact_key(value: Any, accepted_keys: set[str]) -> list[str]:
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key.lower() in accepted_keys:
+                found.update(s.strip() for s in iter_scalars(child) if s.strip())
+            found.update(_collect_exact_key(child, accepted_keys))
+    elif isinstance(value, list):
+        for child in value:
+            found.update(_collect_exact_key(child, accepted_keys))
+    return sorted(found)
 
 
 def _collect_by_key_fragment(value: Any, fragments: tuple[str, ...]) -> list[str]:
     found: set[str] = set()
     if isinstance(value, dict):
         for key, child in value.items():
-            if any(fragment in key.lower() for fragment in fragments):
+            lower_key = key.lower()
+            if any(fragment in lower_key for fragment in fragments):
                 found.update(s.strip() for s in iter_scalars(child) if s.strip())
             found.update(_collect_by_key_fragment(child, fragments))
     elif isinstance(value, list):
@@ -93,7 +122,11 @@ def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
 
 
 def canonical_hit_id(hit: dict[str, Any]) -> str:
-    explicit = _find_first(hit, {"id", "uri", "identifier", "datasetid"})
+    for key in ("id", "uri", "identifier", "datasetId"):
+        value = hit.get(key)
+        if value is not None and not isinstance(value, (dict, list)) and str(value).strip():
+            return str(value).strip()
+    explicit = _find_first_scalar(hit, {"id", "uri", "identifier", "datasetid"})
     if explicit:
         return explicit
     canonical = json.dumps(hit, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -128,7 +161,6 @@ def extract_hits(payload: dict[str, Any]) -> list[dict[str, Any]]:
     hits = payload.get("hits")
     if isinstance(hits, list):
         return [hit for hit in hits if isinstance(hit, dict)]
-    # tolerate wrappers used by search backends
     for container_key in ("results", "data"):
         container = payload.get(container_key)
         if isinstance(container, dict) and isinstance(container.get("hits"), list):
@@ -139,26 +171,55 @@ def extract_hits(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def summarize_hit(hit: dict[str, Any], matched_queries: set[str]) -> dict[str, Any]:
     text = " ".join(iter_scalars(hit)).lower()
     categories = sorted(name for name, terms in VALUE_TERMS.items() if _contains_any(text, terms))
-    license_values = _collect_by_key_fragment(hit, ("license", "licence", "rights"))
-    download_values = _collect_by_key_fragment(hit, ("downloadurl", "download_url", "download"))
-    access_values = _collect_by_key_fragment(hit, ("accessurl", "access_url", "endpoint", "access"))
-    title = _find_first(hit, {"title", "name", "label", "preflabel"})
+
+    # Access rights and reuse licence are intentionally separate. PUBLIC access
+    # does not by itself prove a reusable open licence.
+    license_values = _collect_exact_key(
+        hit,
+        {"license", "licence", "licenseuri", "licenceuri", "licenseurl", "licenceurl"},
+    )
+    access_rights = _collect_exact_key(hit, {"accessrights", "access_rights"})
+    download_values = _collect_by_key_fragment(hit, ("downloadurl", "download_url", "downloaduri"))
+    access_values = _collect_by_key_fragment(hit, ("accessurl", "access_url", "endpointurl", "endpoint_url"))
+
+    top_title = localized_text(hit.get("title"))
+    dataset_uri = str(hit.get("uri") or "").strip() or None
+    organization_name = None
+    organization = hit.get("organization")
+    if isinstance(organization, dict):
+        organization_name = localized_text(organization.get("prefLabel")) or localized_text(organization.get("name"))
+    is_open_data = hit.get("isOpenData") if isinstance(hit.get("isOpenData"), bool) else None
+    formats = sorted(set(_collect_exact_key(hit, {"fdkformatprefixed", "format", "formats"})))
+    modified = None
+    metadata = hit.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("modified"):
+        modified = str(metadata.get("modified"))
+
+    exact_org_metadata = _contains_any(text, ORG_TERMS)
     score = 0
-    score += 4 if _contains_any(text, ORG_TERMS) else 0
+    score += 4 if exact_org_metadata else 0
     score += min(4, len(matched_queries))
     score += 3 if license_values else 0
+    score += 2 if is_open_data is True else 0
     score += 3 if download_values else 0
     score += 1 if access_values else 0
     score += min(4, len(categories))
+
     return {
         "dataset": canonical_hit_id(hit),
-        "title": title,
+        "dataset_uri": dataset_uri,
+        "title": top_title,
+        "organization": organization_name,
         "matched_queries": sorted(matched_queries),
         "semantic_categories": categories,
         "license_metadata": license_values[:10],
+        "access_rights_metadata": access_rights[:10],
         "download_metadata": download_values[:10],
         "access_metadata": access_values[:10],
-        "exact_org_metadata": _contains_any(text, ORG_TERMS),
+        "formats": formats[:20],
+        "is_open_data": is_open_data,
+        "modified": modified,
+        "exact_org_metadata": exact_org_metadata,
         "selection_score": score,
         "raw_hit": hit,
     }
@@ -215,17 +276,24 @@ def main() -> int:
         "queries": list(SEARCH_QUERIES) if not args.fixture else [q for q, _ in payloads],
         "datasets_found": len(rows),
         "datasets_with_explicit_license_metadata": sum(bool(r["license_metadata"]) for r in rows),
+        "datasets_marked_open_data": sum(r["is_open_data"] is True for r in rows),
         "datasets_with_download_metadata": sum(bool(r["download_metadata"]) for r in rows),
         "datasets_with_value_categories": sum(bool(r["semantic_categories"]) for r in rows),
         "raw_response_hashes": raw_hashes,
         "top_candidates": [
             {key: row[key] for key in (
                 "dataset",
+                "dataset_uri",
                 "title",
+                "organization",
                 "selection_score",
                 "matched_queries",
                 "semantic_categories",
                 "license_metadata",
+                "access_rights_metadata",
+                "is_open_data",
+                "formats",
+                "modified",
                 "download_metadata",
                 "access_metadata",
             )}
@@ -234,6 +302,7 @@ def main() -> int:
         "production_publication_enabled": False,
         "notes": [
             "This is metadata discovery only; every candidate still needs source-specific schema, rights, reach and exact-org validation.",
+            "PUBLIC access rights are not counted as an explicit reuse licence.",
             "The Data.norge Search API is used only for research discovery because its public documentation warns that the API may change over time.",
         ],
     }
