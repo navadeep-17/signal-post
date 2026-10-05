@@ -1,0 +1,72 @@
+name: Research Arbeidstilsynet OpenAPI Chunk Discovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-arbeid-openapi-chunk-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch docs shell and referenced JS chunks
+        run: |
+          mkdir -p out/chunks
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://openapi.arbeidstilsynet.no/' \
+            --output out/openapi.html
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          html = Path('out/openapi.html').read_text(encoding='utf-8', errors='replace')
+          refs = sorted(set(re.findall(r'src=[\"\']([^\"\']+\.js)', html)))
+          print('js-ref-count:', len(refs))
+          for i, ref in enumerate(refs):
+              url = 'https://openapi.arbeidstilsynet.no' + ref
+              dest = Path('out/chunks') / f'{i:02d}.js'
+              print('fetch', i, ref)
+              subprocess.run([
+                  'curl','--fail','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  url,'--output',str(dest)
+              ], check=True)
+          PY
+
+      - name: Search chunks for API discovery strings
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          needles = ['bilpleie','bemanning','virksomheter','swagger','openapi','arbeidstilsynet.no','servers']
+          url_re = re.compile(r'https://[^\"\'<>\\s]+')
+          for path in sorted(Path('out/chunks').glob('*.js')):
+              text = path.read_text(encoding='utf-8', errors='replace')
+              hits = [n for n in needles if n.lower() in text.lower()]
+              if hits:
+                  print('\n===', path.name, 'hits=', hits, 'bytes=', path.stat().st_size, '===')
+                  low = text.lower()
+                  for needle in hits:
+                      idx = low.find(needle.lower())
+                      if idx >= 0:
+                          start = max(0, idx - 700)
+                          end = min(len(text), idx + 1800)
+                          print('---', needle, '---')
+                          print(text[start:end])
+                  urls = sorted(set(url_re.findall(text)))
+                  for url in urls[:100]:
+                      print('URL', url)
+          PY
+
+      - name: Remove documentation payloads
+        if: always()
+        run: rm -rf out/openapi.html out/chunks
