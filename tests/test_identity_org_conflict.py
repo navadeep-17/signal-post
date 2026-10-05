@@ -121,3 +121,74 @@ def test_name_only_identity_behavior_is_preserved_when_no_org_number_is_labelled
     assert assessment["publishable"] is True
     assert assessment["score"] == 0.95
     assert assessment["observed_organisation_numbers"] == []
+
+
+def test_explicit_current_domain_owner_vetoes_name_matching_wrong_entity():
+    profile = _profile("825188592", "INTERIØRKUPP AS")
+    website = _website(
+        "https://interiorkupp.no/",
+        title="Interiørkupp",
+        identity_text=(
+            "Interiorkupp.no eies av Rolf Sletvold Interiørsenter AS. "
+            "Kontakt oss på post@interiorkupp.no."
+        ),
+        main_text="Parkett, gulv, tapet og andre interiørvarer. Trygg levering i hele Norge. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is False
+    assert assessment["status"] == "related_or_uncertain"
+    assert assessment["score"] == 0.1
+    assert assessment["observed_site_owners"] == ["Rolf Sletvold Interiørsenter AS"]
+    assert "website is owned by a different named legal entity" in " ".join(assessment["reasons"])
+
+
+def test_explicit_current_domain_owner_does_not_veto_same_target_entity():
+    profile = _profile("825188592", "INTERIØRKUPP AS")
+    website = _website(
+        "https://interiorkupp.no/",
+        title="Interiørkupp AS",
+        identity_text="Interiorkupp.no eies av Interiørkupp AS.",
+        main_text="Parkett, gulv, tapet og andre interiørvarer. Trygg levering i hele Norge. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is True
+    assert assessment["score"] == 0.95
+    assert assessment["observed_site_owners"] == ["Interiørkupp AS"]
+
+
+def test_generic_website_owner_phrase_does_not_veto_same_target_entity():
+    profile = _profile("825188592", "INTERIØRKUPP AS")
+    website = _website(
+        "https://interiorkupp.no/",
+        title="Interiørkupp AS",
+        identity_text="Denne nettsiden eies av INTERIØRKUPP AS.",
+        main_text="Parkett, gulv, tapet og andre interiørvarer. Trygg levering i hele Norge. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is True
+    assert assessment["observed_site_owners"] == ["INTERIØRKUPP AS"]
+
+
+def test_other_domain_owner_statement_is_not_treated_as_current_site_identity():
+    profile = _profile("825188592", "INTERIØRKUPP AS")
+    website = _website(
+        "https://interiorkupp.no/",
+        title="Interiørkupp AS",
+        identity_text="Partnernettstedet example.no eies av Annen Butikk AS.",
+        main_text="Parkett, gulv, tapet og andre interiørvarer. Trygg levering i hele Norge. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is True
+    assert assessment["observed_site_owners"] == []
