@@ -1,0 +1,85 @@
+name: Research Landbruk Support Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_landbruksdirektoratet_support_reach.py
+      - tests/test_screen_landbruksdirektoratet_support_reach.py
+      - .github/workflows/research-landbruk-support-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run exact-org parser tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_landbruksdirektoratet_support_reach.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          PY
+
+      - name: Download pinned-source-path current 2025 CSV
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://raw.githubusercontent.com/LandbruksdirektoratetGIT/opendata/refs/heads/main/datasets/produksjon-og-avlosertilskudd/2025/dataset.csv' \
+            --output out/landbruk-2025.csv
+          test -s out/landbruk-2025.csv
+          wc -c out/landbruk-2025.csv
+          sha256sum out/landbruk-2025.csv
+
+      - name: Screen exact organisation-number reach
+        run: |
+          uv run python scripts/screen_landbruksdirektoratet_support_reach.py \
+            --source-csv out/landbruk-2025.csv \
+            --companies-100 out/consumed-100.jsonl \
+            --companies-1000 submission/final-release-1000.jsonl \
+            --output-dir out/landbruk
+          cat out/landbruk/report.json
+
+      - name: Remove source CSV before artifact upload
+        if: always()
+        run: rm -f out/landbruk-2025.csv
+
+      - name: Upload bounded screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-landbruk-support-reach
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/landbruk/report.json
+            out/landbruk/matched-companies.jsonl
