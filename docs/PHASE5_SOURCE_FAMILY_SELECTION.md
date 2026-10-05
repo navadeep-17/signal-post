@@ -1,5 +1,8 @@
 # Phase 5 — Deterministic source/family selection
 
+> **Superseding production note — 2026-10-05:** the early reach screen in this document was intentionally broad and included recipient-like columns that later proved semantically distinct. Production Støtteregisteret identity is stricter: only the **primary recipient organisation number** may authorize the target company. `Spesifisert mottaker` and granting-authority organisation numbers are context only. Historical 106/1000 and 88/1000 figures are therefore research-screen numbers, not production-equivalent reach. The definitive hardened actual-V8 consumed qualification is run `37254237936`: 11/100 companies, 46 typed support claims/facts, zero validation/integrity failures, artifact `11321344340`.
+
+
 Date: 2026-10-04
 
 Status: **SOURCE SELECTION COMPLETE / STØTTEREGISTERET PROMOTED TO CONSUMED-ONLY IMPLEMENTATION EXPERIMENT**

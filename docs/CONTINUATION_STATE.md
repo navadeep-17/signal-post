@@ -1,145 +1,118 @@
-# Signalpost — Current Continuation State
+# Signalpost Continuation State
 
-Last updated: 2026-10-04 (Asia/Kolkata)
+Last updated: 2026-10-05
 
-Repository state and live GitHub metadata are authoritative over chat history. Historical detail belongs in `docs/IMPLEMENTATION_LOG.md`; architecture and phase order belong in `docs/70_PLUS_IMPLEMENTATION_PLAN.md`.
+This file is the authoritative short handoff for the next implementation session. Live GitHub remains authoritative if any SHA/run below has advanced.
 
-## 1. Current source of truth
+## Repository state
 
-Repository: `navadeep-17/signal-post`
+- production branch: `main`
+- production/main SHA before this promotion: `86b60b2b5e87966c4a8beb4719e01905421b68ac`
+- active branch: `feature/stotteregisteret-support-awards`
+- active PR: #97, `Phase 7: add exact-org Støtteregisteret support awards`
+- PR #97 is **NOT merged yet**
+- clean branch head immediately after removing the successful qualification workflow: `7b107c29cbc18103a8f37a58994aad677c09a143`
+- certified V1 `scripts/run_signalpost_final.py` remains byte-for-byte at blob `9be89b9827135b1ed703318e1d189d5d3b8ca604`
+- V2 `scripts/run_signalpost_v2.py` remains unchanged at blob `5b69cc320c38e3aab13cf09fe2e2a09e62751433`
+- no Builderr submission is authorized merely because Phase 7 qualifies or merges
 
-Production branch: `main`
+## Active stage
 
-Live `main` observed immediately before this state-only handoff update:
+Phase 7 Støtteregisteret is now **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED / FINAL CLEAN-HEAD CI + MERGE/POST-MERGE GATE PENDING**. Phase 2 website discovery remains shelved. After PR #97 merges and post-merge Baseline CI is green, the main-track NEXT is Phase 11 fresh evaluator-shaped release qualification.
 
-`b13e298c2c71bd3be0a99be749fda762bc65c317`
+## Production semantics
 
-That tip is documentation-only (`docs: pin final Phase 4 handoff state`) on top of prior documentation handoff `fbfc4954888b76c922724b2084fc819a8b441864`. Production code semantics remain the Phase-4 merge:
+- official Brønnøysundregistrene Støtteregisteret complete CSV; NLOD;
+- one shared dataset request per evaluator batch;
+- **primary recipient organisation number only** establishes target identity;
+- `Spesifisert mottaker` and granting authority are context-only and never authorize identity;
+- <=365-day awards; max 5 most-recent events/company;
+- observation `official_support_award`;
+- claim `official.support_award`;
+- canonical type/field `support_award` / `public.official_support_award`;
+- never relabel official support as company-authored news/social/hiring activity;
+- evaluator-facing evidence retains row SHA-256, source snapshot SHA-256, source row number/key, retrieval time and exact supporting span;
+- amounts publish only with explicit source currency; interval amounts retain interval currency;
+- expected source failure is nonfatal and cannot remove a terminal company envelope.
 
-`07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
+## Certified-layer correction
 
-PR #95 `Phase 4: harden dated activity evidence selection` is **MERGED**.
+The first PR shape modified immutable V1. Baseline CI run `37255960174`, job `111592968992`, correctly blocked it: 459 tests passed and only the repository-only submission verifier failed. The verifier/pin was not weakened or repinned.
 
-Lifecycle:
+The corrected architecture keeps V1/V2 unchanged. V7 owns the Støtteregisteret request reservation, fetch, claim projection, canonical re-projection, synthesis rebuild, report accounting and V6 evaluator handoff. Support-only CLI flags terminate at V7.
 
-- **IMPLEMENTED:** yes
-- **TESTED:** yes
-- **QUALIFIED:** no fresh qualification requested; precision-only zero-request hardening
-- **MERGED:** yes
-- **POST-MERGE GREEN:** yes
+## Offline qualification lineage
 
-Post-merge Baseline CI:
+Provenance-hardened head `7d3c9672dbb592851d705ebe38a1674752fa4c48` passed Baseline CI `37257806967` including full pytest, certified-1000 canonical audit, immutable submission-bundle verification and deterministic refresh replay.
 
-- run `37219278337`: **PASS**
-- merge SHA: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
-- full tests, certified-1000 canonical audit, submission-bundle verification and deterministic refresh replay all passed
+The first exact-wrapper consumed run `37257936472`, job `111598892070`, was **not qualified**: runtime/output passed and the artifact contained 46 claims + 46 canonical facts with zero evidence defects, but V7's report counter incorrectly tested `fact.type == public.official_support_award` and reported 46 claims / 0 canonical facts. The verifier correctly rejected the inconsistent report. The bug was fixed by counting `canonical_field == public.official_support_award` and covered by regression.
 
-Open PRs #76, #78 and #84 remain historical/experimental and are not the active production path. There is no active production PR.
+The counter-fix/docs parent `22655265d3adc99bb2b73ef52d29caf6fa966d03` then passed full Baseline CI `37260229913`.
 
-## 2. Closed phases and retained state
+## Definitive exact-wrapper consumed qualification
 
-### Phase 1 — collected-vs-emitted exact BRREG recovery
+Status: **PASS**.
 
-**CLOSED / QUALIFIED / MERGED / POST-MERGE GREEN**.
+- workflow run: `37260381903`;
+- job: `111606171316`;
+- qualification SHA: `f47353a7f0b7eb63efa45a76c48850a7a648be2d`;
+- production parent SHA: `22655265d3adc99bb2b73ef52d29caf6fa966d03`;
+- only qualification-only delta at the run SHA: temporary workflow, subsequently deleted;
+- cohort: certified `final-release-1000` chunk 0, already consumed; 100 companies; **no fresh cohort**;
+- artifact: `phase7-v8-consumed-requalification-100-v2`, ID `11325335788`;
+- artifact ZIP SHA-256: `b60b0469ed31cc3b8651445dc786fd4ce34ad325044bebdd6572d5c261a85148`;
+- 100/100 terminal companies;
+- 11 support companies;
+- 46 support claims;
+- 46 support canonical facts;
+- report `published_claims=46` and `published_canonical_facts=46`;
+- support snapshot SHA-256: `8889b22ee01c7aaae1dd6a0c079977e00f4d390440ec0779f17d999dfbd951d1`;
+- support requests: 1;
+- support bytes: 305,978,976;
+- BRREG change-feed requests: 1;
+- observed conservative request charge: 1,366 / 2,000;
+- theoretical conservative ceiling: exactly 2,000 / 2,000;
+- wrapper wall runtime: 797.471 s / 2,400 s;
+- third-party API cost: $0;
+- search API requests: 0;
+- contract errors: 0;
+- canonical errors: 0;
+- synthesis errors: 0;
+- support projection errors: 0;
+- support evidence rows audited: 46;
+- evaluator product bytes: 4,839,091;
+- output SHA-256: `cf03cf75f40d5b28c793befbe6708769af6c063e17f379f8af2f4e6cfb9ef9e8`;
+- report SHA-256: `fc213d927b0c9bc76ac88d59c44a1e3e09d3757b723ff1358594b4229be4dbcf`;
+- product SHA-256: `c81336203c3a986a82a0da71582cafbcf17df9a1695cfd4fdd358217b69022b6`.
 
-Last fresh qualified baseline remains run `37203580574`:
+Independent post-run artifact audit repeated the verifier checks and found **0 errors** across all 46 support claims: exact primary-recipient org in the evidence span, one evidence record/claim, row hash, snapshot hash, row number/key, retrieval time, matching effective/award date, and explicit amount/interval currency where applicable. The artifact ZIP digest independently matches GitHub's digest.
 
-- 100 unique companies, overlap 0
-- cohort SHA `4078579d4a581da0b8d56e4d03d567c4032d43e93c8bb94ee3c02b140b651e40`
-- 100/100 terminal
-- evidence/contract/canonical/synthesis errors: 0
-- 666 logical requests
-- 1,332/2,000 conservative charge
-- runtime 460.916 s
-- third-party cost $0
-- search API requests 0
-- artifact `phasea-final-fresh-disjoint-100-v2`, ID `11304401011`
-- digest `sha256:31e12e11f2746dcf8c0b6454ab6052ab44281176363b6934889d22d57a08800b`
+## Request theorem
 
-### Phase 2 — exact website discovery
+For actual V8 on 100 companies under the 2,000 conservative-request cap:
 
-**SHELVED / CANDIDATE-SOURCE CONSTRAINED** under current $0 rights-safe sources.
+1. V8 supplies 2,000 to V7.
+2. V7 reserves one Støtteregisteret request = charge 2 and forwards 1,998 to V2.
+3. V2 reserves one BRREG change-feed request = charge 2 and forwards 1,996 to immutable V1.
+4. V1 fixed company + shared Wikidata ceiling = 901 logical.
+5. V1 can allocate 97 H2g annual-report requests.
+6. V1 total = 998 logical / 1,996 conservative.
+7. + change feed = 999 / 1,998.
+8. + Støtteregisteret = **1,000 logical / exactly 2,000 conservative**.
 
-Failure funnel on frozen 100:
+Do not add another shared or per-company request without re-proving this theorem and explicitly deciding what loses its slot.
 
-- H1c deterministic `.no`: 96 attempts, 79 blocked, 78 DNS non-resolution, 12 loaded, 3 exact sites verified
-- H1g hyphenated `.no`: 73 attempts, 73 DNS non-resolution, 0 verified
+## Phase 2 parallel track
 
-Rejected/do-not-repeat without genuinely new evidence:
+Common Crawl exact-org Stage 4 remains **SHELVED / NOT PRODUCTION**: 3,000 generic domains -> 453 indexed org numbers -> 4/5,900 consumed overlap -> 2 net-new exact sites. Do not restart unchanged.
 
-- guessed `.com` and broader legal-name domain generation
-- annual-report domain hints
-- Norid public lookup because rights/purpose terms are incompatible
-- exact-parent subunit homepage hints: 0/3
-- exact-parent subunit email domains: 0/10
-- same-domain secondary identity verification: 0/4
-- NAV exact-org vacancy screen: 0/100 target companies after complete 180-day traversal
-- provider/model-search PRs #78/#84 unless provider/key/budget constraints materially change
+## NEXT
 
-### Phase 3 — sitemap/RSS dated-activity expansion
-
-**DROP / SHELVED** on the consumed cohort.
-
-- sitemap run `37215062164`, artifact `11308151116`: 0 accepted dated-activity companies
-- hardened RSS run `37215793652`, artifact `11308790825`: 0 precision-clean dated-activity companies
-
-The RSS experiment exposed the date-selection false-positive class fixed by Phase 4.
-
-### Phase 4 — page-level dated-activity evidence hardening
-
-**IMPLEMENTED + TESTED + MERGED + POST-MERGE GREEN**.
-
-Implemented:
-
-- typed semantic ranking of page-local publication-date candidates;
-- explicit publication metadata wins over generic/dynamic labelled dates;
-- same-rank conflicting dates abstain;
-- unstructured page text is accepted only when exactly one unique date remains;
-- generic CMS placeholder updates such as WordPress `Hello world!` are rejected;
-- retained activity evidence records date extraction method and raw page-local date evidence;
-- no new source, request, identity relaxation or third-party spend.
-
-Validation:
-
-- measured semantics head `a220089fccefd63f88555d675194ebefcdd44723`
-- consumed diff run `37217368930`: PASS
-- artifact `phase4-activity-evidence-consumed-diff`, ID `11308328355`
-- artifact digest `sha256:ddcf4e328edab217a016122801f1ad16f4f60c0a80d3e106b09ba5f67ed59da0`
-- frozen 100: jobs 0 -> 0, updates 0 -> 0
-- added update URLs 0; dropped update URLs 0; date changes 0
-- network requests added 0; search requests added 0; cost added $0
-- `precision_monotonic=true`
-- docs-inclusive PR head Baseline CI `37219207340`: PASS
-- merge commit `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`
-- post-merge Baseline CI `37219278337`: PASS
-
-## 3. Precision and budget invariants
-
-- exact organisation number remains the legal-entity anchor;
-- candidate generation is never publication proof;
-- parent/subsidiary/subunit relation alone never authorizes inheritance;
-- wrong-company publication is a hard failure;
-- exact page URL + retrieval/hash provenance remains mandatory;
-- dates must be page-local and semantically tied to the article/update;
-- sitemap/feed/archive dates cannot independently publish an activity fact;
-- missing/blocked/ambiguous remains explicit;
-- third-party API spend remains $0;
-- four logical site requests/profile remains the site ceiling;
-- fresh cohorts remain reserved for promotion of meaningful new transfer, not source ideation.
-
-## 4. Current blockers
-
-1. Exact website reach remains about 7–8/100 under current rights-safe $0 sources.
-2. Phase-2 candidate generation is dominated by non-resolving speculative domains.
-3. Phase-3 sitemap/RSS expansion produced zero precision-clean net-new activity coverage.
-4. No next deterministic source/family has yet passed rights + exact-ID + reach + budget screening.
-
-## 5. Exact next 1–3 actions
-
-1. Run a **consumed-only source-selection audit**, not a connector implementation. Compare plausible deterministic official/rights-safe sources such as Doffin, Støtteregisteret and Patentstyret on rights, exact organisation-number join, likely company-level reach, scored-family value, freshness and request/runtime cost.
-2. Select at most one source/family only if it has a credible path to meaningful net-new company coverage without weakening exact-company precision or exceeding the 2,000/100 theorem. Record PROMOTE/RETUNE/SHELVE/DROP in the repository before implementation.
-3. If one source passes the selection gate, implement it on a consumed cohort first. Otherwise advance to another roadmap phase rather than forcing a low-yield connector. **No fresh cohort yet.**
-
-## 6. NEXT
-
-**NEXT: consumed-only deterministic source/family selection audit. Screen rights, exact-ID join quality, likely evaluator-shaped reach and budget for Doffin, Støtteregisteret, Patentstyret or another official source before implementing any new connector.**
+1. Update `docs/IMPLEMENTATION_LOG.md`, this roadmap and the Phase-7 promotion report with run `37260381903` / artifact `11325335788` while preserving failed run `37257936472` as historical failure.
+2. Verify the PR diff contains only durable production/tests/docs changes and no temporary qualification workflow; confirm V1/V2 are absent from the diff.
+3. Run **final exact-head Baseline CI after all cleanup/docs commits**.
+4. If green, merge PR #97 with expected-head protection.
+5. Verify the exact new `main` SHA and require post-merge Baseline CI green.
+6. Pin merge SHA + post-merge run in continuity/history docs.
+7. Advance to **Phase 11 fresh evaluator-shaped release qualification** only after post-merge green. Use a genuinely fresh cohort there, with 100% terminal envelopes, zero known wrong-company publications, zero evidence/contract/canonical/synthesis/integrity failures, support-fact audit, request/runtime/cost proof, exact SHA freeze and reproducible artifacts.
+8. Do not submit a Builderr revision solely because PR #97 merges; submit only after the Phase-11 fresh release gate is clean and materially improves the bundle.

@@ -552,3 +552,95 @@ Status: **DOCUMENTATION BRANCH**
 Branch: `docs/70-plus-continuation-system`.
 
 Added `docs/70_PLUS_IMPLEMENTATION_PLAN.md`, `docs/CONTINUATION_STATE.md`, and `docs/IMPLEMENTATION_LOG.md` so repository state, not conversation history, governs continuation.
+
+---
+
+## 2026-10-05 — Phase 7 Støtteregisteret support awards promoted to clean PR candidate
+
+Status: **PROMOTE / CONSUMED V8 QUALIFIED / CLEAN PR + MERGE GATE PENDING / NO FRESH COHORT**
+
+- production baseline before promotion: `main` `86b60b2b5e87966c4a8beb4719e01905421b68ac`;
+- clean branch: `feature/stotteregisteret-support-awards`;
+- clean production staging commit: `91e825e844100eaf1341317126dca5fe2e52fc9b`;
+- hardened production semantics head on experiment branch: `59dd767a7bbc4a5f99d076be633e29a582fd711b`;
+- definitive actual-V8 consumed qualification run `37254237936`, job `111587836938`: PASS;
+- artifact `phase5-support-v8-consumed-live-100`, ID `11321344340`, ZIP digest `ba2fcdcf22473cc5e6159086516e7eb32da14b43ff11c4717f889910a383e357`;
+- cohort: already-consumed certified final-release-1000 chunk 0, 100 companies; no fresh cohort consumed;
+- 100/100 terminal; 11 support-award companies; 46 support observations/claims/canonical facts;
+- 0 contract/canonical/synthesis/external/integrity/budget failures; manual artifact audit found 0 wrong-company publications;
+- source identity is primary-recipient org-number only; specified recipient and granting authority are context-only;
+- NLOD; <=365 days; max 5 events/company; exact row/snapshot hashes + retrieval time + evidence span; source-backed currencies;
+- one shared support request; one V8 BRREG change-feed request; H2g ceiling 97; observed conservative charge 1,366; theoretical ceiling exactly 2,000; external wall 784 s; third-party cost $0; search API requests 0.
+
+Historical pre-hardening 106/1000 and 88/1000 Støtte reach figures are research-only and are not production-equivalent after primary-recipient and amount/currency hardening.
+
+Parallel Phase-2 Common Crawl Stage 4 is **SHELVED**: 3,000 generic domains -> 453 indexed org numbers -> 4/5,900 consumed overlap -> 2 net-new verified websites, far below the 20+/100 breakthrough threshold.
+
+Decision: **PROMOTE Støtteregisteret through a clean PR only**. Do not merge the experiment branch or its workflows. After merge + post-merge CI, NEXT is Phase 11 fresh evaluator-shaped release qualification; no Builderr submission until that fresh release gate is clean.
+
+---
+
+## 2026-10-05 — PR #97 CI catches immutable-V1 violation; support moved to V7 wrapper
+
+Status: **RETUNED / EXACT-HEAD CI + CONSUMED V8 WRAPPER REQUALIFICATION PENDING / NOT MERGED**
+
+- active PR: #97, `Phase 7: add exact-org Støtteregisteret support awards`;
+- first exact-PR Baseline CI: run `37255960174`, job `111592968992`: **FAIL**;
+- pytest result: **459 passed, 1 failed, 5 subtests passed**;
+- sole failure: `tests/test_submission_bundle.py::test_repository_only_submission_verifier_passes`;
+- failure cause: the first promotion shape modified `scripts/run_signalpost_final.py`, violating the immutable certified V1 collector pin;
+- certified V1/V2 audit stages after pytest were skipped; no merge occurred;
+- the verifier/pin was **not** weakened or repinned.
+
+Architecture correction:
+
+- certified V1 `scripts/run_signalpost_final.py` restored exactly to blob `9be89b9827135b1ed703318e1d189d5d3b8ca604`;
+- current V2 `scripts/run_signalpost_v2.py` remains unchanged at blob `5b69cc320c38e3aab13cf09fe2e2a09e62751433`;
+- Støtteregisteret moved to the newer V7 wrapper layer;
+- V7 now reserves the one shared support request, invokes unchanged V2 with the reduced budget, then projects support claims, canonical facts and synthesis before building the V6 evaluator surface;
+- support-specific CLI flags terminate at V7 and cannot leak into pinned V2/V1;
+- wrapper/budget tests were rewritten around this boundary;
+- code/test retune head before documentation commits: `338730d3ddf562955c967468983bd8cb3f0cc590`.
+
+Corrected 100-company request theorem:
+
+- V8 -> V7 budget: 2,000 conservative;
+- V7 reserves Støtte: 1 logical / charge 2 -> V2 receives 1,998;
+- V2 reserves BRREG change feed: 1 logical / charge 2 -> V1 receives 1,996;
+- immutable V1 fixed company + Wikidata ceiling: 901 logical;
+- H2g annual-report capacity: 97 logical;
+- V1 theoretical total: 998 logical / 1,996 conservative;
+- + change feed: 999 / 1,998;
+- + Støtte: **1,000 logical / exactly 2,000 conservative**.
+
+The prior consumed actual-V8 run `37254237936` / artifact `11321344340` remains valid semantic/evidence proof for primary-recipient-only Støtte publication and its 46 manually audited claims. Because the integration layer changed, it does **not** substitute for an exact-head wrapper requalification.
+
+Decision: keep PR #97 blocked until the retuned exact head passes full Baseline CI **and** an actual-V8 consumed requalification. Then merge with expected-head protection, run post-merge CI, pin production state, and only then advance to Phase 11 fresh evaluator-shaped release qualification.
+
+---
+
+## 2026-10-05 — PR #97 exact-wrapper consumed qualification passes after report-counter fix
+
+Status: **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED / FINAL CLEAN-HEAD CI + MERGE GATE PENDING / NO FRESH COHORT**
+
+- active PR: #97, `Phase 7: add exact-org Støtteregisteret support awards`;
+- immutable V1/V2 boundary preserved: V1 blob `9be89b9827135b1ed703318e1d189d5d3b8ca604`, V2 blob `5b69cc320c38e3aab13cf09fe2e2a09e62751433`;
+- provenance-hardened Baseline CI `37257806967`: PASS;
+- counter-fix/docs parent Baseline CI `37260229913`: PASS;
+- first wrapper run `37257936472` remains FAIL because report accounting emitted 46 claims / 0 canonical facts despite 46 actual canonical facts; output/evidence audit itself had zero defects;
+- report fix counts `canonical_field == public.official_support_award` and is regression-covered;
+- definitive corrected V8 consumed run `37260381903`, job `111606171316`: PASS;
+- qualification SHA `f47353a7f0b7eb63efa45a76c48850a7a648be2d`; production parent `22655265d3adc99bb2b73ef52d29caf6fa966d03`;
+- artifact `phase7-v8-consumed-requalification-100-v2`, ID `11325335788`, ZIP digest `b60b0469ed31cc3b8651445dc786fd4ce34ad325044bebdd6572d5c261a85148`;
+- cohort: already-consumed certified final-release-1000 chunk 0, 100 companies; no fresh cohort;
+- 100/100 terminal; 11 support companies; 46 claims; 46 canonical facts; report 46/46;
+- all 46 evidence rows audited: exact primary-recipient org, row hash, snapshot hash, row number/key, retrieval time, matching award/effective date, source-backed amount/interval currency; audit errors 0;
+- support snapshot `8889b22ee01c7aaae1dd6a0c079977e00f4d390440ec0779f17d999dfbd951d1`;
+- support requests 1; support bytes 305,978,976; BRREG change-feed requests 1;
+- observed conservative charge 1,366/2,000; theoretical ceiling exactly 2,000/2,000;
+- wrapper runtime 797.471 s/2,400; third-party cost $0; search API requests 0;
+- contract/canonical/synthesis/support-projection errors 0;
+- evaluator product 4,839,091 bytes and contains support facts/evidence;
+- qualification-only workflow was removed after artifact capture.
+
+Decision: **PROMOTE through final repository gate**. Verify clean durable diff, run final exact-head Baseline CI after docs/cleanup, merge with expected-head protection, require post-merge Baseline CI, then advance to Phase 11 fresh evaluator-shaped release qualification. Do not submit Builderr solely because this PR merges.
