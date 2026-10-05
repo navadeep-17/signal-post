@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
 import re
@@ -21,8 +21,12 @@ GENERIC_TITLES = {
     "presse",
     "home",
     "forside",
+    "hello world",
+    "sample page",
+    "sample post",
 }
 DATE_TAGS = {"pubdate", "published", "updated", "date"}
+CURRENT_ACTIVITY_MAX_AGE_YEARS = 5
 
 
 def _host(url: str) -> str:
@@ -140,18 +144,36 @@ def _specific_title(value: str) -> bool:
     return len(re.findall(r"[\wæøåÆØÅ-]+", value, flags=re.UNICODE)) >= 2
 
 
+def _five_year_cutoff(as_of: date) -> date:
+    try:
+        return as_of.replace(year=as_of.year - CURRENT_ACTIVITY_MAX_AGE_YEARS)
+    except ValueError:
+        # 29 February -> 28 February in a non-leap cutoff year.
+        return as_of.replace(year=as_of.year - CURRENT_ACTIVITY_MAX_AGE_YEARS, day=28)
+
+
+def _current_activity_date(value: str, *, as_of_date: date) -> bool:
+    try:
+        published = date.fromisoformat(value)
+    except ValueError:
+        return False
+    return _five_year_cutoff(as_of_date) <= published <= as_of_date
+
+
 def parse_company_feed(
     raw: bytes,
     *,
     feed_url: str,
     verified_url: str,
     max_entries: int = 5,
+    as_of_date: date | None = None,
 ) -> dict[str, Any]:
-    """Parse dated same-site RSS/Atom entries from an already verified company domain.
+    """Parse current dated same-site RSS/Atom entries from a verified company domain.
 
     The feed itself is evidence. Feed discovery does not change company identity: callers
     may use this only after the website domain has independently passed the exact-company
-    gate. Cross-domain entry URLs are discarded.
+    gate. Cross-domain entries, generic CMS placeholders, future dates and entries older
+    than the repository's five-year current-activity window are discarded.
     """
     if max_entries < 1:
         raise ValueError("max_entries must be positive")
@@ -172,6 +194,7 @@ def parse_company_feed(
     else:
         return {"status": "invalid", "reason": f"unsupported_feed_root:{root_name}", "entries": []}
 
+    current_date = as_of_date or datetime.now(timezone.utc).date()
     entries: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     for node in candidates:
@@ -186,6 +209,8 @@ def parse_company_feed(
         if not date_info or not _specific_title(title):
             continue
         published_date, method, raw_date = date_info
+        if not _current_activity_date(published_date, as_of_date=current_date):
+            continue
         seen_urls.add(link)
         entries.append(
             {
@@ -222,7 +247,7 @@ def fetch_verified_activity_feed(
     Production deliberately tries only the consumed-screen winner (`/feed/`). Robots plus
     one feed GET therefore cost at most two logical site requests. Redirects remain under
     the same SSRF-safe bounded opener used by homepage discovery. The returned evidence
-    stores only parsed dated same-site entries and the feed snapshot hash, never raw XML.
+    stores only parsed current dated same-site entries and the feed snapshot hash, never raw XML.
     """
     # Local imports avoid coupling the pure parser to the website discovery module.
     from .evidence import evidence
@@ -319,7 +344,7 @@ def fetch_verified_activity_feed(
                         "feed_type": parsed.get("feed_type"),
                         "entries": [],
                     },
-                    note=str(parsed.get("reason") or "Feed contains no qualified dated same-site entries"),
+                    note=str(parsed.get("reason") or "Feed contains no qualified current dated same-site entries"),
                     content_sha256=digest,
                 ),
                 metrics,
@@ -336,7 +361,7 @@ def fetch_verified_activity_feed(
                     "feed_type": parsed.get("feed_type"),
                     "entries": list(parsed.get("entries") or []),
                 },
-                note="Bounded first-party RSS/Atom snapshot from an already exact-verified company website",
+                note="Bounded current first-party RSS/Atom snapshot from an exact-verified company website",
                 content_sha256=digest,
             ),
             metrics,
