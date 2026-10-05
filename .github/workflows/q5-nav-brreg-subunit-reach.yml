@@ -1,0 +1,114 @@
+name: Q5 NAV BRREG Subunit Hiring Reach
+
+on:
+  push:
+    branches:
+      - audit/q5-nav-brreg-subunit-reach
+    paths:
+      - 'scripts/screen_q5_nav_brreg_subunit_reach.py'
+      - 'tests/test_q5_nav_brreg_subunit_reach.py'
+      - '.github/workflows/q5-nav-brreg-subunit-reach.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen-consumed-cohort:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q5_nav_brreg_subunit_reach.py
+
+      - name: Download frozen Q4/Q6 consumed profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen
+          gh run download 37334830712 \
+            --repo navadeep-17/signal-post \
+            --name q4-consumed-v8-integration-replay \
+            --dir frozen
+          test -s frozen/out/q4-replay/work/profiles.jsonl
+          test "$(wc -l < frozen/out/q4-replay/work/profiles.jsonl)" -eq 100
+
+      - name: Screen NAV with exact BRREG main/subunit identity
+        run: |
+          uv run python scripts/screen_q5_nav_brreg_subunit_reach.py \
+            --profiles frozen/out/q4-replay/work/profiles.jsonl \
+            --output out/q5-nav-brreg-subunit-reach.json \
+            --timeout 45 \
+            --expect-profiles 100
+
+      - name: Verify complete precision boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/q5-nav-brreg-subunit-reach.json').read_text())
+          assert report['status'] == 'SCREEN_ONLY_NO_PRODUCTION_CHANGE', report
+          assert report['fresh_qualification'] is False, report
+          assert report['profiles'] == 100, report
+          assert report['public_token_retained'] is False, report
+          assert report['production_decision'] == 'UNDECIDED_SCREEN_ONLY', report
+
+          brreg = report['brreg']
+          assert brreg['requests'] >= 100, brreg
+          assert brreg['accepted_employer_orgs'] >= 100, brreg
+
+          nav = report['nav']
+          assert nav['lookback_days'] == 183, nav
+          assert nav['page_size'] == 10000, nav
+          assert nav['reached_feed_end'] is True, nav
+          assert nav['feed_page_limit_hit'] is False, nav
+          assert nav['detail_limit_hit'] is False, nav
+          assert nav['detail_errors'] == [], nav['detail_errors'][:10]
+          assert report['logical_network_requests'] <= 800, report['logical_network_requests']
+
+          for hit in report['exact_hits']:
+              assert hit['identity_method'] == 'nav_employer_orgnr_exact_brreg_main_or_subunit_v1', hit
+              assert len(hit['main_target_org']) == 9, hit
+              assert len(hit['employing_org']) == 9, hit
+              assert hit['relationship'] in {'main', 'official_brreg_subunit'}, hit
+              assert hit['link'], hit
+
+          print(json.dumps({
+              'brreg': brreg,
+              'nav': {k: nav[k] for k in (
+                  'feed_pages_fetched', 'headers_scanned', 'name_shortlisted_events',
+                  'latest_name_candidates', 'active_name_candidates', 'detail_requests'
+              )},
+              'logical_requests': report['logical_network_requests'],
+              'companies_with_exact_active_vacancies': report['companies_with_exact_active_vacancies'],
+              'exact_active_vacancies': report['exact_active_vacancies'],
+              'exact_main_org_vacancies': report['exact_main_org_vacancies'],
+              'exact_official_subunit_vacancies': report['exact_official_subunit_vacancies'],
+              'organisation_numbers_with_exact_active_vacancies': report['organisation_numbers_with_exact_active_vacancies'],
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload NAV BRREG subunit screen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q5-nav-brreg-subunit-reach
+          retention-days: 30
+          if-no-files-found: error
+          path: out/q5-nav-brreg-subunit-reach.json
