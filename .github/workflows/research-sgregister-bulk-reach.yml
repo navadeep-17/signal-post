@@ -1,0 +1,88 @@
+name: Research SGregister Bulk Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_sgregister_bulk_reach.py
+      - tests/test_screen_sgregister_bulk_reach.py
+      - .github/workflows/research-sgregister-bulk-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run exact-org parser tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_sgregister_bulk_reach.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          PY
+
+      - name: Download SGregister v2 all-enterprises payload once
+        run: |
+          curl --fail --location --retry 2 --retry-delay 2 --compressed \
+            --header 'Accept: application/vnd.sgpub.v2' \
+            --header 'Accept-Encoding: gzip' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://sgregister.dibk.no/api/enterprises.json' \
+            --output out/sgregister.json
+          test -s out/sgregister.json
+          wc -c out/sgregister.json
+          sha256sum out/sgregister.json
+
+      - name: Screen exact org reach and contact candidates
+        run: |
+          uv run python scripts/screen_sgregister_bulk_reach.py \
+            --source-json out/sgregister.json \
+            --companies-100 out/consumed-100.jsonl \
+            --companies-1000 submission/final-release-1000.jsonl \
+            --today 2026-10-05 \
+            --output-dir out/sgregister
+          cat out/sgregister/report.json
+
+      - name: Remove bulk source before artifact upload
+        if: always()
+        run: rm -f out/sgregister.json
+
+      - name: Upload bounded screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-sgregister-bulk-reach
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/sgregister/report.json
+            out/sgregister/matched-companies-1000.jsonl
