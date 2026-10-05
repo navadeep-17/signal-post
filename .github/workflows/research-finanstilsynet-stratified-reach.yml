@@ -49,10 +49,13 @@ jobs:
           assert len({str(row['organisation_number']) for row in selected}) == 100
           PY
 
-      - name: Download ten stratified domestic report pages
+      - name: Download five throttled stratified domestic report pages
         run: |
           set -euo pipefail
-          for PAGE in 1 10 18 27 36 44 53 62 70 79; do
+          PAGES=(1 20 40 60 79)
+          LAST_INDEX=$((${#PAGES[@]} - 1))
+          for INDEX in "${!PAGES[@]}"; do
+            PAGE="${PAGES[$INDEX]}"
             echo "Fetching page ${PAGE}"
             curl --fail --location --compressed --get \
               --header 'Accept: application/json' \
@@ -63,6 +66,9 @@ jobs:
               'https://api.finanstilsynet.no/registry/v2/report/json' \
               --output "out/finanstilsynet-pages/page-${PAGE}.json"
             test -s "out/finanstilsynet-pages/page-${PAGE}.json"
+            if [ "$INDEX" -lt "$LAST_INDEX" ]; then
+              sleep 13
+            fi
           done
           find out/finanstilsynet-pages -type f -maxdepth 1 -print | sort
 
