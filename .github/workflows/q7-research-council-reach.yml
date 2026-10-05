@@ -1,0 +1,93 @@
+name: Q7 Research Council Reach
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/q7-research-council-reach
+    paths:
+      - '.github/workflows/q7-research-council-reach.yml'
+      - 'scripts/screen_q7_research_council_reach.py'
+      - 'tests/test_q7_research_council_reach.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-reach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout source-screen head
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Download already-consumed Phase 11 replay
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed source q7-research-council
+          gh run download 37314396820 \
+            --repo navadeep-17/signal-post \
+            --name phase11-owner-veto-consumed-replay \
+            --dir consumed
+
+      - name: Download pinned Forskningsradet open dataset
+        run: |
+          curl --fail --location --retry 3 \
+            'https://raw.githubusercontent.com/Forskningsradet/open-data/e05cc7afff5ea24fe5513a55ababd642e68eaf84/datasets/soknader2/dataset.csv' \
+            --output source/dataset.csv
+          test "$(git hash-object source/dataset.csv)" = 'ce1e87d41a7a07b4fb091596c19bdf31fba01ca2'
+          test "$(wc -c < source/dataset.csv | tr -d ' ')" = '54010790'
+          sha256sum source/dataset.csv | tee q7-research-council/source.sha256
+
+      - name: Screen exact organisation-number reach
+        run: |
+          PROFILE_PATH="$(find consumed -type f -path '*/work/profiles.jsonl' | head -n 1)"
+          if [ -z "$PROFILE_PATH" ]; then
+            echo 'Consumed profiles.jsonl not found' >&2
+            exit 1
+          fi
+          uv run python scripts/screen_q7_research_council_reach.py \
+            --targets "$PROFILE_PATH" \
+            --dataset source/dataset.csv \
+            --report q7-research-council/report.json \
+            --as-of 2026-10-05 \
+            --recent-years 5
+
+      - name: Verify source-screen integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('q7-research-council/report.json').read_text(encoding='utf-8'))
+          assert report['audit']['target_companies'] == 100, report
+          assert report['audit']['rows_scanned'] > 0, report
+          assert report['source']['dataset_bytes'] == 54010790, report
+          assert len(report['source']['dataset_sha256']) == 64, report
+          assert report['publication_enabled'] is False, report
+          assert report['fresh_cohort_consumed'] is False, report
+          for key in ('any_application', 'recent_application', 'any_awarded_project', 'recent_awarded_project', 'active_awarded_project'):
+              row = report['coverage'][key]
+              assert 0 <= row['companies'] <= 100, report
+              assert row['total_companies'] == 100, report
+          print(json.dumps(report['coverage'], indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload source-screen report
+        uses: actions/upload-artifact@v4
+        with:
+          name: q7-research-council-reach
+          path: q7-research-council/*
+          if-no-files-found: error
