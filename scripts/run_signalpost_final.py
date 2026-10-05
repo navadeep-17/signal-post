@@ -31,8 +31,6 @@ from norway_company_agent.external_contract import (  # noqa: E402
 )
 from norway_company_agent.external_footprint import validate_observation  # noqa: E402
 from norway_company_agent.workforce_contract import project_workforce_observations  # noqa: E402
-from norway_company_agent.support_contract import project_support_award_observations  # noqa: E402
-from norway_company_agent.support_registry import fetch_support_award_batch  # noqa: E402
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
 )
@@ -69,10 +67,6 @@ FINAL_MODULES = [
 OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE = len(OFFICIAL_FETCH_MODULES)
 THIRD_PARTY_COST_USD = 0.0
 DEFAULT_MAX_CHALLENGE_REQUESTS = 2000
-SUPPORT_REGISTRY_SHARED_REQUEST_CEILING = 1
-DEFAULT_SUPPORT_REGISTRY_TIMEOUT = 420.0
-DEFAULT_SUPPORT_LOOKBACK_DAYS = 365
-DEFAULT_SUPPORT_EVENTS_PER_COMPANY = 5
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -263,9 +257,6 @@ def main() -> None:
     parser.add_argument("--max-third-party-cost-usd", type=float, default=0.0)
     parser.add_argument("--max-wall-runtime-seconds", type=int, default=2400)
     parser.add_argument("--refresh-report", help="Optional refresh report with events[]")
-    parser.add_argument("--support-registry-timeout", type=float, default=DEFAULT_SUPPORT_REGISTRY_TIMEOUT)
-    parser.add_argument("--support-lookback-days", type=int, default=DEFAULT_SUPPORT_LOOKBACK_DAYS)
-    parser.add_argument("--support-events-per-company", type=int, default=DEFAULT_SUPPORT_EVENTS_PER_COMPANY)
     parser.add_argument("--annual-workforce-workers", type=int, default=4)
     parser.add_argument("--annual-workforce-timeout", type=float, default=60.0)
     parser.add_argument("--annual-workforce-min-start-interval", type=float, default=2.1)
@@ -287,12 +278,6 @@ def main() -> None:
         parser.error("--max-third-party-cost-usd cannot be negative")
     if args.max_wall_runtime_seconds < 1:
         parser.error("--max-wall-runtime-seconds must be positive")
-    if args.support_registry_timeout <= 0:
-        parser.error("--support-registry-timeout must be positive")
-    if args.support_lookback_days < 1:
-        parser.error("--support-lookback-days must be positive")
-    if args.support_events_per_company < 1:
-        parser.error("--support-events-per-company must be positive")
     if args.annual_workforce_workers < 1:
         parser.error("--annual-workforce-workers must be positive")
     if args.annual_workforce_timeout <= 0:
@@ -317,22 +302,18 @@ def main() -> None:
         + theoretical_shared_wikidata_requests
     )
     base_theoretical_charge_ceiling = budget.charge_requests(base_theoretical_logical_ceiling)
-    fixed_theoretical_logical_ceiling = (
-        base_theoretical_logical_ceiling + SUPPORT_REGISTRY_SHARED_REQUEST_CEILING
-    )
-    fixed_theoretical_charge_ceiling = budget.charge_requests(fixed_theoretical_logical_ceiling)
-    if fixed_theoretical_charge_ceiling > args.max_challenge_requests:
+    if base_theoretical_charge_ceiling > args.max_challenge_requests:
         raise SystemExit(
-            f"Configured fixed pipeline cannot prove request safety: theoretical charge "
-            f"{fixed_theoretical_charge_ceiling}>{args.max_challenge_requests}. "
+            f"Configured base pipeline cannot prove request safety: theoretical charge "
+            f"{base_theoretical_charge_ceiling}>{args.max_challenge_requests}. "
             "Reduce expected count or raise the explicit budget only within the challenge's request cap."
         )
-    remaining_structural_charge = args.max_challenge_requests - fixed_theoretical_charge_ceiling
+    remaining_structural_charge = args.max_challenge_requests - base_theoretical_charge_ceiling
     annual_workforce_logical_request_ceiling = min(
         args.expected_count,
         max(0, remaining_structural_charge // budget.request_charge_multiplier),
     )
-    theoretical_logical_ceiling = fixed_theoretical_logical_ceiling + annual_workforce_logical_request_ceiling
+    theoretical_logical_ceiling = base_theoretical_logical_ceiling + annual_workforce_logical_request_ceiling
     theoretical_charge_ceiling = budget.charge_requests(theoretical_logical_ceiling)
 
     wall_start = time.monotonic()
@@ -384,18 +365,6 @@ def main() -> None:
             state[profile["organisation_number"]] = profile
 
     ordered_profiles = [state[org] for org in orgs]
-    support_registry_report = fetch_support_award_batch(
-        ordered_profiles,
-        timeout=args.support_registry_timeout,
-        lookback_days=args.support_lookback_days,
-        max_events_per_company=args.support_events_per_company,
-    )
-    shared_support_logical_requests = int(support_registry_report.get("requests") or 0)
-    if shared_support_logical_requests > SUPPORT_REGISTRY_SHARED_REQUEST_CEILING:
-        raise RuntimeError(
-            "Support-registry lookup exceeded theoretical shared-request ceiling: "
-            f"{shared_support_logical_requests}>{SUPPORT_REGISTRY_SHARED_REQUEST_CEILING}"
-        )
     annual_workforce_report = attach_annual_report_workforce_batch(
         ordered_profiles,
         max_requests=annual_workforce_logical_request_ceiling,
@@ -415,12 +384,6 @@ def main() -> None:
         for profile in ordered_profiles
         for observation in (profile.get("external_observations") or [])
         if isinstance(observation, dict) and observation.get("signal_type") == "workforce_snapshot"
-    ]
-    support_award_observations = [
-        observation
-        for profile in ordered_profiles
-        for observation in (profile.get("external_observations") or [])
-        if isinstance(observation, dict) and observation.get("signal_type") == "official_support_award"
     ]
 
     envelopes = [
@@ -446,7 +409,6 @@ def main() -> None:
         )
         contract = project_profile_handle_observations(contract, envelope["profile"])
         contract = project_contact_email_observations(contract, envelope["profile"])
-        contract = project_support_award_observations(contract, envelope["profile"])
         projected.append(project_workforce_observations(contract, envelope["profile"]))
 
     contract_errors: list[dict[str, str]] = []
@@ -472,14 +434,9 @@ def main() -> None:
         int((profile.get("run_metrics") or {}).get("requests") or 0)
         for profile in ordered_profiles
     )
-    total_logical_requests = (
-        profile_logical_requests + shared_wikidata_logical_requests + shared_support_logical_requests
-    )
+    total_logical_requests = profile_logical_requests + shared_wikidata_logical_requests
     shared_wikidata_charged_requests = budget.charge_requests(shared_wikidata_logical_requests)
-    shared_support_charged_requests = budget.charge_requests(shared_support_logical_requests)
-    total_charged_requests = (
-        profile_charged_requests + shared_wikidata_charged_requests + shared_support_charged_requests
-    )
+    total_charged_requests = profile_charged_requests + shared_wikidata_charged_requests
     budget_errors = budget.validate(
         logical_requests=total_logical_requests,
         third_party_cost_usd=THIRD_PARTY_COST_USD,
@@ -498,8 +455,6 @@ def main() -> None:
     latencies.extend(
         int(value) for value in (wikidata_metrics.get("latencies_ms") or []) if value is not None
     )
-    if support_registry_report.get("elapsed_ms") is not None:
-        latencies.append(int(support_registry_report["elapsed_ms"]))
     selected_sources: dict[str, int] = {}
     for profile in ordered_profiles:
         source = _canonical_verified_site_source(profile)
@@ -526,9 +481,6 @@ def main() -> None:
     companies_with_workforce = len(
         {str(item.get("organisation_number") or "") for item in workforce_observations}
     )
-    companies_with_support_awards = len(
-        {str(item.get("organisation_number") or "") for item in support_award_observations}
-    )
     annual_workforce_observations = [
         item for item in workforce_observations if item.get("source_class") == "official_annual_account_copy"
     ]
@@ -545,7 +497,6 @@ def main() -> None:
         "zero_third_party_cost": THIRD_PARTY_COST_USD == 0.0,
         "theoretical_request_ceiling_within_budget": theoretical_charge_ceiling <= args.max_challenge_requests,
         "wikidata_lookup_bounded": shared_wikidata_logical_requests <= theoretical_shared_wikidata_requests,
-        "support_registry_request_bounded": shared_support_logical_requests <= SUPPORT_REGISTRY_SHARED_REQUEST_CEILING,
         "site_source_accounting_consistent": sum(selected_sources.values()) == len(ordered_profiles),
         "annual_workforce_request_bounded": int(annual_workforce_report.get("requests") or 0) <= annual_workforce_logical_request_ceiling,
     }
@@ -570,11 +521,6 @@ def main() -> None:
             "max_site_homepage_probes_per_company": 2,
             "wikidata_candidate_discovery_enabled": True,
             "wikidata_batch_size": WIKIDATA_BATCH_SIZE,
-            "support_registry_enabled": True,
-            "support_registry_rights_basis": "NLOD",
-            "support_registry_network_requests": shared_support_logical_requests,
-            "support_registry_lookback_days": args.support_lookback_days,
-            "support_registry_max_events_per_company": args.support_events_per_company,
             "h1g_hyphenated_no_fallback_enabled": True,
             "company_page_social_handle_extraction_enabled": True,
             "company_page_contact_email_extraction_enabled": True,
@@ -594,20 +540,15 @@ def main() -> None:
             "shared_wikidata_logical_request_ceiling": theoretical_shared_wikidata_requests,
             "base_theoretical_logical_request_ceiling": base_theoretical_logical_ceiling,
             "base_theoretical_challenge_request_charge_ceiling": base_theoretical_charge_ceiling,
-            "shared_support_logical_request_ceiling": SUPPORT_REGISTRY_SHARED_REQUEST_CEILING,
-            "fixed_theoretical_logical_request_ceiling": fixed_theoretical_logical_ceiling,
-            "fixed_theoretical_challenge_request_charge_ceiling": fixed_theoretical_charge_ceiling,
             "annual_report_workforce_logical_request_ceiling": annual_workforce_logical_request_ceiling,
             "theoretical_logical_request_ceiling": theoretical_logical_ceiling,
             "request_charge_multiplier": budget.request_charge_multiplier,
             "theoretical_challenge_request_charge_ceiling": theoretical_charge_ceiling,
             "profile_logical_requests": profile_logical_requests,
             "shared_wikidata_logical_requests": shared_wikidata_logical_requests,
-            "shared_support_logical_requests": shared_support_logical_requests,
             "observed_logical_requests": total_logical_requests,
             "profile_conservative_challenge_request_charge": profile_charged_requests,
             "shared_wikidata_conservative_challenge_request_charge": shared_wikidata_charged_requests,
-            "shared_support_conservative_challenge_request_charge": shared_support_charged_requests,
             "observed_conservative_challenge_request_charge": total_charged_requests,
             "max_challenge_requests": args.max_challenge_requests,
         },
@@ -649,22 +590,7 @@ def main() -> None:
             "companies_with_workforce": companies_with_workforce,
             "annual_report_workforce_observations": len(annual_workforce_observations),
             "annual_report_workforce_network_requests": int(annual_workforce_report.get("requests") or 0),
-            "support_award_observations": len(support_award_observations),
-            "companies_with_support_awards": companies_with_support_awards,
-            "support_registry_network_requests": shared_support_logical_requests,
             "validation_errors": external_observation_errors,
-        },
-        "support_registry": {
-            "status": support_registry_report.get("status"),
-            "requests": shared_support_logical_requests,
-            "bytes": int(support_registry_report.get("bytes") or 0),
-            "elapsed_ms": int(support_registry_report.get("elapsed_ms") or 0),
-            "companies_with_recent_awards": int(support_registry_report.get("companies_with_recent_awards") or 0),
-            "observations": int(support_registry_report.get("observations") or 0),
-            "lookback_days": int(support_registry_report.get("lookback_days") or args.support_lookback_days),
-            "max_events_per_company": int(support_registry_report.get("max_events_per_company") or args.support_events_per_company),
-            "source_snapshot_sha256": support_registry_report.get("source_snapshot_sha256"),
-            "error": support_registry_report.get("error"),
         },
         "annual_report_workforce": {
             "runtime_available": bool(annual_workforce_report.get("runtime_available")),
