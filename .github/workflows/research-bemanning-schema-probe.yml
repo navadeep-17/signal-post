@@ -1,0 +1,66 @@
+name: Research Bemanning Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-bemanning-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download staffing-register JSON once
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --retry-delay 2 --compressed \
+            --header 'Accept: application/json' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://data.arbeidstilsynet.no/bemanningsforetaksregisteret2/api' \
+            --output out/bemanning.json
+          test -s out/bemanning.json
+          wc -c out/bemanning.json
+          sha256sum out/bemanning.json
+
+      - name: Print bounded JSON schema evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          path = Path('out/bemanning.json')
+          data = json.loads(path.read_text(encoding='utf-8-sig'))
+          print('top-type:', type(data).__name__)
+          if isinstance(data, dict):
+              print('top-keys:', sorted(data)[:100])
+              for key, value in data.items():
+                  if isinstance(value, list):
+                      print('list-key:', key, 'length:', len(value))
+                      if value:
+                          first = value[0]
+                          print('first-item-type:', type(first).__name__)
+                          if isinstance(first, dict):
+                              print('first-item-keys:', sorted(first))
+                              print('first-item-sample:', json.dumps(first, ensure_ascii=False)[:12000])
+                      break
+          elif isinstance(data, list):
+              print('length:', len(data))
+              if data:
+                  first = data[0]
+                  print('first-item-type:', type(first).__name__)
+                  if isinstance(first, dict):
+                      print('first-item-keys:', sorted(first))
+                      print('first-item-sample:', json.dumps(first, ensure_ascii=False)[:12000])
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/bemanning.json
