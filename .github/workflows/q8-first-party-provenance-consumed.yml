@@ -35,7 +35,10 @@ jobs:
       - name: Sync and run focused regressions
         run: |
           uv sync --locked
-          uv run --with pytest pytest -q tests/test_q8_first_party_activity_provenance.py tests/test_first_party_feed.py tests/test_first_party_feed_contract.py
+          uv run --with pytest pytest -q \
+            tests/test_q8_first_party_activity_provenance.py \
+            tests/test_q4_first_party_feed.py \
+            tests/test_q4_feed_projection_hardening.py
 
       - name: Download consumed Q8 artifact
         env:
