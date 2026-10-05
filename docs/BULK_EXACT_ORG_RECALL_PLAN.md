@@ -8,11 +8,11 @@ Base main SHA: `88be83e226da13ba6f7a2717c72c1d2d94cf5bec`
 
 Find a materially stronger recall mechanism without touching the production runner, current qualification work, or any fresh evaluator cohort.
 
-The research track optimizes for:
+Optimization target:
 
 `net-new exact-company coverage / external requests`
 
-and keeps the existing precision rule:
+Precision rule:
 
 > ATTEMPT MORE -> VERIFY STRICTLY -> PUBLISH CONSERVATIVELY
 
@@ -20,105 +20,158 @@ and keeps the existing precision rule:
 
 - research branch only;
 - no imports from research scripts into production code;
-- no mutation of `run_signalpost_v8.py` or request-accounting code;
+- no mutation of `run_signalpost_v8.py` or production request-accounting code;
 - no fresh Phase-11/Q8 cohort;
 - use only already-consumed `submission/final-release-1000.jsonl` rows for source selection;
 - source-selection scripts publish no production claims;
 - exact nine-digit organisation-number attribution is mandatory;
 - name-only matches are never counted as exact-company hits;
 - website/email outputs are candidates only until independently verified;
-- no source is promoted without clear reuse rights and reproducible access.
+- no source is promoted without clear reuse rights and reproducible access;
+- live research workflows are changed to manual-only after a useful result is frozen.
 
-## Milestone R1 — TED procurement winner screen
+## Shared consumed cohort
 
-### Hypothesis
+R1/R2/R3 source screens use the same deterministic consumed 100 selected from the frozen final-release 1000 by sorting on:
 
-The TED Search API can retrieve contract-award winners by `winner-identifier` in a small number of shared requests. A useful match may provide multiple high-value fields at once: exact winner identifier, dated award activity, website candidate and email candidate.
+`sha256("bulk-exact-org-r1-v1|" + organisation_number)`
 
-### Architecture
+The complete consumed 1000 is also used when a one-download bulk source makes the larger comparison essentially free.
 
-1. deterministically select 100 companies from the already-consumed final-release 1000;
-2. query TED using batched `winner-identifier IN (...)` expert queries;
-3. request only bounded fields needed for source qualification;
-4. parse returned identifiers conservatively and match only exact target org numbers;
-5. measure companies with any award, recent award, website candidate and email candidate;
-6. preserve raw response hashes and query text for audit;
-7. do not fetch or publish candidate websites in R1.
+## R1 — TED procurement winner screen
 
-### Promotion gate
+Status: **DROP FOR BROAD RANDOM-COMPANY RECALL**.
 
-R1 is worth a second-stage verifier experiment only if at least one of these holds on consumed 100:
+Implementation:
 
-- >= 3 companies have exact winner records with recent dated activity; or
-- >= 3 companies gain website candidates; or
-- the source yields another clearly material multi-family gain at <= 5 shared Search API requests.
+- `scripts/screen_ted_exact_winner_reach.py`;
+- `tests/test_screen_ted_exact_winner_reach.py`;
+- `.github/workflows/research-ted-exact-winner-screen.yml` (now manual-only).
 
-Any wrong-company identifier association is an automatic NO-GO until understood.
+Precision semantics:
 
-## Milestone R2 — Peppol Directory bulk screen
+- only TED `winner-identifier` establishes a company hit;
+- exact 9-digit target matching only;
+- multi-winner notices may count as activity but do not attribute website/email to one target;
+- publication disabled.
 
-### Hypothesis
+Measured consumed-100 result:
 
-The daily Peppol Directory export can map exact Norwegian participant IDs (`0192:<9-digit orgnr>`) to website/contact metadata with one shared bulk download.
+- companies: **100**;
+- shared Search API requests: **4**;
+- returned notices: **0**;
+- companies with exact award: **0/100**;
+- companies with recent award: **0/100**;
+- website candidates: **0/100**;
+- email candidates: **0/100**;
+- API/search execution itself succeeded and was not truncated.
 
-### Method
+Decision: do not build a TED production path for the current random-company objective. Reconsider only for targeted procurement research or if a materially different retrieval scope is justified.
 
-- use `/export/businesscards-csv` or JSON export;
-- filter only participant scheme `0192`;
-- exact-match against the same consumed 100;
-- measure website/email candidate reach and overlap with existing verified websites;
-- never treat Peppol metadata as publication proof;
-- resolve reuse-rights ambiguity before any production proposal.
+## R2 — Peppol Directory bulk screen
 
-### Promotion gate
+Status: **PARSER READY / LIVE COVERAGE SCREEN DEFERRED BY OFFICIAL EXPORT RATE LIMIT / RIGHTS STILL UNRESOLVED**.
 
-Proceed to independent website verification only if the bulk screen produces materially more exact website candidates than current deterministic discovery at negligible request cost and reuse rights are cleared.
+Implementation:
 
-## Milestone R3 — Data.norge source miner
+- `scripts/screen_peppol_exact_org_reach.py`;
+- `tests/test_screen_peppol_exact_org_reach.py`;
+- `.github/workflows/research-peppol-exact-org-screen.yml` (manual-only).
 
-### Hypothesis
+Verified upstream format from the official Peppol Directory implementation:
 
-A union of many small exact-org public datasets may outperform betting on a single national API.
+- gzip-compressed BusinessCard export;
+- ISO-8859-1 text;
+- semicolon-separated CSV;
+- columns include Participant ID, Names, Websites, Contact email and Registration date;
+- Norwegian exact participant scheme: `0192:<9-digit orgnr>`;
+- export documentation limits a given export file to two downloads per IP per 24 hours by default.
 
-### Method
+Observed source snapshot during format qualification:
 
-Use Data.norge's open SPARQL/search/resource services to discover and rank datasets whose metadata suggests:
+- compressed bytes: **357,195,380**;
+- SHA-256: `619d92a63fdbfa202351c0564ad1687b61d88b686c57effbfddaf26c27886ffb`.
 
-- organisation number;
-- website / URL;
-- email / contact;
-- supplier / award / support;
-- approval / licence / status;
-- dated events.
+The first live coverage attempt downloaded successfully but failed only because the initial parser assumed comma separation. The official implementation proved the separator is `;`; the parser and fixture tests are now corrected and green. We deliberately did not issue a third same-day download.
 
-Rank each candidate by:
+Promotion still requires:
 
-1. explicit reuse licence;
-2. public/evaluator-reproducible access;
-3. exact organisation-number key;
-4. bulk/shared retrieval;
-5. freshness;
-6. likely company-level reach;
-7. scored-family value.
+1. one clean exact-0192 coverage run after the rate-limit window;
+2. meaningful website-candidate reach;
+3. explicit directory-data reuse-rights clearance before any production proposal;
+4. independent Signalpost website verification for every candidate.
 
-No connector is built from this milestone; it is source selection only.
+## R3 — Data.norge source miner / registry union
 
-## Milestone R4 — source-union comparison
+Status: **MINER IMPLEMENTED; FIRST SOURCE FAMILY SCREENED; CONTINUE SOURCE DISCOVERY**.
 
-If R1/R2/R3 produce viable candidates, compare their union on the same consumed 100 and compute:
+Implementation:
+
+- `scripts/mine_data_norge_exact_org_sources.py`;
+- `tests/test_mine_data_norge_exact_org_sources.py`;
+- `.github/workflows/research-data-norge-source-miner.yml` (now manual-only);
+- network-free research unit gate covers TED, Peppol and Data.norge parsers.
+
+The first broad SPARQL attempt was intentionally abandoned after the public endpoint returned HTTP 502 on a join-heavy query. The miner now uses seven bounded Data.norge Search API queries and separates PUBLIC access rights from actual reuse-license metadata.
+
+The first successful targeted metadata screen surfaced Landbruksdirektoratet's production/agricultural subsidy datasets. The 2025 dataset has:
+
+- public access;
+- direct CSV distribution from the publisher's GitHub open-data repository;
+- NLOD reuse license;
+- exact organisation-number column;
+- application/payment and calculated-subsidy fields.
+
+### R3.1 — 2025 agricultural-support exact-org screen
+
+Implementation:
+
+- `scripts/screen_landbruksdirektoratet_support_reach.py`;
+- `tests/test_screen_landbruksdirektoratet_support_reach.py`;
+- `.github/workflows/research-landbruk-support-reach.yml` (now manual-only).
+
+Measured source:
+
+- bytes: **11,775,424**;
+- SHA-256: `a09bd9180f7ed4fd2ca40818a4d17c58d9d29b216f50e321d5026ef0dd449a43`;
+- rows: **36,752**;
+- encoding: UTF-8-SIG;
+- delimiter: `;`;
+- exact identity column: `orgnr`;
+- malformed organisation-number rows: **0**.
+
+Reach:
+
+- consumed 100: **1/100** exact company hit; **1/100** with positive subsidy cells;
+- consumed 1000: **2/1000 = 0.2%** exact company hits; both have positive subsidy cells;
+- external source requests: **1 shared download**.
+
+Decision: **do not build as a standalone production source**. Keep as a possible member of a larger exact-org registry union because it is precise, current, rights-clean and nearly free in request terms, but individual reach is too niche.
+
+## R4 — source-union comparison
+
+Status: **PENDING MORE VIABLE MEMBERS**.
+
+Once R2 and further R3 source screens produce candidates, compare their union on the same consumed material and compute:
 
 - exact companies covered;
 - net-new companies over current output;
 - recent activity companies;
 - website candidates;
 - email candidates;
-- logical external requests;
+- external requests;
 - `net_new_companies / requests`;
 - rights status;
-- precision exceptions.
+- precision exceptions;
+- overlap between sources so raw hit counts are not double-counted.
 
 Only after this comparison should any production reallocation be discussed.
 
-## Current action
+## Current direction
 
-Start R1 now. TED is first because the Search API is public, does not require authentication for published notices, supports expert queries, and exposes winner identifier / website / email / decision-date fields.
+1. Do not revisit TED unchanged.
+2. Run the corrected Peppol exact-0192 screen only after the export rate-limit window; do not weaken the rights gate.
+3. Continue Data.norge/source discovery for additional **bulk + exact-org + rights-clean** registries, with priority on website/contact and recent business-activity sources rather than more narrow historical facts.
+4. Screen one new source family at a time on consumed material.
+5. Build the union comparator once at least two nontrivial candidate sources survive.
+6. Keep this entire track isolated from production until a source/union demonstrates materially better coverage-per-request.
