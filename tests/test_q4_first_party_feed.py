@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from norway_company_agent.first_party_feed import feed_candidate_urls, parse_company_feed
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from norway_company_agent.first_party_feed import feed_candidate_urls, parse_company_feed  # noqa: E402
 
 
 def test_feed_candidates_are_bounded_and_same_origin() -> None:
