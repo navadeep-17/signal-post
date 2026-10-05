@@ -4,6 +4,7 @@ import hashlib
 from typing import Any
 
 from .annual_report_description_contract import project_annual_report_company_description
+from .evidence_provenance import project_evaluator_visible_provenance
 from .external_footprint import publishable_observation
 
 
@@ -113,4 +114,5 @@ def project_workforce_observations(contract: dict[str, Any], profile: dict[str, 
             "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
         }
 
-    return project_annual_report_company_description(projected, profile)
+    projected = project_annual_report_company_description(projected, profile)
+    return project_evaluator_visible_provenance(projected, profile)
