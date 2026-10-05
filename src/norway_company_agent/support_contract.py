@@ -7,6 +7,10 @@ from .evidence_provenance import project_evaluator_visible_provenance
 from .external_footprint import publishable_observation
 
 
+SUPPORT_AWARD_SOURCE_URL = "https://stotte.brreg.no/nb/oppslag/stoettetildeling/totalbestand/csv"
+SUPPORT_AWARD_EXTRACTION_METHOD = "official_support_registry_primary_recipient_exact_org_v1"
+
+
 def _evidence_id(org: str, observation: dict[str, Any]) -> str:
     material = "|".join(
         [
@@ -36,6 +40,54 @@ def _validated_support_awards(profile: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         rows.append(observation)
     return sorted(rows, key=lambda row: (str(row.get("effective_at") or ""), str(row.get("id") or "")), reverse=True)
+
+
+def project_support_award_evidence_provenance(contract: dict[str, Any]) -> dict[str, Any]:
+    """Expose the already-enforced support extraction method on final evidence rows.
+
+    This is deliberately a final-contract projection as well as a collector-time helper.
+    Older retained profiles can omit support observations even though their final contract
+    already contains exact-recipient support claims and official source evidence. The
+    method is therefore attached only when the final claim and evidence together prove the
+    existing BRREG Støtteregisteret exact-primary-recipient path. No claim value, evidence
+    id, source, hash, identity proof, or request accounting is changed.
+    """
+
+    claims = [dict(item) for item in (contract.get("claims") or [])]
+    evidence = [dict(item) for item in (contract.get("evidence") or [])]
+    evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
+
+    for claim in claims:
+        if claim.get("field") != "official.support_award":
+            continue
+        if claim.get("availability") != "available":
+            continue
+        if claim.get("platform") != "brreg":
+            continue
+        if claim.get("signal_type") != "official_support_award":
+            continue
+        if claim.get("claim_scope") != "official_recipient_support_event":
+            continue
+        for evidence_id in claim.get("evidence_ids") or []:
+            row = evidence_by_id.get(str(evidence_id))
+            if row is None:
+                continue
+            if str(row.get("source_url") or "") != SUPPORT_AWARD_SOURCE_URL:
+                continue
+            if row.get("source_class") != "official":
+                continue
+            if len(str(row.get("content_sha256") or "")) != 64:
+                continue
+            if not row.get("source_row_key"):
+                continue
+            if not row.get("extraction_method"):
+                row["extraction_method"] = SUPPORT_AWARD_EXTRACTION_METHOD
+
+    return {
+        **contract,
+        "claims": claims,
+        "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
+    }
 
 
 def project_support_award_observations(contract: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
@@ -71,6 +123,7 @@ def project_support_award_observations(contract: dict[str, Any], profile: dict[s
             "effective_at": observation.get("effective_at"),
             "source_row_number": observation.get("source_row_number"),
             "source_row_key": observation.get("source_row_key"),
+            "extraction_method": SUPPORT_AWARD_EXTRACTION_METHOD,
         }
         claims.append(
             {
@@ -86,7 +139,7 @@ def project_support_award_observations(contract: dict[str, Any], profile: dict[s
             }
         )
 
-    return project_evaluator_visible_provenance(
+    projected = project_evaluator_visible_provenance(
         {
             **contract,
             "claims": claims,
@@ -94,3 +147,4 @@ def project_support_award_observations(contract: dict[str, Any], profile: dict[s
         },
         profile,
     )
+    return project_support_award_evidence_provenance(projected)
