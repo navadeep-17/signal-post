@@ -1,0 +1,53 @@
+name: Research Arbeidstilsynet OpenAPI Discovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-arbeid-openapi-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current OpenAPI documentation shell
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://openapi.arbeidstilsynet.no/' \
+            --output out/openapi.html
+          test -s out/openapi.html
+          wc -c out/openapi.html
+
+      - name: Extract bounded discovery evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path('out/openapi.html').read_text(encoding='utf-8', errors='replace')
+          print('html-prefix:', repr(text[:1000]))
+          urls = sorted(set(re.findall(r'https://[^\"\'<>\\s]+', text)))
+          print('absolute-urls:')
+          for url in urls[:100]:
+              print(url)
+          refs = sorted(set(re.findall(r'(?:src|href)=[\"\']([^\"\']+)', text)))
+          print('asset-refs:')
+          for ref in refs[:100]:
+              print(ref)
+          for needle in ['bilpleie', 'bemanning', 'swagger', 'openapi', 'servers']:
+              print('contains', needle, needle.lower() in text.lower())
+          PY
+
+      - name: Remove documentation payload
+        if: always()
+        run: rm -f out/openapi.html
