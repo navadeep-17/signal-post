@@ -1,11 +1,12 @@
 import importlib.util
-import json
 from pathlib import Path
+import sys
 import unittest
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "screen_official_activity_sources.py"
 spec = importlib.util.spec_from_file_location("source_screen", MODULE_PATH)
 source_screen = importlib.util.module_from_spec(spec)
+sys.modules["source_screen"] = source_screen
 assert spec.loader is not None
 spec.loader.exec_module(source_screen)
 
