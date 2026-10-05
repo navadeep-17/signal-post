@@ -22,6 +22,14 @@ jobs:
           python-version: "3.12"
       - name: Update implementation history and roadmap
         run: python scripts/update_phase7_retune_docs.py
+      - name: Normalize documentation EOFs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in ("docs/IMPLEMENTATION_LOG.md", "docs/70_PLUS_IMPLEMENTATION_PLAN.md"):
+              path = Path(name)
+              path.write_text(path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+          PY
       - name: Commit documentation update
         run: |
           git config user.name "github-actions[bot]"
