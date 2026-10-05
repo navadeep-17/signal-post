@@ -1,0 +1,75 @@
+name: Research Finanstilsynet Page Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-finanstilsynet-page-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch page one of Norwegian registry report
+        run: |
+          mkdir -p out
+          cat > out/filter.json <<'JSON'
+          {"countryCode":"NO","pageSize":1000,"page":1}
+          JSON
+          curl --fail --location --retry 2 --retry-delay 2 --compressed \
+            --request POST \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            --data-binary @out/filter.json \
+            'https://api.finanstilsynet.no/registry/v2/report/json' \
+            --output out/page1.json
+          test -s out/page1.json
+          wc -c out/page1.json
+          sha256sum out/page1.json
+
+      - name: Print bounded page-cost evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          import json, re
+
+          data = json.loads(Path('out/page1.json').read_text(encoding='utf-8-sig'))
+          print('page:', data.get('page'))
+          print('totalPages:', data.get('totalPages'))
+          print('total:', data.get('total'))
+          print('hitsReturned:', data.get('hitsReturned'))
+          rows = data.get('data') or []
+          print('rows:', len(rows))
+          exact_orgs = set()
+          provider_types = Counter()
+          for row in rows:
+              if not isinstance(row, dict):
+                  continue
+              for side in ('licenceOwner', 'serviceProvider'):
+                  entity = row.get(side)
+                  if not isinstance(entity, dict):
+                      continue
+                  provider_types[str(entity.get('serviceProviderType'))] += 1
+                  org = ''.join(ch for ch in str(entity.get('legalEntityNumber') or '') if ch.isdigit())
+                  if re.fullmatch(r'\d{9}', org):
+                      exact_orgs.add(org)
+          print('unique-9-digit-orgs-page1:', len(exact_orgs))
+          print('provider-types:', provider_types)
+          if rows:
+              print('first-row-keys:', sorted(rows[0]))
+              print('first-row:', json.dumps(rows[0], ensure_ascii=False, sort_keys=True)[:12000])
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/filter.json out/page1.json
