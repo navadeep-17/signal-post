@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
 import hashlib
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 
 def _evidence_id(org: str, feed: dict[str, Any], entry: dict[str, Any]) -> str:
@@ -18,6 +21,29 @@ def _evidence_id(org: str, feed: dict[str, Any], entry: dict[str, Any]) -> str:
     return "ev-first-party-feed-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
 
 
+def _host(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").casefold().strip(".")
+    except ValueError:
+        return ""
+
+
+def _same_verified_site(url: str, verified_url: str) -> bool:
+    candidate = _host(url)
+    verified = _host(verified_url)
+    if not candidate or not verified:
+        return False
+    return candidate == verified or candidate.endswith("." + verified) or verified.endswith("." + candidate)
+
+
+def _valid_iso_date(value: str) -> bool:
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return False
+    return parsed.isoformat() == value
+
+
 def _qualified_feed_entries(profile: dict[str, Any]) -> list[dict[str, Any]]:
     evidence_map = profile.get("evidence") or {}
     website = evidence_map.get("website") or {}
@@ -32,12 +58,24 @@ def _qualified_feed_entries(profile: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     if feed.get("source_type") != "verified_company_activity_feed":
         return []
-    if not feed.get("source_url") or not feed.get("content_sha256") or not feed.get("retrieved_at"):
+
+    feed_url = str(feed.get("source_url") or "").strip()
+    feed_hash = str(feed.get("content_sha256") or "").strip().casefold()
+    retrieved_at = str(feed.get("retrieved_at") or "").strip()
+    if (
+        not feed_url.startswith(("http://", "https://"))
+        or not re.fullmatch(r"[0-9a-f]{64}", feed_hash)
+        or not retrieved_at
+    ):
         return []
 
     verified_url = str(website_value.get("final_url") or website.get("source_url") or "").strip()
     retained_verified_url = str(feed_value.get("verified_website_url") or "").strip()
-    if not verified_url or retained_verified_url.rstrip("/") != verified_url.rstrip("/"):
+    if (
+        not verified_url
+        or retained_verified_url.rstrip("/") != verified_url.rstrip("/")
+        or not _same_verified_site(feed_url, verified_url)
+    ):
         return []
 
     rows: list[dict[str, Any]] = []
@@ -50,7 +88,11 @@ def _qualified_feed_entries(profile: dict[str, Any]) -> list[dict[str, Any]]:
         evidence_span = str(entry.get("evidence_span") or "").strip()
         if not title or not article_url.startswith(("http://", "https://")):
             continue
-        if len(published_date) != 10 or not evidence_span:
+        if (
+            not _same_verified_site(article_url, verified_url)
+            or not _valid_iso_date(published_date)
+            or not evidence_span
+        ):
             continue
         rows.append(dict(entry))
     return rows
