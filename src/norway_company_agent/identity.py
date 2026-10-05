@@ -19,6 +19,31 @@ EXPLICIT_ORG_NUMBER_RE = re.compile(
 NO_MVA_ORG_NUMBER_RE = re.compile(
     r"(?i)\bNO\s*[:#-]?\s*((?:\d[\s.\-]?){8}\d)\s*MVA\b"
 )
+SITE_OWNER_RELATION_RE = re.compile(
+    r"(?i)\b(?P<subject>"
+    r"(?:www\.)?[a-z0-9æøå.-]+\.[a-z]{2,}|"
+    r"(?:denne\s+)?(?:nettsiden|nettstedet|websiden|hjemmesiden)|"
+    r"(?:this\s+)?(?:website|web\s*site|site)"
+    r")\s+(?:(?:er|is)\s+)?"
+    r"(?:(?:eid|eies|owned)\s+(?:av|by)|tilhører|belongs\s+to)\s+"
+    r"(?P<owner>[^\n.;|]{2,160})"
+)
+SITE_OWNER_GENERIC_SUBJECTS = {
+    "nettsiden",
+    "nettstedet",
+    "websiden",
+    "hjemmesiden",
+    "denne nettsiden",
+    "denne nettsiden",
+    "denne websiden",
+    "denne hjemmesiden",
+    "website",
+    "web site",
+    "site",
+    "this website",
+    "this web site",
+    "this site",
+}
 
 
 def _tokens(value: Any) -> list[str]:
@@ -71,6 +96,58 @@ def _explicit_org_numbers(value: dict[str, Any]) -> set[str]:
     return found
 
 
+def _normalise_site_subject(value: Any) -> str:
+    return " ".join(str(value or "").strip().casefold().split()).removeprefix("www.").rstrip(".")
+
+
+def _site_owner_names(value: dict[str, Any]) -> list[str]:
+    """Extract explicit owner names only when the statement refers to this fetched site.
+
+    Brand/company ownership statements are intentionally ignored. The subject must be the
+    current hostname/domain or an unambiguous website noun such as ``nettstedet``. This
+    keeps parent-company prose from becoming an automatic wrong-company veto while still
+    rejecting pages that explicitly identify another legal entity as the website owner.
+    """
+    rendered = value.get("js_fallback") or {}
+    parts: list[Any] = [
+        value.get("identity_text_excerpt"),
+        value.get("main_text_excerpt"),
+        value.get("description"),
+        rendered.get("main_text_excerpt"),
+    ]
+    hostname = urllib.parse.urlparse(str(value.get("final_url") or "")).hostname or ""
+    hostname = _normalise_site_subject(hostname)
+    registered_domain = _normalise_site_subject(value.get("registered_domain") or "")
+    accepted_subjects = {item for item in {hostname, registered_domain} if item}
+
+    owners: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = str(part or "")
+        if not text.strip():
+            continue
+        for match in SITE_OWNER_RELATION_RE.finditer(text):
+            subject = _normalise_site_subject(match.group("subject"))
+            if subject not in SITE_OWNER_GENERIC_SUBJECTS and subject not in accepted_subjects:
+                continue
+            owner = " ".join(match.group("owner").strip(" :-,()").split())
+            if not owner:
+                continue
+            key = owner.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            owners.append(owner[:160])
+    return owners
+
+
+def _site_owner_conflicts_with_target(profile: dict[str, Any], owners: list[str]) -> bool:
+    target_tokens = set(_tokens(profile.get("name")))
+    if not target_tokens or not owners:
+        return False
+    return not any(target_tokens.issubset(set(_tokens(owner))) for owner in owners)
+
+
 def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     website = profile.get("evidence", {}).get("website", {})
     value = website.get("value") or {}
@@ -95,6 +172,8 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     candidate_tokens = set(_tokens(candidate_text))
     org_digits = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
     explicit_org_numbers = _explicit_org_numbers(value)
+    site_owner_names = _site_owner_names(value)
+    site_owner_conflict = _site_owner_conflicts_with_target(profile, site_owner_names)
     compact_candidate = re.sub(r"\D", "", candidate_text)
     compact_homepage_candidate = re.sub(r"\D", "", homepage_candidate_text)
     overlap = sorted(set(core) & candidate_tokens)
@@ -126,6 +205,9 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     elif org_digits and org_digits in explicit_org_numbers:
         score = 1.0
         reasons.append("exact organisation number is explicitly labelled in homepage identity evidence")
+    elif site_owner_conflict:
+        score = 0.1
+        reasons.append("page explicitly states that this website is owned by a different named legal entity")
     elif org_digits and org_digits in compact_homepage_candidate:
         score = 1.0
         reasons.append("exact organisation number appears in homepage identity evidence")
@@ -152,8 +234,9 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
         "legal_name_tokens": core,
         "matched_tokens": overlap,
         "observed_organisation_numbers": sorted(explicit_org_numbers),
+        "observed_site_owners": site_owner_names,
         "reasons": reasons,
-        "method": "deterministic_name_org_evidence_v3",
+        "method": "deterministic_name_org_evidence_v4",
     }
 
 
