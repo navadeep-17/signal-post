@@ -1,0 +1,65 @@
+name: Research Nkom Registry Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-nkom-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch two current Nkom registry pages once
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://nkom.no/fysiske-nett-og-infrastruktur/ekomnettautorisasjon/autoriserte-virksomheter?dir=ASC&page=0&sort=Organisasjonsnummer' \
+            --output out/ekom.html
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://nkom.no/frekvenser-og-elektronisk-utstyr/import/registrering-av-importor-og-forhandler/liste?dir=ASC&page=0&sort=Organisasjonsnummer' \
+            --output out/radio.html
+          wc -c out/ekom.html out/radio.html
+          sha256sum out/ekom.html out/radio.html
+
+      - name: Print bounded pagination and exact-org evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from html import unescape
+          import re
+
+          for path in [Path('out/ekom.html'), Path('out/radio.html')]:
+              text = path.read_text(encoding='utf-8', errors='replace')
+              orgs = sorted(set(re.findall(r'(?<!\d)(\d{9})(?!\d)', text)))
+              page_values = sorted({int(x) for x in re.findall(r'[?&](?:amp;)?page=(\d+)', unescape(text))})
+              hrefs = re.findall(r'href=[\"\']([^\"\']+)[\"\']', text, flags=re.I)
+              page_hrefs = sorted({unescape(href) for href in hrefs if 'page=' in unescape(href)})
+              print('\n===', path.name, '===')
+              print('bytes:', path.stat().st_size)
+              print('nine-digit-number-count:', len(orgs))
+              print('first-orgs:', orgs[:30])
+              print('pagination-values:', page_values[:200])
+              print('pagination-max:', max(page_values) if page_values else None)
+              print('page-hrefs-count:', len(page_hrefs))
+              for href in page_hrefs[:30]:
+                  print('HREF', href)
+              for needle in ['Sist oppdatert', 'Autorisasjonsnummer', 'Organisasjonsnummer']:
+                  idx = text.find(needle)
+                  if idx >= 0:
+                      print('SNIP', needle, re.sub(r'\s+', ' ', text[max(0,idx-300):idx+1000])[:1400])
+          PY
+
+      - name: Remove source payloads
+        if: always()
+        run: rm -f out/ekom.html out/radio.html
