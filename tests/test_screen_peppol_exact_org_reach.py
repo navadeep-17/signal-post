@@ -72,7 +72,7 @@ def _write_fixture(path: Path) -> None:
         },
     ]
     with gzip.open(path, "wt", encoding="iso-8859-1", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer = csv.DictWriter(handle, fieldnames=columns, delimiter=";")
         writer.writeheader()
         for row in rows:
             writer.writerow({column: row.get(column, "") for column in columns})
