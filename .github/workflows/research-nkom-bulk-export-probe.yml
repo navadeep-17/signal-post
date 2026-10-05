@@ -1,0 +1,70 @@
+name: Research Nkom Bulk Export Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-nkom-bulk-export-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe catalogued full exports over HTTPS
+        run: |
+          mkdir -p out
+          for SPEC in \
+            'ekom|https://www.nkom.no/files/autosys/autorisasjoner.json' \
+            'radio|https://www.nkom.no/files/autosys/alleRegistreringer.htm'; do
+            NAME="${SPEC%%|*}"
+            URL="${SPEC#*|}"
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --write-out '%{http_code}' \
+              "$URL" --output "out/${NAME}.payload")"
+            echo "${NAME}-http=${CODE}"
+            echo "$CODE" > "out/${NAME}.code"
+            if [ -s "out/${NAME}.payload" ]; then
+              wc -c "out/${NAME}.payload"
+              sha256sum "out/${NAME}.payload"
+            fi
+          done
+
+      - name: Print bounded export evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+          for name in ('ekom','radio'):
+              code = Path(f'out/{name}.code').read_text().strip()
+              path = Path(f'out/{name}.payload')
+              print('\n===', name, 'http', code, '===')
+              if not path.exists() or not path.stat().st_size:
+                  continue
+              raw = path.read_bytes()
+              text = raw.decode('utf-8-sig', errors='replace')
+              print('bytes:', len(raw))
+              print('prefix:', repr(text[:1000]))
+              print('nine-digit-count:', len(set(re.findall(r'(?<!\d)(\d{9})(?!\d)', text))))
+              if code == '200' and name == 'ekom':
+                  try:
+                      data = json.loads(text)
+                      print('json-type:', type(data).__name__)
+                      print('json-length:', len(data) if isinstance(data, list) else None)
+                      if isinstance(data, list) and data:
+                          print('first-record:', json.dumps(data[0], ensure_ascii=False)[:6000])
+                  except Exception as exc:
+                      print('json-parse-error:', type(exc).__name__, str(exc)[:500])
+          PY
+
+      - name: Remove source payloads
+        if: always()
+        run: rm -f out/*.payload out/*.code
