@@ -2,7 +2,15 @@
 
 Last updated: 2026-10-05
 
-Status: **EXPERIMENT IMPLEMENTED / PRODUCTION DISABLED / FRESH QUALIFICATION NOT CONSUMED**
+Status: **EXPERIMENT VALIDATED / PRODUCTION HOLD / FRESH QUALIFICATION NOT CONSUMED**
+
+## Decision
+
+Keep the Q3 search-assisted discovery implementation as a reusable experiment, but **do not integrate it into the production evaluator yet**.
+
+The downstream exact-company verifier behaved conservatively on consumed data, but the deterministic consumed-only proxy produced only **1 verified site / 20 unresolved companies (5%)**. That is below the project’s threshold for spending scarce production request slots or consuming a new fresh qualification cohort.
+
+No fresh Phase-11 company was consumed by this decision.
 
 ## Why Q3 was reopened
 
@@ -35,30 +43,6 @@ References:
 
 The runner does not assume Builderr's exact dollar ceiling. A live run requires an explicit `--max-external-api-cost-usd` value confirmed for that run.
 
-## Consumed-only Q3.1 source screen
-
-No fresh validation company was consumed.
-
-A deterministic 20-company subset of already-consumed unresolved Phase-11 profiles was manually searched only to answer whether search-assisted nomination still has plausible transfer under current rules.
-
-Clear examples found:
-
-1. **LØRENSKOG RENHOLD & SERVICE AS — 940762642**
-   - search nominated `lorenskogrenhold.no`;
-   - the first-party About page explicitly states the legal entity and organisation number `940 762 642`;
-   - this is a high-confidence example where search solves candidate discovery and the fetched site itself supplies publication proof.
-
-2. **XL-BYGG MATHISEN & CO AS — 997645359**
-   - search surfaced an exact XL-BYGG store page with matching Alta address/contact context;
-   - this is useful nomination evidence but shared-chain/store-domain semantics still require the ordinary exact-company publication gate and may abstain.
-
-3. **BRAVO MATSENTER AS — 939067442 / SPAR Førde**
-   - search surfaced the matching SPAR Førde store page;
-   - third-party directory evidence maps the legal entity to the same store/address;
-   - because this is a shared brand domain, it is not pre-authorized as an `official_website` and remains subject to independent first-party identity proof.
-
-Decision from this screen: **continue the experiment**, but do not count these companies as fresh qualification evidence and do not relax shared-domain/franchise rules.
-
 ## Q3 experiment architecture
 
 ```text
@@ -71,11 +55,89 @@ exact organisation number + legal name
  -> current bounded homepage fetch
  -> current website identity gate
  -> current search-discovered page corroboration
- -> conflicting explicit organisation-number veto
+ -> multi-entity / conflicting organisation-number veto
  -> publish only if exact-company proof survives
 ```
 
 The model/search provider may nominate URLs. It may **never** establish legal identity.
+
+## Precision hardening added during Q3
+
+A consumed screen exposed a dangerous pattern: a group/company-overview page can contain the target organisation number alongside several other legal entities. Exact target-ID presence alone is therefore insufficient for a search-discovered candidate page.
+
+Q3 adds a search-specific multi-entity veto: when independently fetched candidate identity evidence explicitly contains the target organisation number **and** another organisation number, the candidate is quarantined rather than published. This supplements the existing wrong-org and explicit site-owner guards; it does not weaken any existing identity rule.
+
+## Consumed-only replay evidence
+
+### A. Adversarial four-company replay
+
+Frozen nominations:
+
+1. `LØRENSKOG RENHOLD & SERVICE AS` — `940762642` — dedicated first-party candidate;
+2. `XL-BYGG MATHISEN & CO AS` — `997645359` — shared chain/store domain;
+3. `BRAVO MATSENTER AS` — `939067442` — shared SPAR store domain;
+4. `LADE NÆRINGSBYGG DA` — `981889967` — group overview containing multiple legal entities.
+
+Result:
+
+- accepted: **1/4**;
+- quarantined: **3/4**;
+- accepted company: Lørenskog Renhold & Service AS;
+- logical verification requests: **8**;
+- wrong-company publications: **0**.
+
+This established that the downstream verifier rejects the shared-chain/group adversarial cases while retaining a dedicated exact-company positive.
+
+### B. Deterministic 20-company public-search proxy
+
+To avoid judging Q3 from handpicked positives, a deterministic 20-company subset was frozen from the 94 unresolved companies in the already-consumed Phase-11 cohort.
+
+Selection rule:
+
+```text
+sort unresolved companies by sha256("q3-consumed-v1|" + organisation_number)
+take first 20
+```
+
+Frozen organisation-list SHA-256:
+
+`5c378da42b78ce4c4dfe4b71d0b074f912bde6ea704ebaf5f5b6abddf4d20269`
+
+Public search surfaced four plausible first-party nominations:
+
+- PREG BARNEHAGER ÅLESUND AS -> `pregalesund.barnehage.no`;
+- NORSK NAVIGASJON AS -> `norsknavigasjon.no`;
+- NORGES FLYMEDISINSKE SENTER AS -> `nfms.no`;
+- RELOAD YOUR STYLE AS -> `thelounge.no`.
+
+The other 16 companies had no plausible first-party nomination and remained explicit misses.
+
+Replay result through the **actual independent bounded fetch + exact-company gate**:
+
+- companies: **20**;
+- accepted: **1 (5%)**;
+- quarantined candidate pages: **3**;
+- no candidate: **16**;
+- logical verification requests: **8**;
+- accepted company: **PREG BARNEHAGER ÅLESUND AS** (`930465143`);
+- accepted URL: `https://pregalesund.barnehage.no/`;
+- wrong-company publications: **0**.
+
+The three other nominations were correctly not published:
+
+- `nfms.no`: fetched but insufficient exact legal-entity proof;
+- `norsknavigasjon.no`: source error in replay;
+- `thelounge.no`: operating-brand site but insufficient exact legal-entity proof.
+
+### Replay provenance
+
+- workflow: `37328342354` — PASS;
+- artifact: `11352149982`;
+- artifact digest: `sha256:5611c946e0349c0bf2ababf2b33816f81525fd7b2ff212f6e1f25c98045256e7`;
+- exact-head Baseline CI: `37328353539` — PASS;
+- head: `e25e5370830dcbd0f91a1d15d6acf0f8349e6ab3`.
+
+These are consumed-only measurements, not fresh qualification evidence.
 
 ## Persistence boundary
 
@@ -103,7 +165,7 @@ Default provider bounds:
 - declared audit ceiling of 50,000 provider/search-content input tokens per company;
 - <=2 independently fetched candidate domains per company.
 
-At current public Standard pricing, the declared 100-company provider ceiling is approximately **$1.509**:
+At public Standard pricing checked for this experiment, the declared 100-company provider ceiling is approximately **$1.509**:
 
 - search calls: 100 x $0.01 = $1.00;
 - input/search-content ceiling: 5,000,000 tokens x $0.10/M = $0.50;
@@ -113,36 +175,35 @@ This is an experiment-side ceiling, not a claim about Builderr's exact official-
 
 The production request theorem is unchanged because Q3 is not wired into V8 production. Any future production integration must explicitly reallocate request capacity before merge.
 
-## Promotion gates
+## Promotion decision
 
 ### Q3a — code safety
 
-Require:
+**PASS.**
 
 - exact-head Baseline CI green;
-- provider output remains nomination-only;
+- provider output nomination-only;
 - one web-search call hard ceiling;
 - explicit provider dollar budget required at launch;
 - independent current identity gate unchanged;
-- quarantined pages not persisted.
+- quarantined pages not persisted;
+- multi-entity candidate guard added.
 
-### Q3b — consumed/dev live screen
+### Q3b — consumed/dev transfer
 
-Using evaluator-reproducible credentials only:
+**HOLD.**
 
-- run on already-consumed unresolved profiles first;
-- measure verified sites / queried companies;
-- manually audit every accepted site;
-- record provider calls/tokens/cost and independent crawl requests;
-- any wrong-company publication is a hard fail.
+The deterministic proxy produced only 1/20 verified sites. This proves the mechanism can recover real sites, but it does not yet demonstrate enough transfer to justify production integration or a fresh cohort.
 
 ### Q3c — fresh transfer
 
-Only after Q3b is materially positive and the exact Builderr provider/key/budget handoff is confirmed:
+**BLOCKED / NOT CONSUMED.**
 
-- consume one fresh bounded cohort;
-- require a meaningful net-new verified-site gain;
-- require zero wrong-company publications;
-- then separately decide whether production integration deserves scarce request slots.
+Do not consume a fresh cohort for Q3 unless at least one of the following materially changes:
 
-No fresh Phase-11 release cohort is consumed by Q3a/Q3b.
+1. evaluator-reproducible search/provider credentials and exact budget are confirmed and a provider-specific consumed/dev run demonstrates meaningfully better nomination yield than the public-search proxy; or
+2. a new nomination strategy materially improves consumed/dev verified-site yield without weakening the exact-company verifier.
+
+## Final Q3 boundary
+
+Q3 is a useful retained experiment, not a production feature. The correct next action is to move to the next qualification-sprint scoring lever using measured field-level coverage from the consumed output rather than repeatedly tuning website search against the same data.
