@@ -3,10 +3,11 @@
 
 Research-only source qualification. No Signalpost production claims are emitted.
 
-The official Peppol Directory CSV exporter has stable columns including:
-Participant ID, Names (per-row), Websites, Contact email, Registration date.
-Norwegian organisations are accepted only when the participant identifier uses
-ISO 6523 scheme 0192 and contains one exact 9-digit value.
+The official Peppol Directory CSV exporter uses ISO-8859-1 with a semicolon
+separator and stable columns including Participant ID, Names (per-row),
+Websites, Contact email and Registration date. Norwegian organisations are
+accepted only when the participant identifier uses ISO 6523 scheme 0192 and
+contains one exact 9-digit value.
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ def sha256_file(path: Path) -> str:
 
 def iter_business_rows(path: Path) -> Iterable[dict[str, str]]:
     with gzip.open(path, mode="rt", encoding="iso-8859-1", newline="") as handle:
-        reader = csv.DictReader(handle)
+        reader = csv.DictReader(handle, delimiter=";")
         actual = set(reader.fieldnames or [])
         missing = EXPECTED_COLUMNS - actual
         if missing:
