@@ -1,0 +1,266 @@
+name: Q8 Fresh Release Qualification
+
+on:
+  push:
+    branches:
+      - qualification/q8-fresh-release-20261005
+    paths:
+      - '.github/workflows/q8-fresh-release-qualification.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: q8-fresh-release-20261005
+  cancel-in-progress: false
+
+jobs:
+  qualify-fresh-v8-100:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      PRODUCTION_MAIN_SHA: 88be83e226da13ba6f7a2717c72c1d2d94cf5bec
+      FAILED_FRESH_ARTIFACT_ID: '11346320812'
+      FAILED_FRESH_ARTIFACT_SHA256: 9c9ab8bb8477c949a9491f7a672ad181f43566cd9b885a1f4fc6a2dd720165cf
+      PRIOR_EXCLUSION_SHA256: fd1e5c7e54d6034821553a1903fd20bea76738dcf0d5e0c75eec93b4a724a298
+      FAILED_FRESH_COHORT_SHA256: 394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99
+      BUILDR_UNIVERSE_SHA256: 1c89710e5b01f8617e86d09fbdff4a52f2f8dbbba297e74f7164b5984f5a0384
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Prove qualification branch contains no production-code delta
+        run: |
+          git cat-file -e "${PRODUCTION_MAIN_SHA}^{commit}"
+          git diff --name-only "${PRODUCTION_MAIN_SHA}...HEAD" | sort > /tmp/q8-changed-files.txt
+          cat /tmp/q8-changed-files.txt
+          python - <<'PY'
+          from pathlib import Path
+          allowed = {
+              '.github/workflows/q8-fresh-release-qualification.yml',
+              'scripts/build_q8_exclusion.py',
+              'scripts/verify_q8_fresh_release.py',
+              'tests/test_q8_exclusion.py',
+          }
+          actual = {line.strip() for line in Path('/tmp/q8-changed-files.txt').read_text().splitlines() if line.strip()}
+          assert actual == allowed, {'actual': sorted(actual), 'allowed': sorted(allowed)}
+          PY
+
+      - name: Install OCR runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          command -v pdftoppm
+          command -v tesseract
+
+      - name: Sync and verify qualification harness
+        run: |
+          uv sync --locked
+          python -m py_compile scripts/build_q8_exclusion.py scripts/verify_q8_fresh_release.py
+          uv run --with pytest pytest -q \
+            tests/test_q8_exclusion.py \
+            tests/test_disjoint_validation_batch.py \
+            tests/test_phase5_support_registry.py \
+            tests/test_phase5_support_runner_budget.py \
+            tests/test_phase7_support_evidence_provenance.py \
+            tests/test_q7_support_award_provenance.py \
+            tests/test_v7_m4c1_evaluator_wrapper.py \
+            tests/test_v8_dynamic_batch_wrapper.py
+
+      - name: Download current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > brreg-enheter.sha256
+
+      - name: Download frozen Builderr universe
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' \
+            --output signalpost-universe.jsonl.gz
+          test -s signalpost-universe.jsonl.gz
+          gzip -t signalpost-universe.jsonl.gz
+          echo "${BUILDR_UNIVERSE_SHA256}  signalpost-universe.jsonl.gz" | sha256sum -c -
+          sha256sum signalpost-universe.jsonl.gz > signalpost-universe.sha256
+
+      - name: Reconstruct all-touched exclusion through failed seed 20261104
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/${FAILED_FRESH_ARTIFACT_ID}/zip" \
+            --output failed-phase11.zip
+          test -s failed-phase11.zip
+          echo "${FAILED_FRESH_ARTIFACT_SHA256}  failed-phase11.zip" | sha256sum -c -
+          unzip -q failed-phase11.zip \
+            phase11-exclude-8423.jsonl \
+            phase11-fresh-100.jsonl \
+            phase11-selection.json
+          echo "${PRIOR_EXCLUSION_SHA256}  phase11-exclude-8423.jsonl" | sha256sum -c -
+          echo "${FAILED_FRESH_COHORT_SHA256}  phase11-fresh-100.jsonl" | sha256sum -c -
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          selection = json.loads(Path('phase11-selection.json').read_text())
+          assert selection['seed'] == 20261104, selection
+          assert selection['excluded_rows'] == 8423, selection
+          assert selection['overlap_count'] == 0, selection
+          assert selection['exclude_manifest_sha256'] == 'fd1e5c7e54d6034821553a1903fd20bea76738dcf0d5e0c75eec93b4a724a298', selection
+          assert selection['output_sha256'] == '394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99', selection
+          PY
+          uv run python scripts/build_q8_exclusion.py \
+            --prior phase11-exclude-8423.jsonl \
+            --failed-fresh phase11-fresh-100.jsonl \
+            --output q8-exclude-8523.jsonl \
+            --report q8-exclusion-report.json
+          test "$(wc -l < q8-exclude-8523.jsonl)" -eq 8523
+          sha256sum q8-exclude-8523.jsonl > q8-exclude-8523.sha256
+
+      - name: Select genuinely fresh Q8 cohort
+        run: |
+          uv run python scripts/select_disjoint_validation_batch.py \
+            --universe signalpost-universe.jsonl.gz \
+            --exclude q8-exclude-8523.jsonl \
+            --count 100 \
+            --seed 20261105 \
+            --evaluation-split q8_fresh_release_qualification \
+            --sample-slice evaluator_shaped_release_candidate \
+            --output q8-fresh-100.jsonl \
+            --report q8-selection.json
+          test "$(wc -l < q8-fresh-100.jsonl)" -eq 100
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          selection = json.loads(Path('q8-selection.json').read_text())
+          assert selection['seed'] == 20261105, selection
+          assert selection['count'] == 100, selection
+          assert selection['excluded_rows'] == 8523, selection
+          assert selection['overlap_count'] == 0, selection
+          assert selection['universe_sha256'] == '1c89710e5b01f8617e86d09fbdff4a52f2f8dbbba297e74f7164b5984f5a0384', selection
+          print(json.dumps(selection, indent=2))
+          PY
+          sha256sum q8-fresh-100.jsonl > q8-fresh-100.sha256
+
+      - name: Freeze Q8 lineage before observing production results
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          selection = json.loads(Path('q8-selection.json').read_text())
+          exclusion = json.loads(Path('q8-exclusion-report.json').read_text())
+          preflight = {
+              'schema_version': 'signalpost-q8-preflight-v1',
+              'production_main_sha': os.environ['PRODUCTION_MAIN_SHA'],
+              'qualification_sha': os.environ['GITHUB_SHA'],
+              'seed': selection['seed'],
+              'excluded_companies': selection['excluded_rows'],
+              'exclude_sha256': sha('q8-exclude-8523.jsonl'),
+              'fresh_companies': selection['count'],
+              'fresh_cohort_sha256': sha('q8-fresh-100.jsonl'),
+              'overlap_count': selection['overlap_count'],
+              'selection_report_sha256': sha('q8-selection.json'),
+              'failed_fresh_artifact_id': int(os.environ['FAILED_FRESH_ARTIFACT_ID']),
+              'failed_fresh_artifact_sha256': os.environ['FAILED_FRESH_ARTIFACT_SHA256'],
+              'lineage': exclusion,
+          }
+          assert preflight['excluded_companies'] == 8523
+          assert preflight['fresh_companies'] == 100
+          assert preflight['overlap_count'] == 0
+          Path('out/q8-preflight.json').write_text(json.dumps(preflight, indent=2) + '\n')
+          print(json.dumps(preflight, indent=2))
+          PY
+
+      - name: Run actual current V8 production path on fresh cohort
+        run: |
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations q8-fresh-100.jsonl \
+            --bulk brreg-enheter.csv \
+            --output out/q8-fresh-output.jsonl \
+            --report out/q8-fresh-report.json \
+            --product-output out/signalpost-q8-fresh.html \
+            --work-dir out/q8-work \
+            --run-id q8-fresh-release-qualification-100 \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Verify Q8 machine release gates and emit manual-audit queues
+        env:
+          QUALIFICATION_SHA: ${{ github.sha }}
+        run: |
+          uv run python scripts/verify_q8_fresh_release.py
+
+      - name: Hash Q8 deliverables
+        run: |
+          sha256sum \
+            q8-exclusion-report.json \
+            q8-exclude-8523.jsonl \
+            q8-selection.json \
+            q8-fresh-100.jsonl \
+            out/q8-preflight.json \
+            out/q8-fresh-output.jsonl \
+            out/q8-fresh-report.json \
+            out/signalpost-q8-fresh.html \
+            out/q8-support-audit.json \
+            out/q8-external-audit.json \
+            out/q8-evidence-visibility.json \
+            out/q8-summary.json \
+            > out/q8-deliverables.sha256
+
+      - name: Upload Q8 fresh qualification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q8-fresh-release-qualification-100
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            signalpost-universe.sha256
+            brreg-enheter.sha256
+            q8-exclusion-report.json
+            q8-exclude-8523.jsonl
+            q8-exclude-8523.sha256
+            q8-fresh-100.jsonl
+            q8-fresh-100.sha256
+            q8-selection.json
+            out/q8-preflight.json
+            out/q8-fresh-output.jsonl
+            out/q8-fresh-report.json
+            out/signalpost-q8-fresh.html
+            out/q8-support-audit.json
+            out/q8-external-audit.json
+            out/q8-evidence-visibility.json
+            out/q8-summary.json
+            out/q8-deliverables.sha256
