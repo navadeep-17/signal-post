@@ -11,65 +11,50 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-def _b(value: str) -> dict[str, str]:
-    return {"type": "literal", "value": value}
+def test_extract_hits_accepts_direct_and_wrapped_shapes() -> None:
+    assert module.extract_hits({"hits": [{"id": "a"}]}) == [{"id": "a"}]
+    assert module.extract_hits({"results": {"hits": [{"id": "b"}]}}) == [{"id": "b"}]
+    assert module.extract_hits({"data": {"hits": [{"id": "c"}]}}) == [{"id": "c"}]
 
 
-def _u(value: str) -> dict[str, str]:
-    return {"type": "uri", "value": value}
-
-
-def test_parse_results_groups_distributions_and_ranks_open_bulk_candidate() -> None:
-    payload = {
-        "results": {
-            "bindings": [
-                {
-                    "dataset": _u("https://example.test/dataset/1"),
-                    "title": _b("Leverandørregister med organisasjonsnummer"),
-                    "description": _b("Har leverandør, e-post, nettside og dato."),
-                    "license": _u("https://data.norge.no/nlod/no/2.0"),
-                    "distribution": _u("https://example.test/distribution/1"),
-                    "downloadURL": _u("https://example.test/data.csv"),
-                },
-                {
-                    "dataset": _u("https://example.test/dataset/1"),
-                    "title": _b("Leverandørregister med organisasjonsnummer"),
-                    "accessURL": _u("https://example.test/api"),
-                },
-                {
-                    "dataset": _u("https://example.test/dataset/2"),
-                    "title": _b("Organisasjonsnummerliste"),
-                    "description": _b("Liste over orgnr."),
-                },
-            ]
-        }
+def test_mine_payloads_merges_same_dataset_across_queries_and_ranks_metadata() -> None:
+    strong = {
+        "id": "dataset-1",
+        "title": "Leverandørregister med organisasjonsnummer",
+        "description": "Inneholder nettside, e-post, leverandør og dato",
+        "license": "https://data.norge.no/nlod/no/2.0",
+        "distribution": {
+            "downloadURL": "https://example.test/data.csv",
+            "accessURL": "https://example.test/api",
+        },
     }
-    rows = module.parse_results(payload)
+    weak = {
+        "id": "dataset-2",
+        "title": "Liste med organisasjonsnummer",
+        "description": "Bare identifikatorer",
+    }
+    rows = module.mine_payloads(
+        [
+            ("organisasjonsnummer nettside", {"hits": [strong, weak]}),
+            ("organisasjonsnummer leverandør", {"hits": [strong]}),
+        ]
+    )
     assert len(rows) == 2
-    assert rows[0]["dataset"] == "https://example.test/dataset/1"
-    assert rows[0]["has_explicit_license_metadata"] is True
-    assert rows[0]["has_download_url"] is True
-    assert rows[0]["has_access_url"] is True
-    assert "procurement" in rows[0]["semantic_categories"]
-    assert "contact" in rows[0]["semantic_categories"]
+    assert rows[0]["dataset"] == "dataset-1"
+    assert rows[0]["matched_queries"] == [
+        "organisasjonsnummer leverandør",
+        "organisasjonsnummer nettside",
+    ]
     assert "website" in rows[0]["semantic_categories"]
+    assert "contact" in rows[0]["semantic_categories"]
+    assert "procurement" in rows[0]["semantic_categories"]
+    assert rows[0]["license_metadata"]
+    assert rows[0]["download_metadata"]
     assert rows[0]["selection_score"] > rows[1]["selection_score"]
 
 
-def test_rank_dataset_does_not_invent_license_or_download() -> None:
-    row = module.rank_dataset(
-        {
-            "dataset": "x",
-            "titles": ["Register over organisasjonsnummer"],
-            "descriptions": [],
-            "keywords": [],
-            "licenses": [],
-            "distributions": [],
-            "access_urls": [],
-            "download_urls": [],
-            "modified": [],
-        }
-    )
-    assert row["exact_org_metadata"] is True
-    assert row["has_explicit_license_metadata"] is False
-    assert row["has_download_url"] is False
+def test_canonical_hit_id_is_deterministic_without_explicit_id() -> None:
+    a = {"title": "A", "nested": {"x": 1}}
+    b = {"nested": {"x": 1}, "title": "A"}
+    assert module.canonical_hit_id(a) == module.canonical_hit_id(b)
+    assert module.canonical_hit_id(a).startswith("sha256:")
