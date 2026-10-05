@@ -9,6 +9,8 @@ on:
       - tests/test_screen_ted_exact_winner_reach.py
       - scripts/screen_peppol_exact_org_reach.py
       - tests/test_screen_peppol_exact_org_reach.py
+      - scripts/mine_data_norge_exact_org_sources.py
+      - tests/test_mine_data_norge_exact_org_sources.py
       - .github/workflows/research-bulk-recall-unit.yml
   workflow_dispatch:
 
@@ -32,4 +34,5 @@ jobs:
           uv sync --locked
           uv run --with pytest pytest -q \
             tests/test_screen_ted_exact_winner_reach.py \
-            tests/test_screen_peppol_exact_org_reach.py
+            tests/test_screen_peppol_exact_org_reach.py \
+            tests/test_mine_data_norge_exact_org_sources.py
