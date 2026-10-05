@@ -37,6 +37,7 @@ SIGNAL_TYPES = {
     "review_summary",
     "job_posting",
     "workforce_snapshot",
+    "official_support_award",
     "public_post",
     "public_mention",
     "buzz_metrics",
@@ -46,6 +47,7 @@ SIGNAL_TYPES = {
 # published or earn competition points until the organiser accepts its rights/reliability path.
 PUBLISHABLE_ACQUISITION_MODES = {
     "official_api",
+    "official_dataset",
     "licensed_api",
     "company_authorized_export",
     "permitted_public_page",
@@ -86,8 +88,12 @@ def validate_observation(item: dict[str, Any]) -> list[str]:
         reasons.append("acquisition mode is not approved for publication")
     if item.get("rights_status") != "approved":
         reasons.append("source rights are not approved")
-    if item.get("signal_type") in {"review", "public_post", "public_mention"} and not item.get("evidence_span"):
+    if item.get("signal_type") in {"review", "public_post", "public_mention", "official_support_award"} and not item.get("evidence_span"):
         reasons.append("missing evidence span")
+    if item.get("signal_type") == "official_support_award":
+        event = item.get("event") or {}
+        if event.get("kind") != "support_award" or not event.get("awarded_at"):
+            reasons.append("official support award lacks dated event payload")
     if item.get("sentiment_label") is not None:
         if item.get("sentiment_label") not in {"positive", "neutral", "negative", "mixed"}:
             reasons.append("unsupported sentiment label")
