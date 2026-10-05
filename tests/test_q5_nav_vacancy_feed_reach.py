@@ -76,10 +76,11 @@ def test_company_name_normalization_removes_common_legal_suffix_only() -> None:
     assert normalize_company_name("Fosen Skjønnhet ENK") == "fosen skjønnhet"
 
 
-def test_public_token_parser_accepts_plain_or_json_jwt() -> None:
+def test_public_token_parser_accepts_plain_json_and_nav_prefixed_jwt() -> None:
     token = "aaa.bbb.ccc"
     assert _extract_public_token(token.encode()) == token
     assert _extract_public_token(f'{{"token":"{token}"}}'.encode()) == token
+    assert _extract_public_token(f"*** public token for Nav Job Vacancy Feed:\n{token}\n".encode()) == token
 
 
 def test_detail_currentness_requires_active_and_nonexpired() -> None:
