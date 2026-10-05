@@ -1,0 +1,110 @@
+name: Q5 NAV Vacancy Feed Reach
+
+on:
+  push:
+    branches:
+      - audit/q5-nav-vacancy-feed-reach
+    paths:
+      - 'scripts/screen_q5_nav_vacancy_feed_reach.py'
+      - 'tests/test_q5_nav_vacancy_feed_reach.py'
+      - '.github/workflows/q5-nav-vacancy-feed-reach.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen-consumed-cohort:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q5_nav_vacancy_feed_reach.py
+
+      - name: Download frozen Q4/Q6 consumed profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen
+          gh run download 37334830712 \
+            --repo navadeep-17/signal-post \
+            --name q4-consumed-v8-integration-replay \
+            --dir frozen
+          test -s frozen/out/q4-replay/work/profiles.jsonl
+          test "$(wc -l < frozen/out/q4-replay/work/profiles.jsonl)" -eq 100
+
+      - name: Screen NAV Job Vacancy Feed
+        run: |
+          uv run python scripts/screen_q5_nav_vacancy_feed_reach.py \
+            --profiles frozen/out/q4-replay/work/profiles.jsonl \
+            --output out/q5-nav-vacancy-feed-reach.json \
+            --lookback-days 183 \
+            --page-size 10000 \
+            --max-feed-pages 50 \
+            --max-detail-requests 200 \
+            --timeout 45 \
+            --expect-profiles 100
+
+      - name: Verify complete bounded source-selection screen
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/q5-nav-vacancy-feed-reach.json').read_text())
+          assert report['status'] == 'SCREEN_ONLY_NO_PRODUCTION_CHANGE', report
+          assert report['fresh_qualification'] is False, report
+          assert report['profiles'] == 100, report
+          assert report['target_organisation_numbers'] == 100, report
+          assert report['lookback_days'] == 183, report
+          assert report['page_size'] == 10000, report
+          assert report['reached_feed_end'] is True, report
+          assert report['feed_page_limit_hit'] is False, report
+          assert report['detail_limit_hit'] is False, report
+          assert report['logical_network_requests_including_public_token'] <= 251, report
+          assert report['public_token_retained'] is False, report
+          assert report['production_decision'] == 'UNDECIDED_SCREEN_ONLY', report
+
+          for match in report['exact_matches']:
+              assert match['identity_method'] == 'nav_feed_employer_orgnr_exact_target_v1', match
+              assert len(match['employer_orgnr']) == 9, match
+              assert match['status'] == 'ACTIVE', match
+              assert match['link'], match
+
+          print(json.dumps({
+              'feed_pages_fetched': report['feed_pages_fetched'],
+              'headers_scanned': report['headers_scanned'],
+              'active_headers_scanned': report['active_headers_scanned'],
+              'name_shortlisted_events': report['name_shortlisted_events'],
+              'latest_name_candidates': report['latest_name_candidates'],
+              'active_name_candidates': report['active_name_candidates'],
+              'detail_requests': report['detail_requests'],
+              'logical_requests': report['logical_network_requests_including_public_token'],
+              'companies_with_exact_active_vacancies': report['companies_with_exact_active_vacancies'],
+              'exact_active_vacancies': report['exact_active_vacancies'],
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload NAV vacancy reach screen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q5-nav-vacancy-feed-reach
+          retention-days: 30
+          if-no-files-found: error
+          path: out/q5-nav-vacancy-feed-reach.json
