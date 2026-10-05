@@ -124,6 +124,25 @@ def test_v7_reserves_one_shared_support_request_before_calling_v2() -> None:
     assert "--support-events-per-company" not in prepared
 
 
+def test_v7_support_canonical_fact_counter_uses_canonical_field() -> None:
+    v7 = _load_script("signalpost_v7_phase5_canonical_counter", "run_signalpost_v7.py")
+    rows = [
+        {
+            "canonical_facts": [
+                {
+                    "type": "support_award",
+                    "canonical_field": "public.official_support_award",
+                },
+                {
+                    "type": "registry_change",
+                    "canonical_field": "public.official_registry_change",
+                },
+            ]
+        }
+    ]
+    assert v7._support_canonical_fact_count(rows) == 1
+
+
 def test_actual_v8_path_reserves_support_then_change_feed_and_stays_at_2000() -> None:
     result = _v8_combined_theorem(100)
     assert result == {
