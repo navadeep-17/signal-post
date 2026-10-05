@@ -1,0 +1,30 @@
+{
+  "cohort": "phase11-seed-20261104-consumed-only",
+  "purpose": "Frozen URL nominations for Q3 downstream verification replay. These are candidate inputs only, never publication evidence.",
+  "nominations": [
+    {
+      "organisation_number": "940762642",
+      "legal_name": "LØRENSKOG RENHOLD & SERVICE AS",
+      "urls": ["https://lorenskogrenhold.no/om-oss/"],
+      "expected_risk": "dedicated-domain exact-org positive"
+    },
+    {
+      "organisation_number": "997645359",
+      "legal_name": "XL-BYGG MATHISEN & CO AS",
+      "urls": ["https://www.xl-bygg.no/butikker/xl-bygg-mathisen-and-co"],
+      "expected_risk": "shared chain/store domain"
+    },
+    {
+      "organisation_number": "939067442",
+      "legal_name": "BRAVO MATSENTER AS",
+      "urls": ["https://spar.no/finn-butikk/spar-forde"],
+      "expected_risk": "shared brand/store domain"
+    },
+    {
+      "organisation_number": "981889967",
+      "legal_name": "LADE NÆRINGSBYGG DA",
+      "urls": ["https://koteng.no/om-koteng/firmaoversikt/"],
+      "expected_risk": "group overview with multiple legal entities"
+    }
+  ]
+}
