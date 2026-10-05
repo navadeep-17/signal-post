@@ -1,5 +1,6 @@
 name: Phase 11 Owner Veto Consumed Replay
 
+# Consumed-only replay for the final bounded explicit-site-owner parser semantics.
 on:
   push:
     branches:
