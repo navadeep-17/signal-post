@@ -304,8 +304,14 @@ def main(argv: list[str] | None = None) -> int:
         report_raw = _arg_value(prepared, "--report")
         work_raw = _arg_value(prepared, "--work-dir")
         product_raw = _arg_value(prepared, "--product-output")
-        if not output_raw or not report_raw or not work_raw or not product_raw:
-            raise ValueError("V8 wrapper requires --output, --report, --work-dir and --product-output")
+        q4_path_count = sum(value is not None for value in (report_raw, work_raw))
+        if q4_path_count == 1:
+            raise ValueError("V8 Q4 projection requires --report and --work-dir together")
+        q4_projection_enabled = q4_path_count == 2
+        if q4_projection_enabled and (not output_raw or not product_raw):
+            raise ValueError(
+                "V8 Q4 projection requires --output and --product-output when --report/--work-dir are supplied"
+            )
     except (OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -314,7 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         "Signalpost V8 evaluator batch: "
         f"{settings['expected_count']} companies; "
         f"internal conservative request ceiling={settings['max_challenge_requests']}; "
-        f"internal wall-runtime validation ceiling={settings['max_wall_runtime_seconds']}s.",
+        f"internal wall-runtime validation ceiling={settings['max_wall_runtime_seconds']}s; "
+        f"q4_feed_projection={'enabled' if q4_projection_enabled else 'disabled_legacy_mode'}.",
         file=sys.stderr,
     )
     completed = subprocess.run(
@@ -324,6 +331,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     if completed.returncode != 0:
         return int(completed.returncode)
+    if not q4_projection_enabled:
+        return 0
 
     try:
         passed = _project_q4_feed_activity(
