@@ -1,0 +1,69 @@
+name: Research Bilpleie Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-bilpleie-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download current Bilpleieregister once
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --retry-delay 2 --compressed \
+            --header 'Accept: application/json' \
+            --header 'Content-Version: 1.2' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://data.arbeidstilsynet.no/bilpleieregisteret/api/virksomheter' \
+            --output out/bilpleie.json
+          test -s out/bilpleie.json
+          wc -c out/bilpleie.json
+          sha256sum out/bilpleie.json
+
+      - name: Print bounded structural evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          import json
+
+          data = json.loads(Path('out/bilpleie.json').read_text(encoding='utf-8-sig'))
+          print('top-type:', type(data).__name__)
+          print('top-keys:', sorted(data) if isinstance(data, dict) else None)
+          rows = data.get('data', []) if isinstance(data, dict) else []
+          print('row-count:', len(rows))
+          print('metadata:', json.dumps(data.get('metadata'), ensure_ascii=False)[:3000] if isinstance(data, dict) else None)
+          if rows:
+              print('first-row-keys:', sorted(rows[0]))
+              print('first-row:', json.dumps(rows[0], ensure_ascii=False, sort_keys=True)[:16000])
+          key_counts = Counter()
+          nested_key_counts = Counter()
+          scalar_examples = {}
+          for row in rows:
+              if not isinstance(row, dict):
+                  continue
+              key_counts.update(row.keys())
+              for key, value in row.items():
+                  if isinstance(value, dict):
+                      nested_key_counts.update(f'{key}.{k}' for k in value.keys())
+                  elif value not in (None, '', [], {}):
+                      scalar_examples.setdefault(key, value)
+          print('top-level-key-counts:', key_counts.most_common())
+          print('nested-key-counts:', nested_key_counts.most_common(100))
+          print('scalar-examples:', json.dumps(scalar_examples, ensure_ascii=False, sort_keys=True, default=str)[:12000])
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/bilpleie.json
