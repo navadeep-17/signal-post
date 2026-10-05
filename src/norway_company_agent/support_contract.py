@@ -8,7 +8,7 @@ from .external_footprint import publishable_observation
 
 
 SUPPORT_AWARD_SOURCE_URL = "https://stotte.brreg.no/nb/oppslag/stoettetildeling/totalbestand/csv"
-SUPPORT_AWARD_EXTRACTION_METHOD = "brreg_support_registry_exact_primary_recipient_v1"
+SUPPORT_AWARD_EXTRACTION_METHOD = "official_support_registry_primary_recipient_exact_org_v1"
 
 
 def _evidence_id(org: str, observation: dict[str, Any]) -> str:
@@ -47,9 +47,9 @@ def project_support_award_evidence_provenance(contract: dict[str, Any]) -> dict[
 
     This is deliberately a final-contract projection as well as a collector-time helper.
     Older retained profiles can omit support observations even though their final contract
-    already contains exact-recipient support claims and official source evidence.  The
+    already contains exact-recipient support claims and official source evidence. The
     method is therefore attached only when the final claim and evidence together prove the
-    existing BRREG Støtteregisteret exact-primary-recipient path.  No claim value, evidence
+    existing BRREG Støtteregisteret exact-primary-recipient path. No claim value, evidence
     id, source, hash, identity proof, or request accounting is changed.
     """
 
