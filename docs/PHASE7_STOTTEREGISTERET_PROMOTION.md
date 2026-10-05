@@ -104,3 +104,11 @@ The source and final wrapper path are now consumed-qualified. Before merge only 
 6. require post-merge Baseline CI green and pin the exact production SHA/run.
 
 After post-merge green, advance to Phase 11 fresh evaluator-shaped release qualification. Do not submit a Builderr revision merely because this source merges.
+
+## Post-merge closure
+
+PR #97 merged from clean head `a6187cad81e38a1e24618f6e16f33d40b247063d` as production commit `60f385b58a0f1c72f58efd35db71b1566202403a` using expected-head protection. Final pre-merge Baseline CI `37261892046` passed. Post-merge Baseline CI `37262030919` / job `111611064093` also passed the full test suite, certified-1000 canonical audit, immutable submission-bundle verification and deterministic refresh qualification.
+
+The definitive wrapper qualification remains run `37260381903` / artifact `11325335788`: 100/100 terminal, 11 support companies, 46 claims = 46 canonical facts, report 46/46, complete 46-row exact-primary-recipient/provenance audit with zero errors, request theorem exactly 2,000 conservative, runtime 797.471 s, third-party cost $0 and zero search API requests.
+
+Phase 7 is therefore **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED + MERGED + POST-MERGE GREEN**. The next main-track gate is Phase 11 fresh evaluator-shaped release qualification.
