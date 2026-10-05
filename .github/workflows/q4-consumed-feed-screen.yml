@@ -1,0 +1,83 @@
+name: Q4 Consumed Feed Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/q4-first-party-feed-activity
+    paths:
+      - '.github/workflows/q4-consumed-feed-screen.yml'
+      - 'scripts/screen_q4_first_party_feeds.py'
+      - 'src/norway_company_agent/first_party_feed.py'
+      - 'tests/test_q4_first_party_feed.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout experiment head
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused feed parser tests
+        run: uv run --with pytest pytest -q tests/test_q4_first_party_feed.py
+
+      - name: Download already-consumed Phase 11 replay artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed
+          gh run download 37314396820 \
+            --repo navadeep-17/signal-post \
+            --name phase11-owner-veto-consumed-replay \
+            --dir consumed
+
+      - name: Screen exact verified sites for RSS or Atom activity
+        run: |
+          PROFILE_PATH="$(find consumed -type f -path '*/work/profiles.jsonl' | head -n 1)"
+          if [ -z "$PROFILE_PATH" ]; then
+            echo 'Consumed profiles.jsonl not found' >&2
+            exit 1
+          fi
+          uv run python scripts/screen_q4_first_party_feeds.py \
+            --input "$PROFILE_PATH" \
+            --report q4-consumed-feed-screen/report.json \
+            --timeout 12 \
+            --candidates-per-site 2 \
+            --max-entries 5
+
+      - name: Verify screen report integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('q4-consumed-feed-screen/report.json').read_text(encoding='utf-8'))
+          assert report['profiles'] == 100, report
+          assert report['verified_websites'] == 6, report
+          assert len(report['outcomes']) == 6, report
+          assert 0 <= report['sites_with_dated_feed_activity'] <= 6, report
+          assert report['logical_requests'] <= 24, report
+          print(json.dumps(report, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload Q4 consumed screen
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-consumed-feed-screen
+          path: q4-consumed-feed-screen/report.json
+          if-no-files-found: error
