@@ -21,6 +21,15 @@ jobs:
       - name: Apply docs updater
         run: python scripts/update_phase11_owner_veto_docs.py
 
+      - name: Normalize documentation EOFs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in ('docs/IMPLEMENTATION_LOG.md', 'docs/70_PLUS_IMPLEMENTATION_PLAN.md'):
+              path = Path(name)
+              path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
+
       - name: Commit docs
         run: |
           git config user.name "github-actions[bot]"
