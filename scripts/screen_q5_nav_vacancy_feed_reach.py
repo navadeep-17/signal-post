@@ -32,6 +32,7 @@ LEGAL_SUFFIXES = {
     "stiftelse",
     "stiftelsen",
 }
+JWT_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)(?![A-Za-z0-9_-])")
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -71,6 +72,7 @@ def target_name_index(profiles: list[dict[str, Any]]) -> dict[str, set[str]]:
 
 
 def _extract_public_token(raw: bytes) -> str:
+    """Extract only the JWT, even when NAV prefixes it with explanatory text."""
     text = raw.decode("utf-8", errors="replace").strip()
     if not text:
         raise ValueError("NAV public token endpoint returned an empty response")
@@ -85,11 +87,12 @@ def _extract_public_token(raw: bytes) -> str:
         for key in ("token", "access_token", "jwt", "value"):
             if value.get(key):
                 candidates.append(str(value[key]))
-    candidates.append(text.strip('"'))
-    token = next((candidate.strip() for candidate in candidates if candidate.count(".") >= 2), "")
-    if not token:
-        raise ValueError("NAV public token endpoint did not return a JWT-like token")
-    return token
+    candidates.append(text)
+    for candidate in candidates:
+        match = JWT_PATTERN.search(candidate)
+        if match:
+            return match.group(1)
+    raise ValueError("NAV public token endpoint did not return a JWT-like token")
 
 
 def _request_bytes(
