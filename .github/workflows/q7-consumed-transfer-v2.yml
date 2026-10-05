@@ -1,0 +1,171 @@
+name: Q7 Current-Main Consumed Transfer
+
+on:
+  push:
+    branches:
+      - experiment/q7-consumed-transfer-measurement-v2
+    paths:
+      - 'scripts/audit_q7_consumed_transfer.py'
+      - 'tests/test_q7_consumed_transfer.py'
+      - '.github/workflows/q7-consumed-transfer-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare-current-main-on-frozen-consumed-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run Q7 comparator tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q7_consumed_transfer.py tests/test_q7_support_award_provenance.py
+
+      - name: Download frozen pre-Q4 consumed baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen/baseline
+          gh run download 37314396820 \
+            --repo navadeep-17/signal-post \
+            --name phase11-owner-veto-consumed-replay \
+            --dir frozen/baseline
+          test -s frozen/baseline/out/replay/output.jsonl
+          test -s frozen/baseline/out/replay/report.json
+          test "$(wc -l < frozen/baseline/out/replay/output.jsonl)" -eq 100
+
+      - name: Download frozen Q4/Q6 integrated candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen/candidate
+          gh run download 37334830712 \
+            --repo navadeep-17/signal-post \
+            --name q4-consumed-v8-integration-replay \
+            --dir frozen/candidate
+          test -s frozen/candidate/out/q4-replay/output.jsonl
+          test -s frozen/candidate/out/q4-replay/report.json
+          test "$(wc -l < frozen/candidate/out/q4-replay/output.jsonl)" -eq 100
+
+      - name: Freeze known wrong-company signatures
+        run: |
+          cat > frozen/forbidden.json <<'JSON'
+          {
+            "825188592": ["interiorkupp.no"]
+          }
+          JSON
+
+      - name: Compare current-main consumed transfer
+        run: |
+          uv run python scripts/audit_q7_consumed_transfer.py \
+            --baseline frozen/baseline/out/replay/output.jsonl \
+            --baseline-report frozen/baseline/out/replay/report.json \
+            --candidate frozen/candidate/out/q4-replay/output.jsonl \
+            --candidate-report frozen/candidate/out/q4-replay/report.json \
+            --forbidden-map frozen/forbidden.json \
+            --output out/q7-current-main-consumed-transfer.json \
+            --apply-current-zero-network-provenance \
+            --require-candidate-core-evidence \
+            --require-candidate-provenance-complete \
+            --require-no-forbidden
+
+      - name: Verify monotonic transfer and closed provenance gap
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/q7-current-main-consumed-transfer.json').read_text())
+          assert report['fresh_qualification'] is False
+          assert report['companies'] == 100
+          assert report['same_company_set'] is True
+
+          normalization = report['candidate_zero_network_normalization']
+          assert normalization['applied'] is True, normalization
+          assert normalization['network_requests_added'] == 0, normalization
+          assert normalization['claim_semantics_changed'] is False, normalization
+          assert normalization['support_evidence_rows_with_method_added'] == 48, normalization
+
+          before = report['coverage']['baseline']
+          after = report['coverage']['candidate']
+          delta = report['coverage']['delta']
+
+          assert before['official_website'] == 6, before
+          assert before['external.profile_handle'] == 4, before
+          assert before['social_links'] == 4, before
+          assert before['external.contact_email'] == 6, before
+          assert before['external.careers_page'] == 0, before
+          assert before['external.job_posting'] == 0, before
+          assert before['external.company_update'] == 0, before
+          assert before['external.workforce_snapshot'] == 99, before
+          assert before['official.support_award'] == 11, before
+
+          assert after['external.company_update'] == 1, after
+          assert delta['external.company_update'] == 1, delta
+
+          for field in (
+              'official_website',
+              'external.profile_handle',
+              'social_links',
+              'external.contact_email',
+              'external.careers_page',
+              'external.job_posting',
+              'external.workforce_snapshot',
+              'official.support_award',
+          ):
+              assert after[field] >= before[field], (field, before[field], after[field])
+
+          company_changes = report['coverage']['company_level_changes']
+          assert len(company_changes['official_website']['gained_organisations']) == 1, company_changes
+          assert company_changes['official_website']['lost_organisations'] == [], company_changes
+          assert company_changes['external.company_update']['gained_organisations'] == ['936252494'], company_changes
+          assert company_changes['external.company_update']['lost_organisations'] == [], company_changes
+
+          candidate_evidence = report['evidence_visibility']['candidate']
+          assert candidate_evidence['available_claims'] == 4617, candidate_evidence
+          assert candidate_evidence['core_evidence_complete_claims'] == 4617, candidate_evidence
+          assert candidate_evidence['reopenable_source_claims'] == 4617, candidate_evidence
+          assert candidate_evidence['identity_sensitive_claims'] == 175, candidate_evidence
+          assert candidate_evidence['identity_proof_visible'] == 175, candidate_evidence
+          assert candidate_evidence['extraction_method_visible'] == 175, candidate_evidence
+          assert report['evidence_visibility']['candidate_issue_count'] == 0, report['evidence_visibility']
+          assert report['known_wrong_company_publications'] == []
+
+          metrics = report['run_metrics']['candidate']
+          assert metrics['passed'] is True, metrics
+          assert metrics['theoretical_conservative_ceiling'] == 2000, metrics
+          assert metrics['observed_conservative_requests'] <= 2000, metrics
+          assert metrics['third_party_cost_usd'] == 0.0, metrics
+
+          added = report['claim_delta']['added_by_field']
+          assert added.get('external.company_update') == 5, added
+          assert report['claim_delta']['removed_claims'] == 0, report['claim_delta']
+
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload Q7 current-main transfer report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q7-current-main-consumed-transfer
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/q7-current-main-consumed-transfer.json
+            frozen/forbidden.json
