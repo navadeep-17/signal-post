@@ -1,14 +1,6 @@
 name: Research TED Exact Winner Screen
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_ted_exact_winner_reach.py
-      - tests/test_screen_ted_exact_winner_reach.py
-      - .github/workflows/research-ted-exact-winner-screen.yml
-      - docs/BULK_EXACT_ORG_RECALL_PLAN.md
   workflow_dispatch:
 
 permissions:
