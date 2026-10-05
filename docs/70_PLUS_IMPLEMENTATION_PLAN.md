@@ -91,7 +91,7 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 - **Phase 4 — Page-level observation/evidence hardening:** **CLOSED / IMPLEMENTED / TESTED / MERGED / POST-MERGE GREEN**.
 - **Phase 5 — Contact/social enrichment:** partial production foundation; revisit only with a new structured/multi-family hypothesis.
 - **Phase 6 — Actual jobs:** C12 M4 foundation exists; NAV exact-org batch screen did not transfer.
-- **Phase 7 — Dated activity:** **ACTIVE PROMOTION** — Støtteregisteret support-award semantics consumed-qualified; PR #97 wrapper retune requires exact-head CI + consumed V8 requalification before merge.
+- **Phase 7 — Dated activity:** **CONSUMED-WRAPPER QUALIFIED / MERGE GATE** — Støtteregisteret exact-wrapper V8 qualification is green; final clean-head CI + merge/post-merge CI remain.
 - **Phase 8 — NAV exact-org vacancy screen:** **DROP**.
 - **Phase 9 — BRREG bulk/request optimization:** later and freshness-gated.
 - **Phase 10 — Adaptive request scheduler:** after a new high-yield surface exists.
@@ -99,7 +99,7 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 
 Immediate path:
 
-> finish PR #97 exact-head CI -> exact-head consumed V8 wrapper requalification -> merge/post-merge CI -> Phase 11 fresh release qualification.
+> verify final PR #97 durable diff -> final exact-head Baseline CI -> merge/post-merge CI -> Phase 11 fresh release qualification.
 
 ## 5. Phase 1 — collected-vs-emitted recovery
 
@@ -351,7 +351,7 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 
 ## 23. NEXT
 
-**Finish PR #97 on the corrected wrapper architecture: require exact-head Baseline CI, then an exact-head actual-V8 consumed requalification and manual support-fact audit. Merge only after both are green, run post-merge CI, then advance to Phase 11 with a genuinely fresh evaluator-shaped cohort.**
+**PR #97 is exact-wrapper consumed-qualified. Verify the final durable diff, require one final exact-head Baseline CI after qualification-workflow cleanup/docs, merge with expected-head protection, require post-merge Baseline CI, then advance to Phase 11 with a genuinely fresh evaluator-shaped cohort.**
 
 ---
 
@@ -374,3 +374,13 @@ The first clean promotion shape modified the certified V1 collector. Baseline CI
 The production architecture is therefore corrected, not repinned: V1 is restored byte-for-byte (`9be89b9827135b1ed703318e1d189d5d3b8ca604`), V2 remains unchanged (`5b69cc320c38e3aab13cf09fe2e2a09e62751433`), and Støtteregisteret lives in V7. V7 reserves one shared support request before invoking V2, V2 reserves its existing BRREG change-feed request before invoking V1, and the 100-company theorem remains 1,000 logical / exactly 2,000 conservative requests with 97 H2g slots.
 
 The earlier consumed V8 artifact `11321344340` remains the semantic/evidence proof for primary-recipient-only support publication, but the wrapper relocation requires a new exact-head consumed V8 requalification before PR #97 can merge. Phase 11 remains the next fresh-cohort gate after merge + post-merge CI.
+
+### 2026-10-05 PR #97 exact-wrapper consumed qualification PASS
+
+The corrected final V7 wrapper path is now consumed-qualified. Baseline CI `37260229913` passed on production parent `22655265d3adc99bb2b73ef52d29caf6fa966d03`, then actual-V8 consumed qualification `37260381903` / job `111606171316` passed on qualification SHA `f47353a7f0b7eb63efa45a76c48850a7a648be2d` with only a temporary workflow above the production parent.
+
+Artifact `11325335788` (`phase7-v8-consumed-requalification-100-v2`, ZIP SHA-256 `b60b0469ed31cc3b8651445dc786fd4ce34ad325044bebdd6572d5c261a85148`) proves 100/100 terminal companies, 11 support companies, 46 support claims = 46 canonical facts, zero contract/canonical/synthesis/support-projection failures, one support request, one BRREG change-feed request, 1,366 observed conservative charge, exactly 2,000 theoretical conservative requests, 797.471 s wrapper runtime, $0 third-party cost and zero search API requests. All 46 support evidence rows were audited with exact primary-recipient identity plus row/snapshot provenance; audit errors were zero.
+
+The earlier run `37257936472` remains recorded as a failed gate because its report incorrectly counted canonical facts as 0 despite 46 materialized facts. That report-only defect is fixed and regression-covered; failures are not rewritten into successes.
+
+Roadmap consequence: Phase 7 source + wrapper qualification is complete. Remaining work is repository hygiene/final exact-head CI, merge/post-merge verification, then Phase 11 fresh evaluator-shaped release qualification. No Builderr revision is authorized merely by the Phase-7 merge.
