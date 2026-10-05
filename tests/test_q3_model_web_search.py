@@ -25,6 +25,7 @@ from run_model_search_discovery import (  # noqa: E402
     _conflict_quarantine,
     _estimated_cost_usd,
     _preflight_cost_ceiling_usd,
+    _q3_multi_entity_org_conflict,
 )
 
 
@@ -225,12 +226,26 @@ def test_cost_accounting_and_100_company_preflight_are_deterministic() -> None:
     assert preflight == 1.509
 
 
-def test_conflicting_explicit_org_number_always_quarantines_candidate() -> None:
+def test_multi_entity_search_page_conflict_detects_target_plus_other_orgs() -> None:
+    assessment = {
+        "observed_organisation_numbers": ["123456789", "987654321"],
+        "publishable": True,
+    }
+
+    assert _q3_multi_entity_org_conflict(profile(), assessment) is True
+    assert _q3_multi_entity_org_conflict(
+        profile(),
+        {"observed_organisation_numbers": ["123456789"], "publishable": True},
+    ) is False
+
+
+def test_multi_entity_conflict_quarantine_is_not_publishable() -> None:
     assessment = {
         "status": "exact",
         "score": 1.0,
         "publishable": True,
-        "reasons": ["target name matched"],
+        "observed_organisation_numbers": ["123456789", "987654321"],
+        "reasons": ["target organisation number appears"],
         "method": "fixture",
     }
 
@@ -239,8 +254,8 @@ def test_conflicting_explicit_org_number_always_quarantines_candidate() -> None:
     assert result["status"] == "review"
     assert result["publishable"] is False
     assert result["score"] <= 0.8
-    assert result["method"] == "q3_search_candidate_conflicting_org_guard_v1"
-    assert any("another entity" in reason for reason in result["reasons"])
+    assert result["method"] == "q3_search_candidate_multi_entity_org_guard_v1"
+    assert any("shared/group-domain" in reason for reason in result["reasons"])
 
 
 def test_runner_persists_only_independently_verified_candidate_pages() -> None:
@@ -249,6 +264,7 @@ def test_runner_persists_only_independently_verified_candidate_pages() -> None:
     assert "fetch_bounded_homepage(" in source
     assert "apply_website_identity_gate(" in source
     assert "qualify_search_discovered_website(" in source
+    assert "_q3_multi_entity_org_conflict(" in source
     assert 'if verified_website is not None:' in source
     assert 'row["evidence"]["website_model_search_candidate"] = verified_website' in source
     assert 'quarantined_candidate_pages_persisted": False' in source
