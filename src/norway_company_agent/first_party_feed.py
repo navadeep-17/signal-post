@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+import hashlib
 import re
+import time
+import urllib.error
 import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -204,3 +208,161 @@ def parse_company_feed(
         "feed_url": feed_url,
         "entries": entries,
     }
+
+
+def fetch_verified_activity_feed(
+    verified_url: str,
+    *,
+    timeout: float = 6.0,
+    max_bytes: int = 500_000,
+    max_entries: int = 5,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Spend one two-request slot on `/feed/` for an already verified company site.
+
+    Production deliberately tries only the consumed-screen winner (`/feed/`). Robots plus
+    one feed GET therefore cost at most two logical site requests. Redirects remain under
+    the same SSRF-safe bounded opener used by homepage discovery. The returned evidence
+    stores only parsed dated same-site entries and the feed snapshot hash, never raw XML.
+    """
+    # Local imports avoid coupling the pure parser to the website discovery module.
+    from .evidence import evidence
+    from .final_site_discovery import BOUNDED_SAFE_OPENER, _robots_allowed
+    from .website import USER_AGENT, assert_public_url
+
+    candidates = feed_candidate_urls(verified_url, limit=1)
+    metrics: dict[str, Any] = {"requests": 0, "bytes": 0, "latencies_ms": []}
+    if not candidates:
+        return (
+            evidence(
+                "website_activity_feed",
+                "not_found",
+                "verified_company_activity_feed",
+                str(verified_url or ""),
+                note="Verified website URL cannot nominate a same-site feed candidate",
+            ),
+            metrics,
+        )
+
+    candidate_url = candidates[0]
+    try:
+        assert_public_url(candidate_url)
+    except ValueError as exc:
+        return (
+            evidence(
+                "website_activity_feed",
+                "blocked",
+                "verified_company_activity_feed",
+                candidate_url,
+                note=str(exc),
+            ),
+            metrics,
+        )
+
+    allowed, robots_requests = _robots_allowed(candidate_url, timeout)
+    metrics["requests"] += robots_requests
+    if not allowed:
+        return (
+            evidence(
+                "website_activity_feed",
+                "blocked",
+                "verified_company_activity_feed",
+                candidate_url,
+                note="robots.txt disallows this user agent",
+            ),
+            metrics,
+        )
+
+    request = urllib.request.Request(
+        candidate_url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.1",
+        },
+    )
+    started = time.monotonic()
+    metrics["requests"] += 1
+    try:
+        with BOUNDED_SAFE_OPENER.open(request, timeout=timeout) as response:
+            raw = response.read(max_bytes + 1)
+            final_url = response.geturl()
+            assert_public_url(final_url)
+        metrics["latencies_ms"].append(int((time.monotonic() - started) * 1000))
+        metrics["bytes"] += len(raw)
+        if len(raw) > max_bytes:
+            return (
+                evidence(
+                    "website_activity_feed",
+                    "blocked",
+                    "verified_company_activity_feed",
+                    final_url,
+                    note="Activity feed exceeds byte limit",
+                ),
+                metrics,
+            )
+
+        parsed = parse_company_feed(
+            raw,
+            feed_url=final_url,
+            verified_url=verified_url,
+            max_entries=max_entries,
+        )
+        digest = hashlib.sha256(raw).hexdigest()
+        if parsed.get("status") != "available" or not parsed.get("entries"):
+            return (
+                evidence(
+                    "website_activity_feed",
+                    "not_found",
+                    "verified_company_activity_feed",
+                    final_url,
+                    value={
+                        "verified_website_url": verified_url,
+                        "feed_type": parsed.get("feed_type"),
+                        "entries": [],
+                    },
+                    note=str(parsed.get("reason") or "Feed contains no qualified dated same-site entries"),
+                    content_sha256=digest,
+                ),
+                metrics,
+            )
+
+        return (
+            evidence(
+                "website_activity_feed",
+                "available",
+                "verified_company_activity_feed",
+                final_url,
+                value={
+                    "verified_website_url": verified_url,
+                    "feed_type": parsed.get("feed_type"),
+                    "entries": list(parsed.get("entries") or []),
+                },
+                note="Bounded first-party RSS/Atom snapshot from an already exact-verified company website",
+                content_sha256=digest,
+            ),
+            metrics,
+        )
+    except urllib.error.HTTPError as exc:
+        metrics["latencies_ms"].append(int((time.monotonic() - started) * 1000))
+        status = "not_found" if exc.code in {404, 410} else "source_error"
+        return (
+            evidence(
+                "website_activity_feed",
+                status,
+                "verified_company_activity_feed",
+                candidate_url,
+                note=f"HTTP {exc.code}",
+            ),
+            metrics,
+        )
+    except Exception as exc:
+        metrics["latencies_ms"].append(int((time.monotonic() - started) * 1000))
+        return (
+            evidence(
+                "website_activity_feed",
+                "source_error",
+                "verified_company_activity_feed",
+                candidate_url,
+                note=f"{type(exc).__name__}: {str(exc)[:180]}",
+            ),
+            metrics,
+        )
