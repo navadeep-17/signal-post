@@ -116,6 +116,17 @@ def _canonical_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _support_canonical_fact_count(rows: list[dict[str, Any]]) -> int:
+    """Count materialized support facts by their canonical field, not display type."""
+
+    return sum(
+        1
+        for row in rows
+        for fact in (row.get("canonical_facts") or [])
+        if isinstance(fact, dict) and fact.get("canonical_field") == "public.official_support_award"
+    )
+
+
 def prepare_legacy_args(argv: list[str]) -> tuple[list[str], dict[str, Any]]:
     output = _arg_value(argv, "--output")
     report = _arg_value(argv, "--report")
@@ -307,12 +318,7 @@ def _apply_support_awards(settings: dict[str, Any], wall_start: float) -> bool:
         )
         for row in projected
     )
-    support_canonical_facts = sum(
-        1
-        for row in projected
-        for fact in (row.get("canonical_facts") or [])
-        if isinstance(fact, dict) and fact.get("type") == "public.official_support_award"
-    )
+    support_canonical_facts = _support_canonical_fact_count(projected)
 
     canonical_report = dict(report.get("canonical_projection") or {})
     canonical_report.update(_canonical_metrics(projected))
