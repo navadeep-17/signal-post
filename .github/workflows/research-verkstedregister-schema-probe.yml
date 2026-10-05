@@ -1,0 +1,59 @@
+name: Research Verkstedregister Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-verkstedregister-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download open NLOD Verkstedregister CSV once
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://www.vegvesen.no/System/CSV/verksted.csv?offset=0&size=10000&query=__ALL__&cachebuster=1524033066338' \
+            --output out/verksted.csv
+          test -s out/verksted.csv
+          wc -c out/verksted.csv
+          sha256sum out/verksted.csv
+
+      - name: Print bounded CSV schema evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv
+
+          path = Path('out/verksted.csv')
+          raw = path.read_bytes()
+          print('prefix-bytes:', raw[:32])
+          text = raw.decode('utf-8-sig', errors='replace')
+          print('first-500-chars:', repr(text[:500]))
+          lines = text.splitlines()
+          print('line-count:', len(lines))
+          sample = '\n'.join(lines[:10])
+          try:
+              dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+              delimiter = dialect.delimiter
+          except Exception:
+              delimiter = ';'
+          print('detected-delimiter:', repr(delimiter))
+          rows = list(csv.reader(lines[:4], delimiter=delimiter))
+          for i, row in enumerate(rows):
+              print('row', i, row)
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/verksted.csv
