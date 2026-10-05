@@ -4,26 +4,27 @@ Last updated: 2026-10-05
 
 ## Objective
 
-Raise the next Builderr revision above the 65 qualification threshold without weakening exact-company precision. The latest official result is recall-limited and evidence-limited; synthesis and UX are already strong and should not be redesigned casually.
+Raise the next Builderr revision above the qualification threshold without weakening exact-company precision. Recall remains the main bottleneck; evidence visibility has now been materially hardened. Synthesis and UX are already strong and should not be redesigned casually.
 
 Guiding rule:
 
 > ATTEMPT MORE -> VERIFY STRICTLY -> PUBLISH CONSERVATIVELY
 
-## Live starting point
+## Live state
 
-- `main`: `f80c485fe65684db7dea8401e483a544bb0bb773`
-- PR #99 owner-veto hardening: merged
-- post-merge Baseline CI `37317529054`: PASS
-- failed fresh Phase-11 cohort seed `20261104`: permanently consumed
-- theoretical conservative request ceiling: 2,000 / 2,000 for 100 companies
-- no new fresh Phase-11 cohort should be consumed until the qualification sprint shows meaningful improvement
+- production `main`: `fec192cc5d4c9e38260168d2c29156288e224b48` after PR #100;
+- PR #99 owner-veto hardening: merged + post-merge CI green;
+- PR #100 Q1/Q2 evidence audit/provenance projection: merged + post-merge CI green;
+- Q3 search-assisted website discovery: retained as draft experiment, **production HOLD** after 1/20 consumed proxy transfer;
+- failed fresh Phase-11 cohort seed `20261104`: permanently consumed;
+- theoretical conservative request ceiling: **2,000 / 2,000** for 100 companies;
+- no new fresh Phase-11 cohort should be consumed until consumed/dev transfer is materially stronger.
 
 ## Milestone map
 
 ### Q0 — precision safety closure
 
-Status: COMPLETE.
+Status: **COMPLETE**.
 
 - wrong explicit site owner is a hard negative unless exact target org-number evidence overrides it;
 - consumed replay removed only the four contaminated Interiørkupp-derived publications;
@@ -32,99 +33,134 @@ Status: COMPLETE.
 
 ### Q1 — evaluator-visible evidence audit
 
-Status: COMPLETE.
+Status: **COMPLETE**.
 
-Goal: measure what an evaluator can actually reopen from the final JSONL/product.
-
-Implemented:
-
-1. Added an offline evidence-visibility auditor.
-2. Every available claim is checked for visible URL, retrieval time, supporting span and content hash.
-3. Company-owned/external claims separately report whether exact-company identity proof and extraction method are visible.
-4. Field-level completeness and issue rows are emitted.
-5. Audit runs on consumed/dev artifacts only; no fresh cohort is consumed.
-
-Consumed Phase-11 owner-veto replay result:
+Consumed Phase-11 owner-veto replay:
 
 - 100 companies;
 - 4,611 available claims;
 - 4,611 / 4,611 core-evidence-complete;
 - 4,611 / 4,611 reopenable HTTP(S) sources;
 - 169 identity-sensitive claims;
-- 0 / 169 evaluator-visible identity proof;
-- 0 / 169 evaluator-visible extraction method;
-- retained profiles contain identity proof for all 123 retained external observations.
+- pre-Q2: 0 / 169 evaluator-visible identity proof and extraction method;
+- retained profiles already contained the proof.
 
-Conclusion: the immediate gap is projection visibility, not missing core evidence.
+Conclusion: the immediate evidence gap was projection visibility, not missing core evidence.
 
 ### Q2 — evidence projection hardening
 
-Status: IMPLEMENTED + TESTED; consumed reprojection/replay confirmation next.
+Status: **COMPLETE / MERGED / POST-MERGE GREEN**.
 
 Implemented:
 
-- added a deterministic zero-network provenance projection layer;
-- observation `identity_proof` is copied verbatim to final evidence;
-- retained observation `strategy` is exposed as `extraction_method`;
-- verified website `identity_assessment` is exposed as final website-backed `identity_proof`;
-- website identity-assessment `method` is exposed as `extraction_method`;
-- observation-backed joins require exact `observation_id`;
-- website-backed joins require both exact source URL and content SHA-256;
-- pre-existing visible provenance is never overwritten;
-- claim values/confidence/availability/evidence IDs/request accounting are unchanged;
-- no network requests are added.
+- deterministic zero-network provenance projection;
+- observation `identity_proof` -> final evidence;
+- retained observation `strategy` -> `extraction_method`;
+- verified website `identity_assessment` -> website-backed `identity_proof`;
+- website identity method -> `extraction_method`;
+- observation joins require exact `observation_id`;
+- website joins require exact source URL + content SHA-256;
+- existing visible provenance is never overwritten.
 
-Dry reprojection of the consumed replay's retained base profiles covers 121 / 169 identity-sensitive claims immediately. The remaining 48 are support-award claims whose observations are created in the later V7 support stage; direct support-projector regression now verifies those observations also expose retained identity proof and strategy.
+Consumed monotonic validation:
 
-Promotion gate before closing Q2:
+- 0 claim changes;
+- 0 evidence-ID changes;
+- 0 core-evidence changes;
+- only provenance fields added.
 
-- exact-head Baseline CI green;
-- consumed/dev comparison proves claim values and evidence IDs are unchanged apart from the two added provenance fields;
-- visible identity/extraction coverage increases monotonically;
-- no new fresh cohort consumed.
+PR #100 merged as `fec192cc5d4c9e38260168d2c29156288e224b48`; post-merge Baseline CI `37322738569`: PASS.
 
 ### Q3 — website reach recovery
 
-Goal: materially increase exact verified-site companies without weakening identity.
+Status: **EXPERIMENT VALIDATED / PRODUCTION HOLD**.
 
-- use consumed/dev cohorts first;
-- candidate nomination is never proof;
-- search snippets/domain guesses cannot become evidence;
-- independent first-party fetch + current identity gate remains mandatory;
-- do not repeat previously exhausted deterministic-domain/Common-Crawl approaches unchanged.
+A guarded OpenAI web-search nominator was rebased as an experiment. Provider output is URL nomination only; independently fetched destination-page evidence remains the sole publication authority.
 
-Promotion gate: meaningful company-level gain, 0 known wrong-company publications, evidence complete, request theorem re-proved if allocation changes.
+Precision hardening added:
 
-### Q4 — social profile coverage
+- one hosted search-call ceiling;
+- explicit provider dollar-budget preflight;
+- max two independently crawled candidates;
+- wrong-org and multi-entity organisation-number veto;
+- quarantined candidate pages never persisted.
 
-Goal: make social no longer structurally zero.
+Consumed replay:
 
-- reuse already-fetched verified first-party pages;
-- publish only explicitly declared profile URLs;
-- no social-platform scraping required;
-- keep the narrow claim that the verified company page declared the profile.
+- adversarial set: 1/4 accepted, 3/4 safely quarantined;
+- deterministic 20-company public-search proxy: 1/20 accepted, 3/20 quarantined, 16/20 no candidate;
+- accepted proxy company: PREG BARNEHAGER ÅLESUND AS;
+- wrong-company publications: 0;
+- Q3 replay workflow `37328342354`: PASS;
+- artifact `11352149982`, digest `sha256:5611c946e0349c0bf2ababf2b33816f81525fd7b2ff212f6e1f25c98045256e7`.
+
+Decision: 5% consumed transfer is below the earlier provisional >=5/20 target. Keep PR #101 as a reusable draft experiment; do not integrate or consume a fresh Q3 cohort.
+
+### Q4 — social/contact coverage
+
+Status: **MEASUREMENT COMPLETE / SOURCE-REACH BLOCKED**.
+
+Consumed external-gap audit:
+
+- verified company sites: 6/100;
+- profile handles: 4/100 overall, **4/6 = 66.7% conditional on a verified site**;
+- first-party contact email: 6/100 overall, **6/6 = 100% conditional on a verified site**.
+
+Decision: current social/contact extraction already works when an exact site exists. The primary bottleneck is upstream verified-site reach, not the Q4 extractors. Do not spend another milestone retuning them without new evidence.
 
 ### Q5 — hiring coverage
 
-Goal: separate a verified hiring/recruitment surface from concrete vacancies.
+Status: **UNCHANGED DESIGN HOLD**.
 
-- careers/recruitment surface may support a hiring signal;
-- careers page alone must not become a specific job posting;
-- concrete jobs require role/application evidence and current-job semantics;
-- reuse existing page budget wherever possible.
+Among the six verified consumed sites:
+
+- careers links: 0/6;
+- active-hiring markers: 0/6;
+- job-listing candidates: 0/6;
+- final `external.careers_page`: 0/100;
+- final `external.job_posting`: 0/100.
+
+Decision: the existing first-party Q5 path has no measured consumed transfer surface. Do not consume a fresh cohort for the unchanged design.
 
 ### Q6 — dated first-party news/activity
 
-Goal: make dated activity no longer structurally zero while preserving Phase-4 date precision.
+Status: **UNCHANGED DESIGN HOLD**.
 
-- reuse discovered same-domain news/activity links and existing fetched pages first;
-- exact page URL + date evidence + span + hash required;
-- generic CMS placeholders remain rejected;
-- support awards stay typed as official support, never relabelled as company news.
+Among the six verified consumed sites:
+
+- retained news-detail links: 0/6;
+- final `external.company_update`: 0/100.
+
+Decision: the existing first-party Q6 path has no measured consumed transfer surface. Official support awards remain typed official events and must not be relabelled as company-authored news.
+
+### Q6.1 — request-budget reality check
+
+Status: **MEASURED**.
+
+Consumed run:
+
+- observed logical requests: 682;
+- observed conservative charge: 1,364 / 2,000;
+- observed unused charge: 636.
+
+But the structural theorem remains:
+
+- theoretical conservative ceiling: 2,000 / 2,000;
+- structural headroom: **NONE PROVEN**.
+
+Low-yield discovery currently occupying theorem capacity includes:
+
+- H1g attempted 74, verified 0;
+- Wikidata candidate count 0;
+- site sources: 4 registry + 2 deterministic-domain + 94 none.
+
+Observed spare capacity cannot justify adding an unconditional production request family. Any new recall path must reallocate or re-prove the worst-case theorem.
 
 ### Q7 — consumed/dev transfer measurement
 
-Before another fresh cohort, compare current production vs sprint candidate on already-consumed/dev material:
+Status: **NEXT**.
+
+Before another fresh cohort, compare current production and all sprint candidates on already-consumed/dev material:
 
 - verified website companies;
 - social companies;
@@ -134,18 +170,22 @@ Before another fresh cohort, compare current production vs sprint candidate on a
 - evidence-complete external claims;
 - known wrong-company publications;
 - logical/conservative requests;
-- runtime and $ cost;
+- runtime and third-party cost;
 - synthesis/UX regressions.
+
+Given Q3-Q6 results, Q7 must also identify whether any currently proven low-yield request allocation can be replaced by a materially stronger recall mechanism without raising the worst-case 2,000-request ceiling.
 
 Proceed only if the bundle is materially stronger.
 
 ### Q8 — fresh Phase-11 attempt #2
 
-Only after Q1-Q7 are green.
+Status: **BLOCKED** until Q7 demonstrates material consumed/dev transfer.
 
-- build all-touched exclusion set including the failed seed `20261104` cohort;
+When eligible:
+
+- build all-touched exclusion set including seed `20261104` cohort;
 - freeze exclusion count/SHA, seed and cohort SHA before results;
-- use actual V8 evaluator path;
+- use actual evaluator path;
 - require 100/100 terminal and all machine integrity gates;
 - manually audit every new external-family publication and all support awards;
 - inspect evidence reopenability;
@@ -154,14 +194,14 @@ Only after Q1-Q7 are green.
 
 ### Q9 — Builderr revision
 
-Submit only a materially stronger qualified bundle. Internal release target:
+Submit only a materially stronger qualified bundle. Internal target remains:
 
-- recall trajectory: 18-20+
-- evidence: 28+
-- synthesis: 12
-- UX: 8
-- 0 known material wrong-company publications
+- recall trajectory: 18-20+;
+- evidence: 28+;
+- synthesis: 12;
+- UX: 8;
+- 0 known material wrong-company publications.
 
 ## Current action
 
-Q1 is closed. Q2 provenance projection is implemented; finish exact-head CI + consumed monotonic comparison, then move to Q3 website reach recovery without consuming a fresh cohort.
+Q0-Q2 are production-complete. Q3 is retained but held. Q4-Q6 are measurement-closed without collector changes. The active task is **Q7: identify and measure a genuinely different recall improvement, including structural request reallocation, before any fresh qualification cohort is spent**.
