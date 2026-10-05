@@ -1,0 +1,104 @@
+name: Q7 Policy Instruments Reach
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/q7-policy-instruments-reach
+    paths:
+      - '.github/workflows/q7-policy-instruments-reach.yml'
+      - 'scripts/screen_q7_policy_instruments_reach.py'
+      - 'tests/test_q7_policy_instruments_reach.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-reach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout source-screen head
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Download already-consumed Phase 11 replay
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed source q7-policy-instruments
+          gh run download 37314396820 \
+            --repo navadeep-17/signal-post \
+            --name phase11-owner-veto-consumed-replay \
+            --dir consumed
+
+      - name: Download pinned open policy-support dataset
+        run: |
+          curl --fail --location --retry 3 \
+            'https://raw.githubusercontent.com/innovationnorway/analysis-innovation-policy-data/7c976bdb085b0233451ffcaa2825af07704a0ddb/InnovationPolicyData.csv' \
+            --output source/InnovationPolicyData.csv
+          test "$(git hash-object source/InnovationPolicyData.csv)" = '9bc4349638f75a2296afca6ceac247b567911f9f'
+          test "$(wc -c < source/InnovationPolicyData.csv | tr -d ' ')" = '39507381'
+          sha256sum source/InnovationPolicyData.csv | tee q7-policy-instruments/source.sha256
+
+      - name: Screen exact-org and net-new reach
+        run: |
+          PROFILE_PATH="$(find consumed -type f -path '*/work/profiles.jsonl' | head -n 1)"
+          OUTPUT_PATH="$(find consumed -type f -path '*/output.jsonl' | head -n 1)"
+          if [ -z "$PROFILE_PATH" ] || [ -z "$OUTPUT_PATH" ]; then
+            echo 'Required consumed replay files not found' >&2
+            exit 1
+          fi
+          uv run python scripts/screen_q7_policy_instruments_reach.py \
+            --profiles "$PROFILE_PATH" \
+            --output-contract "$OUTPUT_PATH" \
+            --dataset source/InnovationPolicyData.csv \
+            --report q7-policy-instruments/report.json \
+            --as-of 2026-10-05 \
+            --recent-years 5
+
+      - name: Verify source-screen integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('q7-policy-instruments/report.json').read_text(encoding='utf-8'))
+          assert report['audit']['target_companies'] == 100, report
+          assert report['audit']['rows_scanned'] > 0, report
+          assert report['audit']['incumbent_support_award_companies'] == 11, report
+          assert report['source']['dataset_bytes'] == 39507381, report
+          assert len(report['source']['dataset_sha256']) == 64, report
+          assert report['schema']['organisation_number_column'], report
+          assert report['publication_enabled'] is False, report
+          assert report['fresh_cohort_consumed'] is False, report
+          for key in (
+              'any_policy_support',
+              'recent_policy_support',
+              'overlap_with_existing_support_award',
+              'net_new_over_existing_support_award',
+              'recent_net_new_over_existing_support_award',
+          ):
+              row = report['coverage'][key]
+              assert 0 <= row['companies'] <= 100, report
+              assert row['total_companies'] == 100, report
+          print(json.dumps(report['coverage'], indent=2, ensure_ascii=False))
+          print(json.dumps(report['matched_actor_counts'], indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload source-screen report
+        uses: actions/upload-artifact@v4
+        with:
+          name: q7-policy-instruments-reach
+          path: q7-policy-instruments/*
+          if-no-files-found: error
