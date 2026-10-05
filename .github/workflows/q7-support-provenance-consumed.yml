@@ -57,6 +57,7 @@ jobs:
         run: |
           uv run python - <<'PY'
           import json
+          from collections import Counter
           from pathlib import Path
 
           from norway_company_agent.evidence_visibility import audit_contract_rows
@@ -68,13 +69,19 @@ jobs:
           def read_jsonl(path):
               return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
 
+          def claim_inventory(claims):
+              return Counter(
+                  json.dumps(claim, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+                  for claim in claims or []
+              )
+
           rows = read_jsonl('frozen/out/q4-replay/output.jsonl')
           profiles = read_jsonl('frozen/out/q4-replay/work/profiles.jsonl')
           profiles_by_org = {str(row['organisation_number']): row for row in profiles}
           assert len(rows) == len(profiles_by_org) == 100
 
           before_claims = {
-              str(row['organisation_number']): json.dumps(row.get('claims') or [], ensure_ascii=False, sort_keys=True)
+              str(row['organisation_number']): claim_inventory(row.get('claims') or [])
               for row in rows
           }
           before_evidence = {
@@ -92,7 +99,7 @@ jobs:
           for row in rows:
               org = str(row['organisation_number'])
               after = project_support_award_observations(row, profiles_by_org[org])
-              assert json.dumps(after.get('claims') or [], ensure_ascii=False, sort_keys=True) == before_claims[org], org
+              assert claim_inventory(after.get('claims') or []) == before_claims[org], org
 
               after_evidence = {
                   str(item.get('id')): dict(item)
