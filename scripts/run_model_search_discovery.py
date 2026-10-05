@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
@@ -15,10 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from norway_company_agent.discovery import qualify_search_discovered_website  # noqa: E402
 from norway_company_agent.evidence import evidence, utc_now  # noqa: E402
-from norway_company_agent.final_site_discovery import (  # noqa: E402
-    _has_conflicting_explicit_org_number,
-    fetch_bounded_homepage,
-)
+from norway_company_agent.final_site_discovery import fetch_bounded_homepage  # noqa: E402
 from norway_company_agent.identity import apply_website_identity_gate  # noqa: E402
 from norway_company_agent.model_web_search import (  # noqa: E402
     DEFAULT_SEARCH_CONTEXT_SIZE,
@@ -87,6 +85,26 @@ def _preflight_cost_ceiling_usd(
     )
 
 
+def _q3_multi_entity_org_conflict(profile: dict, assessment: dict | None) -> bool:
+    """Reject search-discovered pages that explicitly identify multiple legal entities.
+
+    This is intentionally stricter than the generic website gate. Search can nominate
+    group/franchise overview pages that mention the target organisation number alongside
+    sibling/parent entities. Exact target-org presence on such a page proves the row exists;
+    it does not prove that the shared/group domain is the target company's official site.
+    """
+
+    if not assessment:
+        return False
+    target = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    observed = {
+        re.sub(r"\D", "", str(value or ""))
+        for value in (assessment.get("observed_organisation_numbers") or [])
+    }
+    observed = {value for value in observed if len(value) == 9}
+    return len(target) == 9 and target in observed and bool(observed - {target})
+
+
 def _conflict_quarantine(assessment: dict | None) -> dict:
     base = dict(assessment or {})
     return {
@@ -96,9 +114,9 @@ def _conflict_quarantine(assessment: dict | None) -> dict:
         "publishable": False,
         "reasons": [
             *list(base.get("reasons") or []),
-            "Q3 search candidate page contains an explicit organisation number for another entity without the target organisation number",
+            "Q3 search candidate page explicitly identifies additional legal-entity organisation numbers; shared/group-domain ownership is not proved",
         ],
-        "method": "q3_search_candidate_conflicting_org_guard_v1",
+        "method": "q3_search_candidate_multi_entity_org_guard_v1",
     }
 
 
@@ -291,9 +309,11 @@ def main() -> None:
 
             gated = apply_website_identity_gate(row, website)
             website = gated["website"]
-            assessment = qualify_search_discovered_website(row, website, gated.get("assessment"))
-            if assessment and assessment.get("publishable") and _has_conflicting_explicit_org_number(row, website):
-                assessment = _conflict_quarantine(assessment)
+            base_assessment = gated.get("assessment")
+            if base_assessment and base_assessment.get("publishable") and _q3_multi_entity_org_conflict(row, base_assessment):
+                assessment = _conflict_quarantine(base_assessment)
+            else:
+                assessment = qualify_search_discovered_website(row, website, base_assessment)
             if assessment is not None:
                 (website.get("value") or {})["identity_assessment"] = assessment
 
