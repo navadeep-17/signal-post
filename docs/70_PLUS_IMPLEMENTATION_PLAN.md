@@ -1,6 +1,6 @@
 # Signalpost 70+ Implementation Master Plan
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 
 This document is the canonical engineering roadmap toward a Builderr 70+ result. `docs/CONTINUATION_STATE.md` owns exact live branch/PR/run state; `docs/IMPLEMENTATION_LOG.md` owns historical experiments and decisions. GitHub and live Builderr rules outrank stale documentation.
 
@@ -91,7 +91,7 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 - **Phase 4 — Page-level observation/evidence hardening:** **CLOSED / IMPLEMENTED / TESTED / MERGED / POST-MERGE GREEN**.
 - **Phase 5 — Contact/social enrichment:** partial production foundation; revisit only with a new structured/multi-family hypothesis.
 - **Phase 6 — Actual jobs:** C12 M4 foundation exists; NAV exact-org batch screen did not transfer.
-- **Phase 7 — Dated activity:** production C12 M3 foundation remains; Phase-3 RSS/sitemap expansion did not transfer.
+- **Phase 7 — Dated activity:** **ACTIVE PROMOTION** — Støtteregisteret support-award semantics consumed-qualified; PR #97 wrapper retune requires exact-head CI + consumed V8 requalification before merge.
 - **Phase 8 — NAV exact-org vacancy screen:** **DROP**.
 - **Phase 9 — BRREG bulk/request optimization:** later and freshness-gated.
 - **Phase 10 — Adaptive request scheduler:** after a new high-yield surface exists.
@@ -99,7 +99,7 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 
 Immediate path:
 
-> consumed-only rights/reach/exact-ID source-selection audit -> choose one deterministic high-yield family/source if justified -> Phase 10 allocation if needed -> Phase 11 fresh release qualification.
+> finish PR #97 exact-head CI -> exact-head consumed V8 wrapper requalification -> merge/post-merge CI -> Phase 11 fresh release qualification.
 
 ## 5. Phase 1 — collected-vs-emitted recovery
 
@@ -351,7 +351,7 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 
 ## 23. NEXT
 
-**Run a consumed-only deterministic source/family selection audit. Screen rights, exact-ID join quality, likely evaluator-shaped reach and request/runtime budget for Doffin, Støtteregisteret, Patentstyret or another official source before implementing a connector. No fresh cohort yet.**
+**Finish PR #97 on the corrected wrapper architecture: require exact-head Baseline CI, then an exact-head actual-V8 consumed requalification and manual support-fact audit. Merge only after both are green, run post-merge CI, then advance to Phase 11 with a genuinely fresh evaluator-shaped cohort.**
 
 ---
 
@@ -366,3 +366,11 @@ The hardened actual-V8 consumed qualification (`37254237936`, artifact `11321344
 The parallel exact-org Common Crawl Stage-4 path remains **SHELVED**: 3,000 generic domains yielded 453 indexed org numbers, only 4/5,900 consumed-company overlap and 2 net-new verified sites. This is far below the 20+/100 website-breakthrough threshold.
 
 Roadmap consequence: do not spend the next main-track cycle on another speculative connector. Complete clean merge/post-merge qualification of Støtteregisteret, then advance to **Phase 11 fresh validation / release candidate**. A Builderr revision remains gated on fresh evaluator-shaped evidence, manual audit and an exact SHA/artifact freeze.
+
+### 2026-10-05 PR #97 immutable-layer correction
+
+The first clean promotion shape modified the certified V1 collector. Baseline CI run `37255960174` correctly blocked it: 459 tests passed and the repository-only submission verifier was the sole failure because `scripts/run_signalpost_final.py` drifted from its immutable blob.
+
+The production architecture is therefore corrected, not repinned: V1 is restored byte-for-byte (`9be89b9827135b1ed703318e1d189d5d3b8ca604`), V2 remains unchanged (`5b69cc320c38e3aab13cf09fe2e2a09e62751433`), and Støtteregisteret lives in V7. V7 reserves one shared support request before invoking V2, V2 reserves its existing BRREG change-feed request before invoking V1, and the 100-company theorem remains 1,000 logical / exactly 2,000 conservative requests with 97 H2g slots.
+
+The earlier consumed V8 artifact `11321344340` remains the semantic/evidence proof for primary-recipient-only support publication, but the wrapper relocation requires a new exact-head consumed V8 requalification before PR #97 can merge. Phase 11 remains the next fresh-cohort gate after merge + post-merge CI.

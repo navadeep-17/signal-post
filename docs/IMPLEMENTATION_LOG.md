@@ -577,3 +577,42 @@ Historical pre-hardening 106/1000 and 88/1000 Støtte reach figures are research
 Parallel Phase-2 Common Crawl Stage 4 is **SHELVED**: 3,000 generic domains -> 453 indexed org numbers -> 4/5,900 consumed overlap -> 2 net-new verified websites, far below the 20+/100 breakthrough threshold.
 
 Decision: **PROMOTE Støtteregisteret through a clean PR only**. Do not merge the experiment branch or its workflows. After merge + post-merge CI, NEXT is Phase 11 fresh evaluator-shaped release qualification; no Builderr submission until that fresh release gate is clean.
+
+---
+
+## 2026-10-05 — PR #97 CI catches immutable-V1 violation; support moved to V7 wrapper
+
+Status: **RETUNED / EXACT-HEAD CI + CONSUMED V8 WRAPPER REQUALIFICATION PENDING / NOT MERGED**
+
+- active PR: #97, `Phase 7: add exact-org Støtteregisteret support awards`;
+- first exact-PR Baseline CI: run `37255960174`, job `111592968992`: **FAIL**;
+- pytest result: **459 passed, 1 failed, 5 subtests passed**;
+- sole failure: `tests/test_submission_bundle.py::test_repository_only_submission_verifier_passes`;
+- failure cause: the first promotion shape modified `scripts/run_signalpost_final.py`, violating the immutable certified V1 collector pin;
+- certified V1/V2 audit stages after pytest were skipped; no merge occurred;
+- the verifier/pin was **not** weakened or repinned.
+
+Architecture correction:
+
+- certified V1 `scripts/run_signalpost_final.py` restored exactly to blob `9be89b9827135b1ed703318e1d189d5d3b8ca604`;
+- current V2 `scripts/run_signalpost_v2.py` remains unchanged at blob `5b69cc320c38e3aab13cf09fe2e2a09e62751433`;
+- Støtteregisteret moved to the newer V7 wrapper layer;
+- V7 now reserves the one shared support request, invokes unchanged V2 with the reduced budget, then projects support claims, canonical facts and synthesis before building the V6 evaluator surface;
+- support-specific CLI flags terminate at V7 and cannot leak into pinned V2/V1;
+- wrapper/budget tests were rewritten around this boundary;
+- code/test retune head before documentation commits: `338730d3ddf562955c967468983bd8cb3f0cc590`.
+
+Corrected 100-company request theorem:
+
+- V8 -> V7 budget: 2,000 conservative;
+- V7 reserves Støtte: 1 logical / charge 2 -> V2 receives 1,998;
+- V2 reserves BRREG change feed: 1 logical / charge 2 -> V1 receives 1,996;
+- immutable V1 fixed company + Wikidata ceiling: 901 logical;
+- H2g annual-report capacity: 97 logical;
+- V1 theoretical total: 998 logical / 1,996 conservative;
+- + change feed: 999 / 1,998;
+- + Støtte: **1,000 logical / exactly 2,000 conservative**.
+
+The prior consumed actual-V8 run `37254237936` / artifact `11321344340` remains valid semantic/evidence proof for primary-recipient-only Støtte publication and its 46 manually audited claims. Because the integration layer changed, it does **not** substitute for an exact-head wrapper requalification.
+
+Decision: keep PR #97 blocked until the retuned exact head passes full Baseline CI **and** an actual-V8 consumed requalification. Then merge with expected-head protection, run post-merge CI, pin production state, and only then advance to Phase 11 fresh evaluator-shaped release qualification.
