@@ -18,6 +18,7 @@ from .final_site_discovery import (
     _publishable,
     fetch_bounded_homepage,
 )
+from .first_party_feed import fetch_verified_activity_feed
 from .identity import apply_website_identity_gate
 from .zero_cost_registry_guard import apply_registry_risk_guard
 
@@ -117,17 +118,81 @@ def _base_site_logical_requests(profile: dict[str, Any]) -> int | None:
     return site if 0 <= site <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE else None
 
 
+def _attach_activity_feed_in_spare_slot(
+    row: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    website: dict[str, Any],
+    base_site_requests: int | None,
+    timeout: float,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Use exactly the final two site requests only after company identity is settled."""
+    result["activity_feed_attempted"] = False
+    result["activity_feed_retained"] = False
+    result["activity_feed_status"] = None
+
+    if base_site_requests is None:
+        result["activity_feed_skipped_reason"] = "base_site_request_accounting_unavailable"
+        return row, result
+    if base_site_requests + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
+        result["activity_feed_skipped_reason"] = "site_request_budget_consumed"
+        return row, result
+
+    verified_url = str(
+        (website.get("value") or {}).get("final_url")
+        or website.get("source_url")
+        or row.get("website")
+        or ""
+    ).strip()
+    if not verified_url:
+        result["activity_feed_skipped_reason"] = "verified_website_url_missing"
+        return row, result
+
+    result["activity_feed_attempted"] = True
+    feed_record, operations = fetch_verified_activity_feed(
+        verified_url,
+        timeout=timeout,
+    )
+    added_requests = int(operations.get("requests") or 0)
+    post_site_requests = base_site_requests + added_requests
+    if post_site_requests > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
+        raise RuntimeError(
+            f"Q4 activity feed exceeded site request ceiling for {row.get('organisation_number')}: "
+            f"{post_site_requests}>{MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE}"
+        )
+
+    result["requests_added"] = added_requests
+    result["post_site_logical_requests"] = post_site_requests
+    result["bytes_added"] = int(operations.get("bytes") or 0)
+    result["latencies_ms"] = [int(value) for value in operations.get("latencies_ms") or []]
+    result["activity_feed_status"] = feed_record.get("status")
+    result["activity_feed_skipped_reason"] = None
+
+    row.setdefault("evidence", {})["website_activity_feed"] = feed_record
+    if feed_record.get("status") == "available":
+        entries = ((feed_record.get("value") or {}).get("entries") or [])
+        result["activity_feed_retained"] = bool(entries)
+        result["activity_feed_entry_count"] = len(entries)
+        result["activity_feed_url"] = feed_record.get("source_url")
+    return row, result
+
+
 def evaluate_hyphenated_no_fallback(
     profile: dict[str, Any],
     *,
     timeout: float = 6.0,
     base_site_logical_requests: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Evaluate H1g only inside request headroom left by prior qualified discovery.
+    """Evaluate H1g inside request headroom, then use any settled spare slot for Q4.
 
     The standalone evaluator derives site requests from ``profile.run_metrics``. Production
     orchestration can instead pass the already-measured site request count directly so the
     same four-request ceiling remains authoritative while discovery is still in progress.
+
+    Q4 never competes with website recovery. If a website is already exact-verified, one
+    `/feed/` attempt may use the final two logical site requests. Unresolved companies keep
+    those requests available for H1g. A site that H1g itself recovers therefore receives no
+    additional feed request in the same run.
     """
 
     row = deepcopy(profile)
@@ -158,19 +223,32 @@ def evaluate_hyphenated_no_fallback(
         "latencies_ms": [],
         "skipped_reason": None,
         "guard_reasons": [],
+        "activity_feed_attempted": False,
+        "activity_feed_retained": False,
+        "activity_feed_status": None,
+        "activity_feed_skipped_reason": None,
     }
 
     if _publishable(website):
         result["skipped_reason"] = "verified_website_present"
-        return row, result
+        return _attach_activity_feed_in_spare_slot(
+            row,
+            result,
+            website=website,
+            base_site_requests=base_site_requests,
+            timeout=timeout,
+        )
     if base_site_requests is None:
         result["skipped_reason"] = "base_site_request_accounting_unavailable"
+        result["activity_feed_skipped_reason"] = "website_not_verified"
         return row, result
     if not candidate:
         result["skipped_reason"] = "no_distinct_hyphenated_no_candidate"
+        result["activity_feed_skipped_reason"] = "website_not_verified"
         return row, result
     if base_site_requests + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         result["skipped_reason"] = "site_request_budget_consumed"
+        result["activity_feed_skipped_reason"] = "website_not_verified"
         return row, result
 
     result["attempted"] = True
@@ -190,6 +268,7 @@ def evaluate_hyphenated_no_fallback(
     result["post_site_logical_requests"] = post_site_requests
     result["bytes_added"] = int(operations.get("bytes") or 0)
     result["latencies_ms"] = [int(value) for value in operations.get("latencies_ms") or []]
+    result["activity_feed_skipped_reason"] = "h1g_consumed_spare_slot"
 
     record["source_class"] = "company_owned_candidate"
     gated = apply_website_identity_gate(row, record)
