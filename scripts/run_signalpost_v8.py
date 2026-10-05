@@ -1,16 +1,33 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
+from build_v2_product import read_jsonl  # noqa: E402
 from norway_company_agent.batch import read_organisation_inputs  # noqa: E402
+from norway_company_agent.canonical_projection import (  # noqa: E402
+    CANONICAL_SCHEMA_VERSION,
+    project_canonical_profile,
+    validate_canonical_projection,
+)
+from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates  # noqa: E402
+from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
+from norway_company_agent.synthesis import (  # noqa: E402
+    SYNTHESIS_SCHEMA_VERSION,
+    build_company_synthesis,
+    validate_company_synthesis,
+)
 
 V7_RUNNER = ROOT / "scripts" / "run_signalpost_v7.py"
+V6_BUILDER = ROOT / "scripts" / "build_v6_ui.py"
 SMOKE_TEST_MIN_REQUEST_BUDGET = 2000
 REQUEST_BUDGET_PER_COMPANY = 20
 SMOKE_TEST_MIN_WALL_RUNTIME_SECONDS = 2400
@@ -113,10 +130,182 @@ def prepare_evaluator_args(argv: list[str]) -> tuple[list[str], dict[str, int]]:
     }
 
 
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    temporary.replace(path)
+
+
+def _profile_index(work_dir: Path) -> dict[str, dict[str, Any]]:
+    path = work_dir / "profiles.jsonl"
+    if not path.is_file():
+        raise ValueError(f"V8 wrapper expected retained internal profiles at {path}")
+    profiles = read_jsonl(path)
+    index = {
+        str(profile.get("organisation_number") or ""): profile
+        for profile in profiles
+        if profile.get("organisation_number")
+    }
+    if len(index) != len(profiles):
+        raise ValueError("V8 retained profiles contain missing or duplicate organisation numbers")
+    return index
+
+
+def _canonical_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    area_counts = {
+        "company_record": 0,
+        "financials": 0,
+        "people_and_locations": 0,
+        "company_website": 0,
+        "hiring_and_public_activity": 0,
+    }
+    fact_type_counts: dict[str, int] = {}
+    for row in rows:
+        canonical = row.get("canonical_profile") or {}
+        areas = canonical.get("data_areas") or {}
+        for key in area_counts:
+            area_counts[key] += int(bool(areas.get(key)))
+        for fact in row.get("canonical_facts") or []:
+            fact_type = str(fact.get("type") or "unknown")
+            fact_type_counts[fact_type] = fact_type_counts.get(fact_type, 0) + 1
+    return {
+        "schema_version": CANONICAL_SCHEMA_VERSION,
+        "companies": len(rows),
+        "facts": sum(len(row.get("canonical_facts") or []) for row in rows),
+        "companies_by_data_area": area_counts,
+        "fact_type_counts": dict(sorted(fact_type_counts.items())),
+    }
+
+
+def _project_q4_feed_activity(
+    *,
+    output_path: Path,
+    report_path: Path,
+    work_dir: Path,
+    product_output: Path,
+    expected_count: int,
+) -> bool:
+    rows = read_jsonl(output_path)
+    profiles_by_org = _profile_index(work_dir)
+    projected: list[dict[str, Any]] = []
+    contract_errors: list[dict[str, str]] = []
+    canonical_errors: list[dict[str, str]] = []
+    synthesis_errors: list[dict[str, str]] = []
+    feed_claims = 0
+    feed_companies = 0
+
+    for row in rows:
+        org = str(row.get("organisation_number") or "")
+        profile = profiles_by_org.get(org)
+        if profile is None:
+            raise ValueError(f"V8 retained profile missing for {org}")
+        before = sum(
+            1
+            for claim in row.get("claims") or []
+            if isinstance(claim, dict) and claim.get("field") == "external.company_update"
+        )
+        with_feed = project_first_party_feed_updates(row, profile)
+        after = sum(
+            1
+            for claim in with_feed.get("claims") or []
+            if isinstance(claim, dict) and claim.get("field") == "external.company_update"
+        )
+        added = max(0, after - before)
+        feed_claims += added
+        feed_companies += int(added > 0)
+
+        item = project_canonical_profile(with_feed)
+        item["synthesis"] = build_company_synthesis(item)
+        for error in validate_contract_object(item):
+            contract_errors.append({"organisation_number": org, "error": error})
+        for error in validate_canonical_projection(item):
+            canonical_errors.append({"organisation_number": org, "error": error})
+        for error in validate_company_synthesis(item):
+            synthesis_errors.append({"organisation_number": org, "error": error})
+        projected.append(item)
+
+    _write_jsonl(output_path, projected)
+
+    workspace_command = [
+        sys.executable,
+        str(V6_BUILDER),
+        "--input",
+        str(output_path),
+        "--output",
+        str(product_output),
+        "--expect-count",
+        str(expected_count),
+    ]
+    workspace_returncode = subprocess.run(workspace_command, cwd=ROOT, check=False).returncode
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    canonical_report = dict(report.get("canonical_projection") or {})
+    canonical_report.update(_canonical_metrics(projected))
+    canonical_report["validation_errors"] = canonical_errors
+    canonical_report["q4_feed_activity_projection"] = {
+        "claim_field": "external.company_update",
+        "canonical_type": "public.company_update",
+        "published_claims": feed_claims,
+        "companies_with_published_claims": feed_companies,
+        "network_requests_added_by_projection": 0,
+        "source_boundary": (
+            "exact-verified company website -> same-site RSS/Atom snapshot; feed is cited source; "
+            "article URL is observed in the feed and is not represented as independently fetched"
+        ),
+    }
+    report["canonical_projection"] = canonical_report
+    report["synthesis"] = {
+        **dict(report.get("synthesis") or {}),
+        "schema_version": SYNTHESIS_SCHEMA_VERSION,
+        "companies": len(projected),
+        "q4_feed_activity_context_enabled": True,
+        "validation_errors": synthesis_errors,
+    }
+    report["q4_feed_activity"] = {
+        "production_fetch_location": "spare site-request slot after exact website verification and after H1g priority",
+        "network_requests_added_by_projection": 0,
+        "published_claims": feed_claims,
+        "companies_with_published_claims": feed_companies,
+        "max_site_logical_requests_per_profile_unchanged": 4,
+        "third_party_cost_usd": 0.0,
+    }
+    report["claims"] = sum(len(row.get("claims") or []) for row in projected)
+    report["evidence_items"] = sum(len(row.get("evidence") or []) for row in projected)
+
+    checks = report.setdefault("checks", {})
+    checks["q4_feed_projection_contract_valid"] = not contract_errors
+    checks["canonical_projection_valid"] = not canonical_errors
+    checks["synthesis_valid"] = not synthesis_errors
+    checks["q4_workspace_rebuild_valid"] = workspace_returncode == 0
+    report["q4_feed_projection_errors"] = {
+        "contract": contract_errors,
+        "canonical": canonical_errors,
+        "synthesis": synthesis_errors,
+    }
+    report["passed"] = (
+        bool(report.get("passed"))
+        and not contract_errors
+        and not canonical_errors
+        and not synthesis_errors
+        and workspace_returncode == 0
+    )
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return bool(report["passed"])
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     try:
         prepared, settings = prepare_evaluator_args(args)
+        output_raw = _arg_value(prepared, "--output")
+        report_raw = _arg_value(prepared, "--report")
+        work_raw = _arg_value(prepared, "--work-dir")
+        product_raw = _arg_value(prepared, "--product-output")
+        if not output_raw or not report_raw or not work_raw or not product_raw:
+            raise ValueError("V8 wrapper requires --output, --report, --work-dir and --product-output")
     except (OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -133,7 +322,21 @@ def main(argv: list[str] | None = None) -> int:
         cwd=ROOT,
         check=False,
     )
-    return int(completed.returncode)
+    if completed.returncode != 0:
+        return int(completed.returncode)
+
+    try:
+        passed = _project_q4_feed_activity(
+            output_path=Path(str(output_raw)),
+            report_path=Path(str(report_raw)),
+            work_dir=Path(str(work_raw)),
+            product_output=Path(str(product_raw)),
+            expected_count=int(settings["expected_count"]),
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"V8 Q4 feed projection failed: {exc}", file=sys.stderr)
+        return 1
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
