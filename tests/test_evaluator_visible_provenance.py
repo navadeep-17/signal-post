@@ -11,6 +11,7 @@ from norway_company_agent.evidence_provenance import (  # noqa: E402
     project_evaluator_visible_provenance,
     website_provenance,
 )
+from norway_company_agent.support_contract import project_support_award_observations  # noqa: E402
 
 
 def _website_profile() -> dict:
@@ -175,3 +176,53 @@ def test_existing_visible_provenance_is_never_overwritten() -> None:
 
     assert evidence["identity_proof"] == {"status": "preexisting"}
     assert evidence["extraction_method"] == "preexisting_method"
+
+
+def test_support_projection_exposes_exact_recipient_provenance() -> None:
+    profile = {
+        "organisation_number": "923609016",
+        "external_observations": [
+            {
+                "id": "support-1",
+                "organisation_number": "923609016",
+                "platform": "brreg",
+                "signal_type": "official_support_award",
+                "source_url": "https://data.brreg.no/stotteregisteret/data",
+                "retrieved_at": "2026-10-05T12:00:00Z",
+                "content_sha256": "c" * 64,
+                "source_snapshot_sha256": "d" * 64,
+                "source_row_number": 42,
+                "source_row_key": "923609016|2026-09-15|42",
+                "exact_entity": True,
+                "identity_proof": [
+                    {
+                        "type": "official_support_primary_recipient_organisation_number",
+                        "value": "923609016",
+                    }
+                ],
+                "acquisition_mode": "official_dataset",
+                "rights_status": "approved",
+                "source_class": "official_support_registry",
+                "evidence_span": "Primary recipient organisation number 923609016 received NOK 100000.",
+                "effective_at": "2026-09-15",
+                "event": {
+                    "kind": "support_award",
+                    "awarded_at": "2026-09-15",
+                    "amount": 100000,
+                    "currency": "NOK",
+                },
+                "strategy": "official_support_registry_primary_recipient_exact_org_v1",
+            }
+        ],
+    }
+    contract = {
+        "organisation_number": "923609016",
+        "claims": [],
+        "evidence": [],
+    }
+
+    projected = project_support_award_observations(contract, profile)
+    evidence = projected["evidence"][0]
+
+    assert evidence["identity_proof"] == profile["external_observations"][0]["identity_proof"]
+    assert evidence["extraction_method"] == "official_support_registry_primary_recipient_exact_org_v1"
