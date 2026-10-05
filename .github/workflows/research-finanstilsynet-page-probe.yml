@@ -18,67 +18,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve Norway country code from registry API
+      - name: Fetch page one of domestic registry report
         run: |
           mkdir -p out
-          curl --fail --location --compressed \
-            --header 'Accept: application/json' \
-            --user-agent 'Signalpost-research-source-screen/1.0' \
-            'https://api.finanstilsynet.no/registry/v2/country-codes' \
-            --output out/countries.json
-          python - <<'PY'
-          from pathlib import Path
-          import json
-          data = json.loads(Path('out/countries.json').read_text(encoding='utf-8-sig'))
-          candidates = [row for row in data if 'norge' in json.dumps(row, ensure_ascii=False).lower() or 'norway' in json.dumps(row, ensure_ascii=False).lower()]
-          print('norway-candidates:', json.dumps(candidates, ensure_ascii=False, indent=2)[:6000])
-          if not candidates:
-              raise SystemExit('Norway not found')
-          code = candidates[0].get('iso3') or candidates[0].get('code') or candidates[0].get('countryCode') or candidates[0].get('id')
-          if not code:
-              raise SystemExit('No country code field')
-          Path('out/norway-code.txt').write_text(str(code), encoding='utf-8')
-          print('resolved-code:', code)
-          PY
-
-      - name: Capture one documented GET report response
-        run: |
-          CODE="$(cat out/norway-code.txt)"
           HTTP_CODE="$(curl --silent --show-error --location --compressed --get \
             --header 'Accept: application/json' \
             --user-agent 'Signalpost-research-source-screen/1.0' \
-            --data-urlencode "countryCode=${CODE}" \
+            --data-urlencode 'passporting=Domestic' \
             --data-urlencode 'pageSize=1000' \
             --data-urlencode 'page=1' \
             --write-out '%{http_code}' \
             'https://api.finanstilsynet.no/registry/v2/report/json' \
             --output out/page1.json)"
           echo "http-code=${HTTP_CODE}"
+          echo "$HTTP_CODE" > out/http-code.txt
           test -s out/page1.json
-          python - <<'PY'
+          if [ "$HTTP_CODE" != "200" ]; then
+            python - <<'PY'
           from pathlib import Path
           print('response-prefix:', Path('out/page1.json').read_text(encoding='utf-8', errors='replace')[:4000])
           PY
-          echo "$HTTP_CODE" > out/http-code.txt
-
-      - name: Parse only successful page evidence
-        run: |
-          if [ "$(cat out/http-code.txt)" != "200" ]; then
-            echo 'Non-200 response captured; diagnostic complete.'
-            exit 0
           fi
+
+      - name: Print bounded page-cost evidence
+        run: |
+          test "$(cat out/http-code.txt)" = "200"
           python - <<'PY'
           from pathlib import Path
           from collections import Counter
           import json, re
+
           data = json.loads(Path('out/page1.json').read_text(encoding='utf-8-sig'))
           print('page:', data.get('page'))
           print('totalPages:', data.get('totalPages'))
           print('total:', data.get('total'))
           print('hitsReturned:', data.get('hitsReturned'))
           rows = data.get('data') or []
+          print('rows:', len(rows))
           exact_orgs = set()
           provider_types = Counter()
+          owner_orgs = set()
+          provider_orgs = set()
           for row in rows:
               if not isinstance(row, dict):
                   continue
@@ -86,14 +66,19 @@ jobs:
                   entity = row.get(side)
                   if not isinstance(entity, dict):
                       continue
-                  provider_types[str(entity.get('serviceProviderType'))] += 1
+                  provider_types[(side, str(entity.get('serviceProviderType')))] += 1
                   org = ''.join(ch for ch in str(entity.get('legalEntityNumber') or '') if ch.isdigit())
                   if re.fullmatch(r'\d{9}', org):
                       exact_orgs.add(org)
+                      (owner_orgs if side == 'licenceOwner' else provider_orgs).add(org)
           print('unique-9-digit-orgs-page1:', len(exact_orgs))
+          print('unique-provider-orgs-page1:', len(provider_orgs))
+          print('unique-owner-orgs-page1:', len(owner_orgs))
           print('provider-types:', provider_types)
+          if rows:
+              print('first-row:', json.dumps(rows[0], ensure_ascii=False, sort_keys=True)[:12000])
           PY
 
       - name: Remove source payload
         if: always()
-        run: rm -f out/countries.json out/norway-code.txt out/page1.json out/http-code.txt
+        run: rm -f out/page1.json out/http-code.txt
