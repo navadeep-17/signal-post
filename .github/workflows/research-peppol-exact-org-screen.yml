@@ -1,0 +1,93 @@
+name: Research Peppol Exact Org Screen
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_peppol_exact_org_reach.py
+      - tests/test_screen_peppol_exact_org_reach.py
+      - .github/workflows/research-peppol-exact-org-screen.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run Peppol parser precision tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_peppol_exact_org_reach.py
+
+      - name: Recreate the same deterministic consumed 100 used by R1
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          src = Path('submission/final-release-1000.jsonl')
+          rows = [json.loads(line) for line in src.read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000, len(rows)
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Download current Peppol BusinessCard export once
+        run: |
+          curl --fail --location --retry 2 --retry-delay 5 \
+            --header 'Accept-Encoding: gzip' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://directory.peppol.eu/export/businesscards-csv' \
+            --output out/businesscards.csv.gz
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('out/businesscards.csv.gz')
+          assert p.read_bytes()[:2] == b'\x1f\x8b', 'expected gzip-compressed Peppol export'
+          print('compressed bytes', p.stat().st_size)
+          PY
+
+      - name: Screen exact Norwegian 0192 participants
+        run: |
+          uv run python scripts/screen_peppol_exact_org_reach.py \
+            --export-gz out/businesscards.csv.gz \
+            --companies-100 out/consumed-100.jsonl \
+            --companies-1000 submission/final-release-1000.jsonl \
+            --output-dir out/peppol
+          cat out/peppol/report.json
+
+      - name: Remove bulk source before artifact upload
+        if: always()
+        run: rm -f out/businesscards.csv.gz
+
+      - name: Upload bounded screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-peppol-exact-org-screen
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/peppol/report.json
+            out/peppol/matched-companies.jsonl
