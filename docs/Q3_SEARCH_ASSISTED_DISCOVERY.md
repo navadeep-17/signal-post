@@ -135,7 +135,7 @@ The three other nominations were correctly not published:
 - artifact: `11352149982`;
 - artifact digest: `sha256:5611c946e0349c0bf2ababf2b33816f81525fd7b2ff212f6e1f25c98045256e7`;
 - exact-head Baseline CI: `37328353539` — PASS;
-- head: `e25e5370830dcbd0f91a1d15d6acf0f8349e6ab3`.
+- measured replay head: `e25e5370830dcbd0f91a1d15d6acf0f8349e6ab3`.
 
 These are consumed-only measurements, not fresh qualification evidence.
 
@@ -193,7 +193,7 @@ The production request theorem is unchanged because Q3 is not wired into V8 prod
 
 **HOLD.**
 
-The deterministic proxy produced only 1/20 verified sites. This proves the mechanism can recover real sites, but it does not yet demonstrate enough transfer to justify production integration or a fresh cohort.
+The deterministic proxy produced only 1/20 verified sites. This proves the mechanism can recover real sites, but it does not yet demonstrate enough transfer to justify production integration or a fresh cohort. The earlier provisional website-discovery target was at least 5/20; the measured 1/20 result is materially below it.
 
 ### Q3c — fresh transfer
 
