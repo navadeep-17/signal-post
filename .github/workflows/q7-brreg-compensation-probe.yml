@@ -1,0 +1,70 @@
+name: Q7 BRREG Compensation API Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/q7-brreg-compensation-api
+    paths:
+      - '.github/workflows/q7-brreg-compensation-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probe live BRREG compensation API
+        run: |
+          set -euo pipefail
+          mkdir -p q7-brreg-compensation
+
+          curl --fail --silent --show-error --location --retry 3 \
+            -D q7-brreg-compensation/root.headers \
+            'https://data.brreg.no/kompensasjonsordning/api' \
+            -o q7-brreg-compensation/root.body
+
+          for suffix in \
+            'open-api/v3/docs' \
+            'open-api/v3/api-docs' \
+            'v3/api-docs' \
+            'swagger-ui/index.html'; do
+            safe="$(echo "$suffix" | tr '/.' '__')"
+            status="$(curl --silent --show-error --location --retry 2 \
+              -w '%{http_code}' \
+              -D "q7-brreg-compensation/${safe}.headers" \
+              "https://data.brreg.no/kompensasjonsordning/api/${suffix}" \
+              -o "q7-brreg-compensation/${safe}.body" || true)"
+            printf '%s %s\n' "$status" "$suffix" >> q7-brreg-compensation/status.txt
+          done
+
+          echo 'ROOT_HEADERS'
+          cat q7-brreg-compensation/root.headers
+          echo 'ROOT_BODY'
+          head -c 20000 q7-brreg-compensation/root.body || true
+          echo
+          echo 'OPTIONAL_STATUS'
+          cat q7-brreg-compensation/status.txt
+
+      - name: Require machine-readable root
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body = Path('q7-brreg-compensation/root.body').read_text(encoding='utf-8')
+          parsed = json.loads(body)
+          assert isinstance(parsed, dict), type(parsed)
+          print(json.dumps(parsed, indent=2, ensure_ascii=False)[:20000])
+          PY
+
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: q7-brreg-compensation-api-probe
+          path: q7-brreg-compensation/*
+          if-no-files-found: error
