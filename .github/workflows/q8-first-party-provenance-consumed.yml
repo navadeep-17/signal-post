@@ -1,0 +1,94 @@
+name: Q8 Legacy Activity Provenance Consumed Replay
+
+on:
+  push:
+    branches:
+      - fix/q8-first-party-activity-provenance
+    paths:
+      - src/norway_company_agent/first_party_activity_provenance.py
+      - src/norway_company_agent/first_party_feed_contract.py
+      - scripts/audit_q8_first_party_activity_provenance.py
+      - tests/test_q8_first_party_activity_provenance.py
+      - .github/workflows/q8-first-party-provenance-consumed.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay-consumed-q8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q8_first_party_activity_provenance.py tests/test_first_party_feed.py tests/test_first_party_feed_contract.py
+
+      - name: Download consumed Q8 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            'https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/11362056592/zip' \
+            --output q8-consumed.zip
+          echo '8db304a4a91669d42a8cea8c219e43ea7e3d4e549a486b777a7cb248d83ca7fa  q8-consumed.zip' | sha256sum -c -
+          unzip -q q8-consumed.zip 'out/q8-fresh-output.jsonl'
+
+      - name: Reproject provenance with zero network
+        run: |
+          uv run python scripts/audit_q8_first_party_activity_provenance.py \
+            --input out/q8-fresh-output.jsonl \
+            --output out/q8-provenance-reprojected.jsonl \
+            --report out/q8-provenance-report.json \
+            --expected-changed-evidence 1
+
+      - name: Verify exact Q8 closure
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('out/q8-provenance-report.json').read_text())
+          assert report['companies'] == 100, report
+          assert report['claims_unchanged'] is True, report
+          assert report['evidence_ids_unchanged'] is True, report
+          assert report['changed_evidence_rows'] == 1, report
+          assert report['network_requests_added'] == 0, report
+          change = report['changes'][0]
+          assert change['organisation_number'] == '885588522', change
+          assert change['extraction_method'] == 'verified_same_site_dated_detail_page_v1', change
+          visibility = report['visibility']
+          assert visibility['available_claims'] == 4658, visibility
+          assert visibility['core_evidence_complete_claims'] == 4658, visibility
+          assert visibility['reopenable_source_claims'] == 4658, visibility
+          assert visibility['identity_sensitive_claims'] == 165, visibility
+          assert visibility['identity_proof_visible'] == 165, visibility
+          assert visibility['extraction_method_visible'] == 165, visibility
+          assert visibility['issues'] == [], visibility
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Upload consumed reprojection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: q8-first-party-provenance-consumed-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/q8-provenance-report.json
+            out/q8-provenance-reprojected.jsonl
