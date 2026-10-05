@@ -32,35 +32,56 @@ Status: COMPLETE.
 
 ### Q1 — evaluator-visible evidence audit
 
+Status: COMPLETE.
+
 Goal: measure what an evaluator can actually reopen from the final JSONL/product.
 
-Small deliverables:
+Implemented:
 
-1. Add an offline evidence-visibility auditor.
-2. For every available claim verify visible URL, retrieval time, supporting span and content hash.
-3. For company-owned/external claims separately report whether exact-company identity proof and extraction method are visible.
-4. Report field-level completeness and issue rows.
-5. Run against consumed/dev artifacts only; do not consume a fresh cohort.
-6. Use the audit to decide whether the next change is projection-only or data-collection work.
+1. Added an offline evidence-visibility auditor.
+2. Every available claim is checked for visible URL, retrieval time, supporting span and content hash.
+3. Company-owned/external claims separately report whether exact-company identity proof and extraction method are visible.
+4. Field-level completeness and issue rows are emitted.
+5. Audit runs on consumed/dev artifacts only; no fresh cohort is consumed.
 
-Promotion gate:
+Consumed Phase-11 owner-veto replay result:
 
-- no collection semantics change;
-- no request-budget change;
-- deterministic tests green;
-- baseline CI green;
-- audit output identifies concrete evaluator-facing gaps.
+- 100 companies;
+- 4,611 available claims;
+- 4,611 / 4,611 core-evidence-complete;
+- 4,611 / 4,611 reopenable HTTP(S) sources;
+- 169 identity-sensitive claims;
+- 0 / 169 evaluator-visible identity proof;
+- 0 / 169 evaluator-visible extraction method;
+- retained profiles contain identity proof for all 123 retained external observations.
+
+Conclusion: the immediate gap is projection visibility, not missing core evidence.
 
 ### Q2 — evidence projection hardening
 
-Only if Q1 confirms gaps.
+Status: IMPLEMENTED + TESTED; consumed reprojection/replay confirmation next.
 
-- expose exact-company identity proof alongside company-owned evidence;
-- expose extraction method where already known;
-- preserve URL / retrieval time / content hash / supporting text;
-- preserve publication/effective/reporting dates where relevant;
-- add validation that projected metadata matches backing evidence;
-- no invented provenance and no duplicated source fetches.
+Implemented:
+
+- added a deterministic zero-network provenance projection layer;
+- observation `identity_proof` is copied verbatim to final evidence;
+- retained observation `strategy` is exposed as `extraction_method`;
+- verified website `identity_assessment` is exposed as final website-backed `identity_proof`;
+- website identity-assessment `method` is exposed as `extraction_method`;
+- observation-backed joins require exact `observation_id`;
+- website-backed joins require both exact source URL and content SHA-256;
+- pre-existing visible provenance is never overwritten;
+- claim values/confidence/availability/evidence IDs/request accounting are unchanged;
+- no network requests are added.
+
+Dry reprojection of the consumed replay's retained base profiles covers 121 / 169 identity-sensitive claims immediately. The remaining 48 are support-award claims whose observations are created in the later V7 support stage; direct support-projector regression now verifies those observations also expose retained identity proof and strategy.
+
+Promotion gate before closing Q2:
+
+- exact-head Baseline CI green;
+- consumed/dev comparison proves claim values and evidence IDs are unchanged apart from the two added provenance fields;
+- visible identity/extraction coverage increases monotonically;
+- no new fresh cohort consumed.
 
 ### Q3 — website reach recovery
 
@@ -143,4 +164,4 @@ Submit only a materially stronger qualified bundle. Internal release target:
 
 ## Current action
 
-Q1 is active. The first implementation is an offline evidence-visibility audit so we can distinguish “we already have the fact but hide proof” from “we do not collect the fact at all.”
+Q1 is closed. Q2 provenance projection is implemented; finish exact-head CI + consumed monotonic comparison, then move to Q3 website reach recovery without consuming a fresh cohort.
