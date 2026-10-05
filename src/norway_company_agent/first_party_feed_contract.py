@@ -6,6 +6,8 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from .first_party_activity_provenance import project_first_party_activity_provenance
+
 
 def _evidence_id(org: str, feed: dict[str, Any], entry: dict[str, Any]) -> str:
     material = "|".join(
@@ -108,11 +110,16 @@ def project_first_party_feed_updates(
     remains the RSS/Atom snapshot that actually supplied the title, article URL and date;
     the article destination is never represented as fetched unless another collector did
     fetch it independently.
+
+    Before feed projection, the V8 first-party postprojection also closes evaluator-visible
+    provenance on older page-backed job/update rows using only their existing verified-site
+    evidence. That pass is zero-network and cannot add or remove claims.
     """
     org = str(contract.get("organisation_number") or profile.get("organisation_number") or "")
     if not org or org != str(profile.get("organisation_number") or ""):
         return contract
 
+    contract = project_first_party_activity_provenance(contract)
     entries = _qualified_feed_entries(profile)
     if not entries:
         return contract
