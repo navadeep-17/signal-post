@@ -1,13 +1,6 @@
 name: Research SGregister Bulk Reach
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_sgregister_bulk_reach.py
-      - tests/test_screen_sgregister_bulk_reach.py
-      - .github/workflows/research-sgregister-bulk-reach.yml
   workflow_dispatch:
 
 permissions:
