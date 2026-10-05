@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from norway_company_agent.evidence_visibility import audit_evidence_visibility
+from norway_company_agent.evidence_visibility import audit_contract_rows
 from norway_company_agent.first_party_activity_provenance import (
     project_first_party_activity_provenance,
 )
@@ -86,7 +86,7 @@ def main() -> None:
             f"expected {args.expected_changed_evidence} changed evidence rows, observed {len(changed)}"
         )
 
-    visibility = audit_evidence_visibility(projected)
+    visibility = audit_contract_rows(projected)
     report = {
         "schema_version": "signalpost-q8-first-party-activity-provenance-replay-v1",
         "companies": len(projected),
