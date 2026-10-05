@@ -22,11 +22,11 @@ NO_MVA_ORG_NUMBER_RE = re.compile(
 SITE_OWNER_RELATION_RE = re.compile(
     r"(?i)\b(?P<subject>"
     r"(?:www\.)?[a-z0-9æøå.-]+\.[a-z]{2,}|"
-    r"(?:denne\s+)?(?:nettsiden|nettstedet|websiden|hjemmesiden)|"
+    r"(?:(?:denne|dette)\s+)?(?:nettsiden|nettstedet|websiden|hjemmesiden)|"
     r"(?:this\s+)?(?:website|web\s*site|site)"
     r")\s+(?:(?:er|is)\s+)?"
     r"(?:(?:eid|eies|owned)\s+(?:av|by)|tilhører|belongs\s+to)\s+"
-    r"(?P<owner>[^\n.;|]{2,160})"
+    r"(?P<owner>[^,\n.;|]{2,160})"
 )
 SITE_OWNER_GENERIC_SUBJECTS = {
     "nettsiden",
@@ -34,7 +34,7 @@ SITE_OWNER_GENERIC_SUBJECTS = {
     "websiden",
     "hjemmesiden",
     "denne nettsiden",
-    "denne nettsiden",
+    "dette nettstedet",
     "denne websiden",
     "denne hjemmesiden",
     "website",
