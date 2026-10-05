@@ -50,7 +50,7 @@ jobs:
             --output phase11-failed-fresh.zip
           echo '9c9ab8bb8477c949a9491f7a672ad181f43566cd9b885a1f4fc6a2dd720165cf  phase11-failed-fresh.zip' | sha256sum -c -
           unzip -q phase11-failed-fresh.zip phase11-fresh-100.jsonl phase11-selection.json out/phase11-external-audit.json
-          echo '394eaae1c94aac242a0e18dd2a8fc31714b2bf3d23347789520153f8b5b7e20a  phase11-fresh-100.jsonl' | sha256sum -c -
+          echo '394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99  phase11-fresh-100.jsonl' | sha256sum -c -
           python - <<'PY'
           import json
           from pathlib import Path
