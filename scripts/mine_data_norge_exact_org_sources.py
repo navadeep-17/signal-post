@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Mine Data.norge metadata for bulk/exact-org Signalpost source candidates.
 
-Research-only. One SPARQL metadata query is used to discover datasets whose
-catalog metadata mentions Norwegian organisation-number semantics. Results are
-ranked for source-selection value; no source data is fetched and no company
-facts are published.
+Research-only. Uses a bounded set of public Data.norge Search API queries.
+No candidate source data is fetched and no company facts are published.
 """
 
 from __future__ import annotations
@@ -12,13 +10,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
+import time
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
-SPARQL_ENDPOINT = "https://sparql.fellesdatakatalog.digdir.no"
+SEARCH_ENDPOINT = "https://search.api.fellesdatakatalog.digdir.no/search/datasets"
+SEARCH_QUERIES = (
+    "organisasjonsnummer nettside",
+    "organisasjonsnummer e-post",
+    "organisasjonsnummer leverandør",
+    "organisasjonsnummer tildeling",
+    "organisasjonsnummer godkjenning",
+    "organisasjonsnummer status",
+    "organisasjonsnummer tilskudd",
+)
 ORG_TERMS = (
     "organisasjonsnummer",
     "organisasjonsnr",
@@ -38,63 +45,46 @@ VALUE_TERMS = {
     "employment": ("arbeidsgiver", "employer", "jobb", "job", "stilling", "vacancy"),
 }
 
-SPARQL_QUERY = r'''
-PREFIX dcat: <http://www.w3.org/ns/dcat#>
-PREFIX dct: <http://purl.org/dc/terms/>
-SELECT DISTINCT ?dataset ?title ?description ?keyword ?license ?distributionLicense
-                ?distribution ?accessURL ?downloadURL ?modified
-WHERE {
-  ?dataset a dcat:Dataset ; dct:title ?title .
-  OPTIONAL { ?dataset dct:description ?description . }
-  OPTIONAL { ?dataset dcat:keyword ?keyword . }
-  OPTIONAL { ?dataset dct:license ?license . }
-  OPTIONAL { ?dataset dct:modified ?modified . }
-  OPTIONAL {
-    ?dataset dcat:distribution ?distribution .
-    OPTIONAL { ?distribution dcat:accessURL ?accessURL . }
-    OPTIONAL { ?distribution dcat:downloadURL ?downloadURL . }
-    OPTIONAL { ?distribution dct:license ?distributionLicense . }
-  }
-  FILTER (
-    CONTAINS(LCASE(STR(?title)), "organisasjonsnummer") ||
-    CONTAINS(LCASE(COALESCE(STR(?description), "")), "organisasjonsnummer") ||
-    CONTAINS(LCASE(COALESCE(STR(?keyword), "")), "organisasjonsnummer") ||
-    CONTAINS(LCASE(STR(?title)), "orgnr") ||
-    CONTAINS(LCASE(COALESCE(STR(?description), "")), "orgnr") ||
-    CONTAINS(LCASE(COALESCE(STR(?keyword), "")), "orgnr") ||
-    CONTAINS(LCASE(COALESCE(STR(?description), "")), "organisation number") ||
-    CONTAINS(LCASE(COALESCE(STR(?description), "")), "organization number")
-  )
-}
-LIMIT 2000
-'''.strip()
+
+def iter_scalars(value: Any) -> Iterable[str]:
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from iter_scalars(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_scalars(child)
+    elif value is not None:
+        yield str(value)
 
 
-def fetch_sparql(timeout: float = 45.0) -> tuple[bytes, dict[str, Any]]:
-    request = urllib.request.Request(
-        SPARQL_ENDPOINT,
-        data=SPARQL_QUERY.encode("utf-8"),
-        method="POST",
-        headers={
-            "Accept": "application/sparql-results+json, application/json",
-            "Content-Type": "application/sparql-query; charset=utf-8",
-            "User-Agent": "Signalpost-research-source-miner/1.0",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read()
-    payload = json.loads(body)
-    if not isinstance(payload, dict):
-        raise RuntimeError("Data.norge SPARQL response is not an object")
-    return body, payload
+def _find_first(value: Any, keys: set[str]) -> str | None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key.lower() in keys and not isinstance(child, (dict, list)) and str(child).strip():
+                return str(child).strip()
+        for child in value.values():
+            found = _find_first(child, keys)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_first(child, keys)
+            if found:
+                return found
+    return None
 
 
-def binding_value(binding: dict[str, Any], key: str) -> str | None:
-    entry = binding.get(key)
-    if not isinstance(entry, dict):
-        return None
-    value = entry.get("value")
-    return str(value).strip() if value is not None and str(value).strip() else None
+def _collect_by_key_fragment(value: Any, fragments: tuple[str, ...]) -> list[str]:
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if any(fragment in key.lower() for fragment in fragments):
+                found.update(s.strip() for s in iter_scalars(child) if s.strip())
+            found.update(_collect_by_key_fragment(child, fragments))
+    elif isinstance(value, list):
+        for child in value:
+            found.update(_collect_by_key_fragment(child, fragments))
+    return sorted(found)
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
@@ -102,103 +92,116 @@ def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in lower for term in terms)
 
 
-def rank_dataset(row: dict[str, Any]) -> dict[str, Any]:
-    text = " ".join(
-        str(value)
-        for key in ("titles", "descriptions", "keywords")
-        for value in row.get(key, [])
-    ).lower()
-    categories = [name for name, terms in VALUE_TERMS.items() if _contains_any(text, terms)]
-    has_license = bool(row.get("licenses"))
-    has_download = bool(row.get("download_urls"))
-    has_access = bool(row.get("access_urls"))
-    exact_org_metadata = _contains_any(text, ORG_TERMS)
+def canonical_hit_id(hit: dict[str, Any]) -> str:
+    explicit = _find_first(hit, {"id", "uri", "identifier", "datasetid"})
+    if explicit:
+        return explicit
+    canonical = json.dumps(hit, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+
+def fetch_search(query: str, *, size: int = 50, timeout: float = 25.0) -> tuple[bytes, dict[str, Any]]:
+    body = json.dumps(
+        {"query": query, "pagination": {"size": size, "page": 1}},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        SEARCH_ENDPOINT,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Signalpost-research-source-miner/1.0",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read()
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Data.norge Search API response is not an object")
+    return raw, payload
+
+
+def extract_hits(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    hits = payload.get("hits")
+    if isinstance(hits, list):
+        return [hit for hit in hits if isinstance(hit, dict)]
+    # tolerate wrappers used by search backends
+    for container_key in ("results", "data"):
+        container = payload.get(container_key)
+        if isinstance(container, dict) and isinstance(container.get("hits"), list):
+            return [hit for hit in container["hits"] if isinstance(hit, dict)]
+    return []
+
+
+def summarize_hit(hit: dict[str, Any], matched_queries: set[str]) -> dict[str, Any]:
+    text = " ".join(iter_scalars(hit)).lower()
+    categories = sorted(name for name, terms in VALUE_TERMS.items() if _contains_any(text, terms))
+    license_values = _collect_by_key_fragment(hit, ("license", "licence", "rights"))
+    download_values = _collect_by_key_fragment(hit, ("downloadurl", "download_url", "download"))
+    access_values = _collect_by_key_fragment(hit, ("accessurl", "access_url", "endpoint", "access"))
+    title = _find_first(hit, {"title", "name", "label", "preflabel"})
     score = 0
-    score += 4 if exact_org_metadata else 0
-    score += 3 if has_license else 0
-    score += 3 if has_download else 0
-    score += 1 if has_access else 0
+    score += 4 if _contains_any(text, ORG_TERMS) else 0
+    score += min(4, len(matched_queries))
+    score += 3 if license_values else 0
+    score += 3 if download_values else 0
+    score += 1 if access_values else 0
     score += min(4, len(categories))
-
     return {
-        **row,
-        "semantic_categories": sorted(categories),
-        "has_explicit_license_metadata": has_license,
-        "has_download_url": has_download,
-        "has_access_url": has_access,
-        "exact_org_metadata": exact_org_metadata,
+        "dataset": canonical_hit_id(hit),
+        "title": title,
+        "matched_queries": sorted(matched_queries),
+        "semantic_categories": categories,
+        "license_metadata": license_values[:10],
+        "download_metadata": download_values[:10],
+        "access_metadata": access_values[:10],
+        "exact_org_metadata": _contains_any(text, ORG_TERMS),
         "selection_score": score,
+        "raw_hit": hit,
     }
 
 
-def parse_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    bindings = payload.get("results", {}).get("bindings", [])
-    if not isinstance(bindings, list):
-        raise ValueError("invalid SPARQL results.bindings")
-
-    grouped: dict[str, dict[str, set[str]]] = defaultdict(
-        lambda: {
-            "titles": set(),
-            "descriptions": set(),
-            "keywords": set(),
-            "licenses": set(),
-            "distributions": set(),
-            "access_urls": set(),
-            "download_urls": set(),
-            "modified": set(),
-        }
-    )
-    for binding in bindings:
-        if not isinstance(binding, dict):
-            continue
-        dataset = binding_value(binding, "dataset")
-        if not dataset:
-            continue
-        row = grouped[dataset]
-        for key, target_key in (
-            ("title", "titles"),
-            ("description", "descriptions"),
-            ("keyword", "keywords"),
-            ("distribution", "distributions"),
-            ("accessURL", "access_urls"),
-            ("downloadURL", "download_urls"),
-            ("modified", "modified"),
-        ):
-            value = binding_value(binding, key)
-            if value:
-                row[target_key].add(value)
-        for license_key in ("license", "distributionLicense"):
-            value = binding_value(binding, license_key)
-            if value:
-                row["licenses"].add(value)
-
-    ranked: list[dict[str, Any]] = []
-    for dataset, values in grouped.items():
-        row: dict[str, Any] = {"dataset": dataset}
-        row.update({key: sorted(value) for key, value in values.items()})
-        ranked.append(rank_dataset(row))
-    ranked.sort(key=lambda x: (-int(x["selection_score"]), x["dataset"]))
-    return ranked
+def mine_payloads(payloads: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
+    grouped_hits: dict[str, dict[str, Any]] = {}
+    matched: dict[str, set[str]] = defaultdict(set)
+    for query, payload in payloads:
+        for hit in extract_hits(payload):
+            hit_id = canonical_hit_id(hit)
+            grouped_hits.setdefault(hit_id, hit)
+            matched[hit_id].add(query)
+    rows = [summarize_hit(hit, matched[hit_id]) for hit_id, hit in grouped_hits.items()]
+    rows.sort(key=lambda row: (-int(row["selection_score"]), str(row.get("title") or row["dataset"])))
+    return rows
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--size", type=int, default=50)
     parser.add_argument("--fixture", type=Path)
     args = parser.parse_args()
 
+    raw_hashes: list[dict[str, str]] = []
     if args.fixture:
-        body = args.fixture.read_bytes()
-        payload = json.loads(body)
-        source = str(args.fixture)
+        fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
+        payloads = [(str(item["query"]), item["payload"]) for item in fixture]
         request_count = 0
+        source = str(args.fixture)
     else:
-        body, payload = fetch_sparql()
-        source = SPARQL_ENDPOINT
-        request_count = 1
+        payloads: list[tuple[str, dict[str, Any]]] = []
+        for index, query in enumerate(SEARCH_QUERIES):
+            raw, payload = fetch_search(query, size=args.size)
+            payloads.append((query, payload))
+            raw_hashes.append({"query": query, "sha256": hashlib.sha256(raw).hexdigest()})
+            if index + 1 < len(SEARCH_QUERIES):
+                time.sleep(0.25)
+        request_count = len(SEARCH_QUERIES)
+        source = SEARCH_ENDPOINT
 
-    rows = parse_results(payload)
+    rows = mine_payloads(payloads)
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=True)
     with (output / "candidates.jsonl").open("w", encoding="utf-8") as handle:
@@ -207,29 +210,31 @@ def main() -> int:
 
     report = {
         "source": source,
-        "screen_type": "catalog_metadata_exact_org_candidate_mining",
+        "screen_type": "catalog_metadata_targeted_search_mining",
         "requests": request_count,
+        "queries": list(SEARCH_QUERIES) if not args.fixture else [q for q, _ in payloads],
         "datasets_found": len(rows),
-        "datasets_with_explicit_license_metadata": sum(bool(r["has_explicit_license_metadata"]) for r in rows),
-        "datasets_with_download_url": sum(bool(r["has_download_url"]) for r in rows),
+        "datasets_with_explicit_license_metadata": sum(bool(r["license_metadata"]) for r in rows),
+        "datasets_with_download_metadata": sum(bool(r["download_metadata"]) for r in rows),
         "datasets_with_value_categories": sum(bool(r["semantic_categories"]) for r in rows),
-        "response_sha256": hashlib.sha256(body).hexdigest(),
+        "raw_response_hashes": raw_hashes,
         "top_candidates": [
-            {
-                "dataset": row["dataset"],
-                "titles": row["titles"][:3],
-                "score": row["selection_score"],
-                "categories": row["semantic_categories"],
-                "licenses": row["licenses"][:3],
-                "download_urls": row["download_urls"][:3],
-                "access_urls": row["access_urls"][:3],
-            }
+            {key: row[key] for key in (
+                "dataset",
+                "title",
+                "selection_score",
+                "matched_queries",
+                "semantic_categories",
+                "license_metadata",
+                "download_metadata",
+                "access_metadata",
+            )}
             for row in rows[:30]
         ],
         "production_publication_enabled": False,
         "notes": [
-            "This is metadata discovery only; candidate source schemas and rights still require source-specific validation.",
-            "No company facts or production claims are emitted.",
+            "This is metadata discovery only; every candidate still needs source-specific schema, rights, reach and exact-org validation.",
+            "The Data.norge Search API is used only for research discovery because its public documentation warns that the API may change over time.",
         ],
     }
     (output / "report.json").write_text(
