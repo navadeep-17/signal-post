@@ -30,7 +30,7 @@ jobs:
           wc -c out/finanstilsynet-openapi.json
           sha256sum out/finanstilsynet-openapi.json
 
-      - name: Print bounded request and response schema evidence
+      - name: Print legal-entity request definitions
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -40,25 +40,22 @@ jobs:
           print('openapi:', spec.get('openapi'))
           print('servers:', spec.get('servers'))
           paths = spec.get('paths', {})
-          print('paths:', sorted(paths))
-          for path in ['/search', '/filter', '/licence-types']:
+          for path in ['/legal-entities/search', '/legal-entities/filter', '/legal-entities']:
               print('\n===', path, '===')
               item = paths.get(path, {})
               for method, op in item.items():
-                  if method.lower() not in {'get','post','put','patch','delete'} or not isinstance(op, dict):
+                  if method.lower() not in {'get','post'} or not isinstance(op, dict):
                       continue
                   print('method:', method)
                   print('summary:', op.get('summary'))
-                  print('parameters:', json.dumps(op.get('parameters', []), ensure_ascii=False)[:16000])
-                  print('requestBody:', json.dumps(op.get('requestBody'), ensure_ascii=False)[:12000])
-                  print('responses:', json.dumps(op.get('responses', {}), ensure_ascii=False)[:12000])
+                  print('parameters:', json.dumps(op.get('parameters', []), ensure_ascii=False, indent=2)[:24000])
+                  print('requestBody:', json.dumps(op.get('requestBody'), ensure_ascii=False, indent=2)[:12000])
+                  print('200:', json.dumps(op.get('responses', {}).get('200'), ensure_ascii=False, indent=2)[:12000])
           schemas = spec.get('components', {}).get('schemas', {})
-          print('\nschema-names:', sorted(schemas))
-          for name, schema in schemas.items():
-              low = name.lower()
-              if any(token in low for token in ['legal', 'entity', 'search', 'filter', 'licence', 'license', 'result']):
+          for name in ['PagedLegalEntitySearchResults','LegalEntitySearchItem','PagedLegalEntityResults','LegalEntityResults','LegalEntity','Link','Licence']:
+              if name in schemas:
                   print('\nSCHEMA', name)
-                  print(json.dumps(schema, ensure_ascii=False)[:20000])
+                  print(json.dumps(schemas[name], ensure_ascii=False, indent=2)[:24000])
           PY
 
       - name: Remove documentation payload
