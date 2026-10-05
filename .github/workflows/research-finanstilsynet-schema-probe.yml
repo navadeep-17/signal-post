@@ -27,20 +27,18 @@ jobs:
             'https://api.finanstilsynet.no/registry/swagger/v2/swagger.json' \
             --output out/finanstilsynet-openapi.json
           test -s out/finanstilsynet-openapi.json
-          wc -c out/finanstilsynet-openapi.json
           sha256sum out/finanstilsynet-openapi.json
 
-      - name: Print legal-entity request definitions
+      - name: Print report request definitions
         run: |
           python - <<'PY'
           from pathlib import Path
           import json
 
           spec = json.loads(Path('out/finanstilsynet-openapi.json').read_text(encoding='utf-8-sig'))
-          print('openapi:', spec.get('openapi'))
           print('servers:', spec.get('servers'))
           paths = spec.get('paths', {})
-          for path in ['/legal-entities/search', '/legal-entities/filter', '/legal-entities']:
+          for path in ['/report/json', '/report/standard/json', '/report/standard']:
               print('\n===', path, '===')
               item = paths.get(path, {})
               for method, op in item.items():
@@ -49,10 +47,10 @@ jobs:
                   print('method:', method)
                   print('summary:', op.get('summary'))
                   print('parameters:', json.dumps(op.get('parameters', []), ensure_ascii=False, indent=2)[:24000])
-                  print('requestBody:', json.dumps(op.get('requestBody'), ensure_ascii=False, indent=2)[:12000])
+                  print('requestBody:', json.dumps(op.get('requestBody'), ensure_ascii=False, indent=2)[:20000])
                   print('200:', json.dumps(op.get('responses', {}).get('200'), ensure_ascii=False, indent=2)[:12000])
           schemas = spec.get('components', {}).get('schemas', {})
-          for name in ['PagedLegalEntitySearchResults','LegalEntitySearchItem','PagedLegalEntityResults','LegalEntityResults','LegalEntity','Link','Licence']:
+          for name in ['LicenceReportRequestFilter','PagedReportResultsOfReportJsonViewModel','ReportJsonViewModel','ReportLegalEntityViewModel','ReportLicenceViewModel','PassportingOption','ServiceProviderType','TranslatedTerm']:
               if name in schemas:
                   print('\nSCHEMA', name)
                   print(json.dumps(schemas[name], ensure_ascii=False, indent=2)[:24000])
