@@ -42,7 +42,7 @@ jobs:
           if not candidates:
               raise SystemExit('Norway not found in country-code response')
           row = candidates[0]
-          code = row.get('code') or row.get('countryCode') or row.get('id')
+          code = row.get('iso3') or row.get('code') or row.get('countryCode') or row.get('id')
           if not code:
               raise SystemExit(f'No country code field in {row!r}')
           Path('out/norway-code.txt').write_text(str(code), encoding='utf-8')
