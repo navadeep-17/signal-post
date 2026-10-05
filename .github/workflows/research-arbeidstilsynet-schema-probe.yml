@@ -1,0 +1,60 @@
+name: Research Arbeidstilsynet Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-arbeidstilsynet-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download two open XML registries once
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://registerdata.arbeidstilsynet.no/renhold_register.xml' \
+            --output out/renhold.xml
+          curl --fail --location --retry 2 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://registerdata.arbeidstilsynet.no/bht_register.xml' \
+            --output out/bht.xml
+          wc -c out/renhold.xml out/bht.xml
+          sha256sum out/renhold.xml out/bht.xml
+
+      - name: Print bounded XML schema evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+
+          def local(tag):
+              return tag.rsplit('}', 1)[-1] if '}' in tag else tag
+
+          for path in [Path('out/renhold.xml'), Path('out/bht.xml')]:
+              print('\n===', path.name, '===')
+              root = ET.parse(path).getroot()
+              print('root:', local(root.tag), 'attrs:', dict(root.attrib))
+              counts = Counter(local(elem.tag) for elem in root.iter())
+              print('top tags:', counts.most_common(30))
+              children = list(root)
+              print('root child count:', len(children))
+              for i, child in enumerate(children[:2]):
+                  print('--- child', i, local(child.tag), '---')
+                  print(ET.tostring(child, encoding='unicode')[:10000])
+          PY
+
+      - name: Remove source payloads
+        if: always()
+        run: rm -f out/renhold.xml out/bht.xml
