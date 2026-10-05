@@ -1,13 +1,6 @@
 name: Research Peppol Exact Org Screen
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_peppol_exact_org_reach.py
-      - tests/test_screen_peppol_exact_org_reach.py
-      - .github/workflows/research-peppol-exact-org-screen.yml
   workflow_dispatch:
 
 permissions:
