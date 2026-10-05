@@ -1,13 +1,6 @@
 name: Research Landbruk Support Reach
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_landbruksdirektoratet_support_reach.py
-      - tests/test_screen_landbruksdirektoratet_support_reach.py
-      - .github/workflows/research-landbruk-support-reach.yml
   workflow_dispatch:
 
 permissions:
@@ -49,7 +42,7 @@ jobs:
           assert len({str(row['organisation_number']) for row in selected}) == 100
           PY
 
-      - name: Download pinned-source-path current 2025 CSV
+      - name: Download current 2025 CSV from official open-data repository
         run: |
           curl --fail --location --retry 3 --retry-delay 2 \
             --user-agent 'Signalpost-research-source-screen/1.0' \
