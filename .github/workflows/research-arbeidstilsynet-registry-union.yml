@@ -1,0 +1,89 @@
+name: Research Arbeidstilsynet Registry Union
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_arbeidstilsynet_registry_union.py
+      - tests/test_screen_arbeidstilsynet_registry_union.py
+      - .github/workflows/research-arbeidstilsynet-registry-union.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run exact-entity parser tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_arbeidstilsynet_registry_union.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          PY
+
+      - name: Download current open Arbeidstilsynet registries once
+        run: |
+          curl --fail --location --retry 2 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://registerdata.arbeidstilsynet.no/renhold_register.xml' \
+            --output out/renhold.xml
+          curl --fail --location --retry 2 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://registerdata.arbeidstilsynet.no/bht_register.xml' \
+            --output out/bht.xml
+          test -s out/renhold.xml
+          test -s out/bht.xml
+
+      - name: Screen exact Hovedenhet union reach
+        run: |
+          uv run python scripts/screen_arbeidstilsynet_registry_union.py \
+            --registry renhold=out/renhold.xml \
+            --registry bht=out/bht.xml \
+            --companies-100 out/consumed-100.jsonl \
+            --companies-1000 submission/final-release-1000.jsonl \
+            --output-dir out/arbeidstilsynet
+          cat out/arbeidstilsynet/report.json
+
+      - name: Remove source payloads before artifact upload
+        if: always()
+        run: rm -f out/renhold.xml out/bht.xml
+
+      - name: Upload bounded screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-arbeidstilsynet-registry-union
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/arbeidstilsynet/report.json
+            out/arbeidstilsynet/matched-companies-1000.jsonl
