@@ -1,0 +1,185 @@
+name: Q8 Activity Provenance Consumed Replay
+
+on:
+  push:
+    branches:
+      - fix/q8-first-party-activity-provenance
+    paths:
+      - src/norway_company_agent/first_party_activity_provenance.py
+      - src/norway_company_agent/first_party_feed_contract.py
+      - tests/test_q8_first_party_activity_provenance.py
+      - .github/workflows/q8-activity-provenance-consumed-replay.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-consumed-q8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      Q8_ARTIFACT_ID: '11362056592'
+      Q8_ARTIFACT_SHA256: '8db304a4a91669d42a8cea8c219e43ea7e3d4e549a486b777a7cb248d83ca7fa'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused provenance regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q8_first_party_activity_provenance.py
+
+      - name: Download frozen consumed Q8 attempt 2 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/${Q8_ARTIFACT_ID}/zip" \
+            --output q8-attempt2.zip
+          test -s q8-attempt2.zip
+          echo "${Q8_ARTIFACT_SHA256}  q8-attempt2.zip" | sha256sum -c -
+          unzip -q q8-attempt2.zip -d frozen-q8
+          test -s frozen-q8/out/q8-fresh-output.jsonl
+
+      - name: Reproject legacy activity provenance with zero network
+        run: |
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import copy
+          import json
+          from pathlib import Path
+
+          from norway_company_agent.evidence_visibility import audit_contract_rows
+          from norway_company_agent.first_party_activity_provenance import (
+              project_first_party_activity_provenance,
+          )
+
+          source = Path('frozen-q8/out/q8-fresh-output.jsonl')
+          output = Path('out/q8-attempt2-provenance-reprojected.jsonl')
+          report_path = Path('out/q8-attempt2-provenance-replay.json')
+          output.parent.mkdir(parents=True, exist_ok=True)
+
+          rows = [
+              json.loads(line)
+              for line in source.read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
+          assert len(rows) == 100
+          before = copy.deepcopy(rows)
+          projected = [project_first_party_activity_provenance(row) for row in rows]
+
+          changed = []
+          for old, new in zip(before, projected, strict=True):
+              org = str(old.get('organisation_number') or '')
+              assert old.get('claims') == new.get('claims'), org
+
+              old_evidence = {
+                  str(item.get('id')): item
+                  for item in old.get('evidence') or []
+                  if isinstance(item, dict) and item.get('id')
+              }
+              new_evidence = {
+                  str(item.get('id')): item
+                  for item in new.get('evidence') or []
+                  if isinstance(item, dict) and item.get('id')
+              }
+              assert set(old_evidence) == set(new_evidence), org
+
+              for evidence_id in old_evidence:
+                  old_row = old_evidence[evidence_id]
+                  new_row = new_evidence[evidence_id]
+                  if old_row == new_row:
+                      continue
+                  keys = set(old_row) | set(new_row)
+                  changed_keys = sorted(
+                      key for key in keys if old_row.get(key) != new_row.get(key)
+                  )
+                  assert changed_keys == ['extraction_method', 'identity_proof'], (
+                      org,
+                      evidence_id,
+                      changed_keys,
+                  )
+                  for core_key in (
+                      'source_url',
+                      'source_class',
+                      'retrieved_at',
+                      'effective_at',
+                      'content_sha256',
+                      'claim_span',
+                  ):
+                      assert old_row.get(core_key) == new_row.get(core_key), (
+                          org,
+                          evidence_id,
+                          core_key,
+                      )
+                  changed.append(
+                      {
+                          'organisation_number': org,
+                          'evidence_id': evidence_id,
+                          'source_url': new_row.get('source_url'),
+                          'changed_keys': changed_keys,
+                          'extraction_method': new_row.get('extraction_method'),
+                      }
+                  )
+
+          assert changed == [
+              {
+                  'organisation_number': '885588522',
+                  'evidence_id': 'ev-first-party-46dab620049bff6587c7',
+                  'source_url': 'https://www.hemsedalmobler.no/garderobe/',
+                  'changed_keys': ['extraction_method', 'identity_proof'],
+                  'extraction_method': 'verified_same_site_dated_detail_page_v1',
+              }
+          ], changed
+
+          visibility = audit_contract_rows(projected)
+          assert visibility['companies'] == 100, visibility
+          assert visibility['available_claims'] == 4658, visibility
+          assert visibility['core_evidence_complete_claims'] == 4658, visibility
+          assert visibility['reopenable_source_claims'] == 4658, visibility
+          assert visibility['identity_sensitive_claims'] == 165, visibility
+          assert visibility['identity_proof_visible'] == 165, visibility
+          assert visibility['extraction_method_visible'] == 165, visibility
+          assert visibility['issues'] == [], visibility['issues']
+
+          with output.open('w', encoding='utf-8') as handle:
+              for row in projected:
+                  handle.write(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n')
+
+          report = {
+              'schema_version': 'q8-attempt2-activity-provenance-consumed-replay-v1',
+              'source_artifact_id': 11362056592,
+              'source_artifact_digest': '8db304a4a91669d42a8cea8c219e43ea7e3d4e549a486b777a7cb248d83ca7fa',
+              'companies': len(projected),
+              'claims_unchanged': True,
+              'evidence_ids_unchanged': True,
+              'network_requests_added': 0,
+              'changed_evidence_rows': changed,
+              'evidence_visibility': visibility,
+          }
+          report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload consumed replay proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: q8-attempt2-activity-provenance-consumed-replay
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            out/q8-attempt2-provenance-reprojected.jsonl
+            out/q8-attempt2-provenance-replay.json
