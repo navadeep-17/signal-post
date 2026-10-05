@@ -1,0 +1,66 @@
+name: Research Finanstilsynet Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-finanstilsynet-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch official registry v2 OpenAPI schema once
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --retry-delay 2 --compressed \
+            --header 'Accept: application/json' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://api.finanstilsynet.no/registry/swagger/v2/swagger.json' \
+            --output out/finanstilsynet-openapi.json
+          test -s out/finanstilsynet-openapi.json
+          wc -c out/finanstilsynet-openapi.json
+          sha256sum out/finanstilsynet-openapi.json
+
+      - name: Print bounded request and response schema evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          spec = json.loads(Path('out/finanstilsynet-openapi.json').read_text(encoding='utf-8-sig'))
+          print('openapi:', spec.get('openapi'))
+          print('servers:', spec.get('servers'))
+          paths = spec.get('paths', {})
+          print('paths:', sorted(paths))
+          for path in ['/search', '/filter', '/licence-types']:
+              print('\n===', path, '===')
+              item = paths.get(path, {})
+              for method, op in item.items():
+                  if method.lower() not in {'get','post','put','patch','delete'} or not isinstance(op, dict):
+                      continue
+                  print('method:', method)
+                  print('summary:', op.get('summary'))
+                  print('parameters:', json.dumps(op.get('parameters', []), ensure_ascii=False)[:16000])
+                  print('requestBody:', json.dumps(op.get('requestBody'), ensure_ascii=False)[:12000])
+                  print('responses:', json.dumps(op.get('responses', {}), ensure_ascii=False)[:12000])
+          schemas = spec.get('components', {}).get('schemas', {})
+          print('\nschema-names:', sorted(schemas))
+          for name, schema in schemas.items():
+              low = name.lower()
+              if any(token in low for token in ['legal', 'entity', 'search', 'filter', 'licence', 'license', 'result']):
+                  print('\nSCHEMA', name)
+                  print(json.dumps(schema, ensure_ascii=False)[:20000])
+          PY
+
+      - name: Remove documentation payload
+        if: always()
+        run: rm -f out/finanstilsynet-openapi.json
