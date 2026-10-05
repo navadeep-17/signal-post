@@ -1,0 +1,130 @@
+{
+  "cohort": "phase11-seed-20261104-consumed-only",
+  "purpose": "Deterministic 20-company consumed-only public-search proxy for Q3 nomination yield. Candidate URLs are nominations only, never publication evidence.",
+  "selection_method": "Among the 94 unresolved consumed Phase-11 profiles, sort ascending by sha256('q3-consumed-v1|' + organisation_number) and take 20.",
+  "selection_org_list_sha256": "5c378da42b78ce4c4dfe4b71d0b074f912bde6ea704ebaf5f5b6abddf4d20269",
+  "search_proxy_checked_at": "2026-10-05",
+  "search_proxy_policy": "Public web search was used only to nominate plausible first-party URLs. Directory/registry results were not nominated. Empty urls means the proxy search did not surface a plausible first-party candidate. Every non-empty candidate still requires independent fetch plus the ordinary exact-company gate.",
+  "nominations": [
+    {
+      "organisation_number": "932911361",
+      "legal_name": "TOPPE HOLDING AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "935270359",
+      "legal_name": "MALERGATEN 1 AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "929988558",
+      "legal_name": "KIDØY EIGEDOM AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "921093934",
+      "legal_name": "AURSNES KIOSK AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "935482879",
+      "legal_name": "PRESA AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "935700809",
+      "legal_name": "EHO-HOLDING AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "988946370",
+      "legal_name": "TELLAUS HOLDING AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "995276747",
+      "legal_name": "STEINBRUDDET EIENDOM AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "919415959",
+      "legal_name": "DAMHAGEN AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "930465143",
+      "legal_name": "PREG BARNEHAGER ÅLESUND AS",
+      "urls": ["https://pregalesund.barnehage.no/"],
+      "expected_risk": "dedicated organisation subdomain on shared barnehage hosting"
+    },
+    {
+      "organisation_number": "925977691",
+      "legal_name": "RAUDEBERG BRYGGE AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "928440001",
+      "legal_name": "NORSK NAVIGASJON AS",
+      "urls": ["http://www.norsknavigasjon.no/"],
+      "expected_risk": "legal-name domain previously hit redirect/source error; search independently nominates same operating site"
+    },
+    {
+      "organisation_number": "922884579",
+      "legal_name": "NORGES FLYMEDISINSKE SENTER AS",
+      "urls": ["https://www.nfms.no/"],
+      "expected_risk": "brand/acronym domain nominated from public scheduling/contact evidence"
+    },
+    {
+      "organisation_number": "998023548",
+      "legal_name": "EIENDOM OG SIKRING AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "990348219",
+      "legal_name": "ALLEVEGEN 1 EIENDOM AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "832807052",
+      "legal_name": "KALDHUSSÆTERS HELSETJENESTER AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "893393382",
+      "legal_name": "STRANDGATEN 123 AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "829029642",
+      "legal_name": "YLVIS MEK. AS",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    },
+    {
+      "organisation_number": "989165089",
+      "legal_name": "RELOAD YOUR STYLE AS",
+      "urls": ["https://thelounge.no/"],
+      "expected_risk": "first-party operating brand site; legal-entity ownership must be independently proven"
+    },
+    {
+      "organisation_number": "948474956",
+      "legal_name": "AUTO SPEED DA",
+      "urls": [],
+      "expected_risk": "no plausible first-party candidate surfaced"
+    }
+  ]
+}
