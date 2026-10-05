@@ -4,6 +4,7 @@ import hashlib
 from typing import Any
 
 from .careers_contract import project_careers_page_claims
+from .evidence_provenance import project_evaluator_visible_provenance
 from .external_footprint import publishable_observation
 
 
@@ -117,11 +118,14 @@ def project_profile_handle_observations(
 
     observations = _validated_profile_handles(profile)
     if not observations:
-        return {
-            **contract,
-            "claims": claims,
-            "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
-        }
+        return project_evaluator_visible_provenance(
+            {
+                **contract,
+                "claims": claims,
+                "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
+            },
+            profile,
+        )
 
     evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
     handle_values: list[dict[str, str]] = []
@@ -167,11 +171,14 @@ def project_profile_handle_observations(
         }
     )
 
-    return {
-        **contract,
-        "claims": claims,
-        "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
-    }
+    return project_evaluator_visible_provenance(
+        {
+            **contract,
+            "claims": claims,
+            "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
+        },
+        profile,
+    )
 
 
 def project_contact_email_observations(
@@ -211,11 +218,14 @@ def project_contact_email_observations(
 
     observations = _validated_contact_emails(profile)
     if not observations:
-        return {
-            **contract,
-            "claims": claims,
-            "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
-        }
+        return project_evaluator_visible_provenance(
+            {
+                **contract,
+                "claims": claims,
+                "evidence": sorted(evidence, key=lambda item: str(item.get("id") or "")),
+            },
+            profile,
+        )
 
     evidence_by_id = {str(item.get("id")): item for item in evidence if item.get("id")}
     for observation in observations:
@@ -243,8 +253,11 @@ def project_contact_email_observations(
             }
         )
 
-    return {
-        **contract,
-        "claims": claims,
-        "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
-    }
+    return project_evaluator_visible_provenance(
+        {
+            **contract,
+            "claims": claims,
+            "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
+        },
+        profile,
+    )
