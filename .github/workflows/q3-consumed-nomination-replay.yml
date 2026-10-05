@@ -1,0 +1,81 @@
+name: Q3 Consumed Nomination Replay
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/q3-search-assisted-discovery-rebase
+    paths:
+      - '.github/workflows/q3-consumed-nomination-replay.yml'
+      - 'scripts/replay_q3_candidate_nominations.py'
+      - 'scripts/run_model_search_discovery.py'
+      - 'src/norway_company_agent/model_web_search.py'
+      - 'tests/fixtures/q3-consumed-nominations.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout experiment head
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Download already-consumed Phase 11 replay artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed
+          gh run download 37314396820 \
+            --repo navadeep-17/signal-post \
+            --name phase11-owner-veto-consumed-replay \
+            --dir consumed
+          find consumed -maxdepth 6 -type f | sort
+
+      - name: Replay frozen URL nominations through current exact-company gate
+        run: |
+          PROFILE_PATH="$(find consumed -type f -path '*/work/profiles.jsonl' | head -n 1)"
+          if [ -z "$PROFILE_PATH" ]; then
+            echo 'Consumed profiles.jsonl not found' >&2
+            exit 1
+          fi
+          uv run python scripts/replay_q3_candidate_nominations.py \
+            --input "$PROFILE_PATH" \
+            --nominations tests/fixtures/q3-consumed-nominations.json \
+            --report q3-consumed-replay/report.json \
+            --timeout 15 \
+            --candidate-limit 2
+
+      - name: Verify replay report is terminal
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('q3-consumed-replay/report.json').read_text(encoding='utf-8'))
+          assert report['nominated_companies'] == 4, report
+          assert len(report['outcomes']) == 4, report
+          assert report['accepted'] + report['quarantined'] + report['unavailable'] == 4, report
+          assert all(item['status'] in {'accepted', 'quarantined', 'profile_missing', 'already_has_publishable_website', 'no_candidate_after_filter'} for item in report['outcomes']), report
+          print(json.dumps(report, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Upload consumed replay report
+        uses: actions/upload-artifact@v4
+        with:
+          name: q3-consumed-nomination-replay
+          path: q3-consumed-replay/report.json
+          if-no-files-found: error
