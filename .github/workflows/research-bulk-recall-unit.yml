@@ -1,0 +1,35 @@
+name: Research Bulk Recall Unit Gate
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_ted_exact_winner_reach.py
+      - tests/test_screen_ted_exact_winner_reach.py
+      - scripts/screen_peppol_exact_org_reach.py
+      - tests/test_screen_peppol_exact_org_reach.py
+      - .github/workflows/research-bulk-recall-unit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Run isolated research tests only
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_screen_ted_exact_winner_reach.py \
+            tests/test_screen_peppol_exact_org_reach.py
