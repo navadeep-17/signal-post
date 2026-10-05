@@ -18,18 +18,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch page one of Norwegian registry report
+      - name: Resolve Norway country code from registry API
         run: |
           mkdir -p out
-          cat > out/filter.json <<'JSON'
-          {"countryCode":"NO","pageSize":1000,"page":1}
-          JSON
-          curl --fail --location --retry 2 --retry-delay 2 --compressed \
-            --request POST \
+          curl --fail --location --compressed \
             --header 'Accept: application/json' \
-            --header 'Content-Type: application/json' \
             --user-agent 'Signalpost-research-source-screen/1.0' \
-            --data-binary @out/filter.json \
+            'https://api.finanstilsynet.no/registry/v2/country-codes' \
+            --output out/countries.json
+          test -s out/countries.json
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          data = json.loads(Path('out/countries.json').read_text(encoding='utf-8-sig'))
+          print('country-response-type:', type(data).__name__)
+          print('count:', len(data) if isinstance(data, list) else None)
+          candidates = []
+          for row in data if isinstance(data, list) else []:
+              text = json.dumps(row, ensure_ascii=False).lower()
+              if 'norge' in text or 'norway' in text:
+                  candidates.append(row)
+          print('norway-candidates:', json.dumps(candidates, ensure_ascii=False, indent=2)[:6000])
+          if not candidates:
+              raise SystemExit('Norway not found in country-code response')
+          row = candidates[0]
+          code = row.get('code') or row.get('countryCode') or row.get('id')
+          if not code:
+              raise SystemExit(f'No country code field in {row!r}')
+          Path('out/norway-code.txt').write_text(str(code), encoding='utf-8')
+          print('resolved-code:', code)
+          PY
+
+      - name: Fetch page one through documented GET report
+        run: |
+          CODE="$(cat out/norway-code.txt)"
+          curl --fail --location --compressed --get \
+            --header 'Accept: application/json' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            --data-urlencode "countryCode=${CODE}" \
+            --data-urlencode 'pageSize=1000' \
+            --data-urlencode 'page=1' \
             'https://api.finanstilsynet.no/registry/v2/report/json' \
             --output out/page1.json
           test -s out/page1.json
@@ -66,10 +94,9 @@ jobs:
           print('unique-9-digit-orgs-page1:', len(exact_orgs))
           print('provider-types:', provider_types)
           if rows:
-              print('first-row-keys:', sorted(rows[0]))
               print('first-row:', json.dumps(rows[0], ensure_ascii=False, sort_keys=True)[:12000])
           PY
 
       - name: Remove source payload
         if: always()
-        run: rm -f out/filter.json out/page1.json
+        run: rm -f out/countries.json out/norway-code.txt out/page1.json
