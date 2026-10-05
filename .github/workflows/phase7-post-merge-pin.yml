@@ -1,0 +1,35 @@
+name: Phase 7 Post-Merge Pin
+
+on:
+  push:
+    branches:
+      - docs/phase7-post-merge-pin
+    paths:
+      - .github/workflows/phase7-post-merge-pin.yml
+
+permissions:
+  contents: write
+
+jobs:
+  pin-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply post-merge state pin
+        run: python scripts/pin_phase7_post_merge.py
+
+      - name: Commit documentation pin
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/CONTINUATION_STATE.md docs/IMPLEMENTATION_LOG.md docs/PHASE7_STOTTEREGISTERET_PROMOTION.md docs/70_PLUS_IMPLEMENTATION_PLAN.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No documentation changes needed"
+            exit 0
+          fi
+          git commit -m "docs: pin Phase 7 post-merge green state"
+          git push origin HEAD:docs/phase7-post-merge-pin
