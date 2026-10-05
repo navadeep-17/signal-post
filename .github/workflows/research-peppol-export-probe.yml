@@ -1,0 +1,57 @@
+name: Research Peppol Export Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-peppol-export-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download one daily Peppol Directory CSV export
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 --retry-delay 2 \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://directory.peppol.eu/export/businesscards-csv' \
+            --output out/businesscards.csv
+          wc -c out/businesscards.csv
+          sha256sum out/businesscards.csv
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('out/businesscards.csv')
+          with p.open('r', encoding='iso-8859-1', errors='replace') as f:
+              for i in range(3):
+                  line = f.readline()
+                  print(f'LINE{i+1}:', line[:4000].rstrip())
+          PY
+      - name: Save schema probe only
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p = Path('out/businesscards.csv')
+          with p.open('r', encoding='iso-8859-1', errors='replace') as f:
+              lines = [f.readline().rstrip('\n') for _ in range(3)]
+          report = {
+              'bytes': p.stat().st_size,
+              'sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
+              'first_lines': lines,
+              'full_export_persisted': False,
+          }
+          Path('out/peppol-probe.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+          rm -f out/businesscards.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: research-peppol-export-probe
+          retention-days: 7
+          path: out/peppol-probe.json
