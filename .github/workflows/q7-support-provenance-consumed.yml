@@ -1,0 +1,158 @@
+name: Q7 Support Provenance Consumed Reprojection
+
+on:
+  push:
+    branches:
+      - fix/q7-support-award-extraction-provenance
+    paths:
+      - 'src/norway_company_agent/support_contract.py'
+      - 'tests/test_q7_support_award_provenance.py'
+      - '.github/workflows/q7-support-provenance-consumed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  reproject-consumed-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_q7_support_award_provenance.py \
+            tests/test_phase5_support_registry.py \
+            tests/test_phase7_support_evidence_provenance.py
+
+      - name: Download frozen Q4 integrated consumed artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen
+          gh run download 37334830712 \
+            --repo navadeep-17/signal-post \
+            --name q4-consumed-v8-integration-replay \
+            --dir frozen
+          test -s frozen/out/q4-replay/output.jsonl
+          test -s frozen/out/q4-replay/work/profiles.jsonl
+          test "$(wc -l < frozen/out/q4-replay/output.jsonl)" -eq 100
+          test "$(wc -l < frozen/out/q4-replay/work/profiles.jsonl)" -eq 100
+
+      - name: Reproject support provenance with zero network
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from norway_company_agent.evidence_visibility import audit_contract_rows
+          from norway_company_agent.support_contract import (
+              SUPPORT_AWARD_EXTRACTION_METHOD,
+              project_support_award_observations,
+          )
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          rows = read_jsonl('frozen/out/q4-replay/output.jsonl')
+          profiles = read_jsonl('frozen/out/q4-replay/work/profiles.jsonl')
+          profiles_by_org = {str(row['organisation_number']): row for row in profiles}
+          assert len(rows) == len(profiles_by_org) == 100
+
+          before_claims = {
+              str(row['organisation_number']): json.dumps(row.get('claims') or [], ensure_ascii=False, sort_keys=True)
+              for row in rows
+          }
+          before_evidence = {
+              str(row['organisation_number']): {
+                  str(item.get('id')): dict(item)
+                  for item in row.get('evidence') or []
+                  if item.get('id')
+              }
+              for row in rows
+          }
+
+          projected = []
+          changed_rows = []
+          added_method_rows = 0
+          for row in rows:
+              org = str(row['organisation_number'])
+              after = project_support_award_observations(row, profiles_by_org[org])
+              assert json.dumps(after.get('claims') or [], ensure_ascii=False, sort_keys=True) == before_claims[org], org
+
+              after_evidence = {
+                  str(item.get('id')): dict(item)
+                  for item in after.get('evidence') or []
+                  if item.get('id')
+              }
+              assert set(after_evidence) == set(before_evidence[org]), org
+              for evidence_id, old in before_evidence[org].items():
+                  new = dict(after_evidence[evidence_id])
+                  old_copy = dict(old)
+                  method = new.pop('extraction_method', None)
+                  old_method = old_copy.pop('extraction_method', None)
+                  assert new == old_copy, (org, evidence_id)
+                  if method != old_method:
+                      assert old_method in (None, ''), (org, evidence_id, old_method)
+                      assert method == SUPPORT_AWARD_EXTRACTION_METHOD, (org, evidence_id, method)
+                      added_method_rows += 1
+                      changed_rows.append({'organisation_number': org, 'evidence_id': evidence_id})
+              projected.append(after)
+
+          assert added_method_rows == 48, added_method_rows
+
+          audit = audit_contract_rows(projected)
+          assert audit['available_claims'] == 4617, audit
+          assert audit['core_evidence_complete_claims'] == 4617, audit
+          assert audit['reopenable_source_claims'] == 4617, audit
+          assert audit['identity_sensitive_claims'] == 175, audit
+          assert audit['identity_proof_visible'] == 175, audit
+          assert audit['extraction_method_visible'] == 175, audit
+          assert audit['issues'] == [], audit['issues'][:10]
+
+          summary = {
+              'status': 'PASS_CONSUMED_ZERO_NETWORK_REPROJECTION',
+              'fresh_qualification': False,
+              'companies': len(projected),
+              'claims_unchanged': True,
+              'evidence_ids_unchanged': True,
+              'support_evidence_rows_with_method_added': added_method_rows,
+              'available_claims': audit['available_claims'],
+              'core_evidence_complete_claims': audit['core_evidence_complete_claims'],
+              'identity_sensitive_claims': audit['identity_sensitive_claims'],
+              'identity_proof_visible': audit['identity_proof_visible'],
+              'extraction_method_visible': audit['extraction_method_visible'],
+              'remaining_issues': len(audit['issues']),
+              'network_requests_added': 0,
+              'changed_rows': changed_rows,
+          }
+          Path('out').mkdir(exist_ok=True)
+          Path('out/q7-support-provenance-summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload consumed provenance verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q7-support-provenance-consumed
+          retention-days: 30
+          if-no-files-found: error
+          path: out/q7-support-provenance-summary.json
