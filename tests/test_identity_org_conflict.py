@@ -129,8 +129,8 @@ def test_explicit_current_domain_owner_vetoes_name_matching_wrong_entity():
         "https://interiorkupp.no/",
         title="Interiørkupp",
         identity_text=(
-            "Interiorkupp.no eies av Rolf Sletvold Interiørsenter AS. "
-            "Kontakt oss på post@interiorkupp.no."
+            "Interiorkupp.no eies av Rolf Sletvold Interiørsenter AS, "
+            "og tilbyr kvalitetsprodukter til hjemmet."
         ),
         main_text="Parkett, gulv, tapet og andre interiørvarer. Trygg levering i hele Norge. " * 8,
     )
@@ -176,6 +176,23 @@ def test_generic_website_owner_phrase_does_not_veto_same_target_entity():
 
     assert assessment["publishable"] is True
     assert assessment["observed_site_owners"] == ["INTERIØRKUPP AS"]
+
+
+def test_neuter_generic_website_owner_phrase_vetoes_different_entity():
+    profile = _profile("825188592", "INTERIØRKUPP AS")
+    website = _website(
+        "https://interiorkupp.no/",
+        title="Interiørkupp",
+        identity_text="Dette nettstedet eies av Annen Butikk AS.",
+        main_text="Parkett, gulv, tapet og andre interiørvarer. Trygg levering i hele Norge. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is False
+    assert assessment["observed_site_owners"] == ["Annen Butikk AS"]
+    assert "website is owned by a different named legal entity" in " ".join(assessment["reasons"])
 
 
 def test_other_domain_owner_statement_is_not_treated_as_current_site_identity():
