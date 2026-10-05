@@ -661,3 +661,23 @@ Status: **IMPLEMENTED + TESTED + CONSUMED-WRAPPER QUALIFIED + MERGED + POST-MERG
 - earlier run `37257936472` remains a recorded failed gate due to the report-only 46/0 counter defect.
 
 Decision: **PHASE 7 CLOSED / PROMOTION COMPLETE**. The main track advances to Phase 11 fresh evaluator-shaped release qualification on a genuinely disjoint 100-company cohort. No Builderr submission is authorized solely from this merge.
+
+---
+
+## 2026-10-05 — Phase 11 seed 20261104 manual precision FAIL -> explicit website-owner veto RETUNE
+
+Status: **FRESH MACHINE PASS / MANUAL PRECISION FAIL / RETUNE IMPLEMENTED + TESTED / CONSUMED REPLAY MONOTONIC / PR #99 MERGE GATE**
+
+Fresh Phase 11 run `37309340028` used seed `20261104` after reconstructing an 8,423-company all-touched exclusion. Selection overlap was 0; exclusion SHA-256 was `fd1e5c7e54d6034821553a1903fd20bea76738dcf0d5e0c75eec93b4a724a298`; cohort SHA-256 was `394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99`; artifact ID `11346320812`, ZIP SHA-256 `9c9ab8bb8477c949a9491f7a672ad181f43566cd9b885a1f4fc6a2dd720165cf`.
+
+Machine gates passed: 100/100 terminal; 11 support companies; 48 support claims = 48 canonical facts; 1 support request; 1 BRREG change-feed request; observed conservative charge 1,364/2,000; theoretical ceiling exactly 2,000; wall runtime 804.632 s; third-party API cost $0; search API requests 0; contract/canonical/synthesis/dangling-evidence/support-projection errors 0. The artifact correctly left `release_qualified=false` pending manual precision audit.
+
+Manual audit found one material exact-company failure: target `INTERIØRKUPP AS` (`825188592`) was assigned guessed domain `interiorkupp.no`, while the fetched site explicitly states that the site is owned by `Rolf Sletvold Interiørsenter AS`, a different legal entity. Four external publications were contaminated: website, Instagram handle, social-links aggregate and `post@interiorkupp.no`. Decision for seed `20261104`: **FAIL / RETUNE / NO RELEASE**. The cohort is permanently consumed.
+
+PR #99 implements a generic source-agnostic website-owner veto in `identity.py`: an explicit statement that the current fetched domain/site is owned by another named legal entity is hard negative identity evidence. There is no company/domain blacklist. Same-target owner statements pass; unrelated ownership text for another domain does not trigger the veto; exact target organisation-number proof remains stronger positive evidence. Adversarial regressions cover the discovered failure plus same-target and unrelated-owner controls.
+
+Baseline CI `37314026333` passed on code/test head `532bb93f0c02b6da608bd070c7fa36349b5d8cfc`; Baseline CI `37314406825` also passed on replay-checksum head `a7e622a89fbde026205e544473e25d6efbfa67d2`.
+
+Consumed-only replay `37314396820` / job `111777368735` ran the actual V8 path on the already-consumed seed-20261104 cohort. V8 itself passed. The workflow's final verifier failed only because it expected the observed owner string to equal exactly `Rolf Sletvold Interiørsenter AS`; the extractor retained trailing source prose. Replay artifact ID `11347753450`, ZIP SHA-256 `ff03b78a41372f368ace904a009e82eda5c42fd5aa3d74d37a91ccaee0684e01`, independently proves the production behavior is correct: target website unpublished, identity score 0.1, `publishable=false`, wrong-owner reason retained, old external audit 25 records -> replay 21 non-empty publications, exact set diff **4 removed / 0 added**, with the four removed records exactly the contaminated Interiørkupp website/social/email claims. Every other previously published external value is unchanged.
+
+Decision: **PROMOTE THE PRECISION FIX through final clean PR CI/merge/post-merge CI, then rerun Phase 11 on a new untouched cohort.** The next all-touched exclusion must include the failed fresh 100, so the exclusion cardinality becomes 8,523 before seed `20261105` (or the next deterministic seed if repository state advances). Do not reuse seed `20261104` as fresh evidence and do not submit Builderr before a new fresh cohort passes machine + manual precision gates.

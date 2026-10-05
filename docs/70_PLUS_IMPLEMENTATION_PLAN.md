@@ -95,11 +95,11 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 - **Phase 8 — NAV exact-org vacancy screen:** **DROP**.
 - **Phase 9 — BRREG bulk/request optimization:** later and freshness-gated.
 - **Phase 10 — Adaptive request scheduler:** after a new high-yield surface exists.
-- **Phase 11 — Fresh validation/release candidate:** **ACTIVE** — next main-track gate on a genuinely fresh disjoint 100-company cohort.
+- **Phase 11 — Fresh validation/release candidate:** **ACTIVE / RETUNE** — seed `20261104` passed machine gates but failed manual exact-company audit; PR #99 owner-veto precision fix is in merge qualification before a new fresh cohort.
 
 Immediate path:
 
-> Phase 11 fresh disjoint cohort -> actual V8 release qualification -> audit + exact artifact freeze -> Builderr release decision.
+> finish PR #99 owner-veto merge gate -> exclude 8,523 touched companies -> new fresh Phase 11 cohort -> actual V8 machine + manual precision qualification -> artifact freeze -> Builderr release decision.
 
 ## 5. Phase 1 — collected-vs-emitted recovery
 
@@ -351,7 +351,7 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 
 ## 23. NEXT
 
-**Phase 7 is merged and post-merge green. Execute Phase 11 on a genuinely fresh, disjoint evaluator-shaped 100-company cohort; require a clean actual-V8 release gate, manual support/external precision audit, exact SHA/artifact freeze and only then make the next Builderr release decision.**
+**Phase 11 seed `20261104` is permanently consumed and failed manual precision audit despite green machine gates. Finish PR #99 exact-site-owner precision hardening through final clean-head CI, merge and post-merge CI; then construct an 8,523-company all-touched exclusion and run a genuinely new fresh cohort (planned seed `20261105`). Require both machine and manual precision gates before any Builderr release decision.**
 
 ---
 
@@ -392,3 +392,11 @@ PR #97 passed final clean-head Baseline CI `37261892046`, merged with expected-h
 The definitive wrapper qualification remains run `37260381903` / artifact `11325335788`: 100/100 terminal, 11 support companies, 46 support claims = 46 canonical facts, report 46/46, zero 46-row identity/provenance audit errors, one support request, one BRREG change-feed request, 1,366 observed conservative charge, exactly 2,000 theoretical, 797.471 s, $0 and zero search API requests.
 
 Roadmap consequence: **Phase 11 is active now**. Consume a genuinely fresh disjoint 100 only for the release gate, freeze the exact production SHA and cohort/exclusion hashes, require 100% terminal + zero integrity/wrong-company failures, audit all fresh Støtteregisteret and other external cases, and only then decide whether to submit the next Builderr revision.
+
+### 2026-10-05 Phase 11 fresh gate FAIL -> owner-veto retune
+
+Seed `20261104` was genuinely fresh against 8,423 previously touched companies and passed the complete V8 machine gate, but manual external precision audit found one wrong-company guessed site. `INTERIØRKUPP AS` (`825188592`) was assigned `interiorkupp.no` even though the page explicitly names `Rolf Sletvold Interiørsenter AS` as the site owner. Four derived external facts were therefore invalid. This is a release-blocking precision failure even though contract/canonical/runtime/request checks were green.
+
+The retune is generic: explicit current-site ownership by a different named legal entity is now a hard identity veto. No blacklist was added. Full Baseline CI passed, and consumed-only replay of the failed cohort is monotonic: exactly the four contaminated Interiørkupp records disappear, zero new external records are added, every other prior published external value is unchanged, and the target candidate is retained only as quarantined evidence with `publishable=false`.
+
+Roadmap consequence: Phase 11 remains active but is not release-qualified. Merge the precision fix only after a final clean durable diff + exact-head Baseline CI and post-merge CI. Then permanently include the failed 100 in the touched set (8,523 total exclusions) and spend a new fresh cohort. The failed seed must never be reused as qualification evidence.
