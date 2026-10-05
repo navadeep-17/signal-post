@@ -1,13 +1,6 @@
 name: Research Arbeidstilsynet Registry Union
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_arbeidstilsynet_registry_union.py
-      - tests/test_screen_arbeidstilsynet_registry_union.py
-      - .github/workflows/research-arbeidstilsynet-registry-union.yml
   workflow_dispatch:
 
 permissions:
