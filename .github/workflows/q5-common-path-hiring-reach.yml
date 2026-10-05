@@ -1,0 +1,99 @@
+name: Q5 Common Path Hiring Reach
+
+on:
+  push:
+    branches:
+      - audit/q5-common-path-hiring-reach
+    paths:
+      - 'scripts/screen_q5_common_path_hiring_reach.py'
+      - 'tests/test_q5_common_path_hiring_reach.py'
+      - '.github/workflows/q5-common-path-hiring-reach.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen-consumed-exact-sites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q5_common_path_hiring_reach.py
+
+      - name: Download frozen Q4/Q6 consumed profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen
+          gh run download 37334830712 \
+            --repo navadeep-17/signal-post \
+            --name q4-consumed-v8-integration-replay \
+            --dir frozen
+          test -s frozen/out/q4-replay/work/profiles.jsonl
+          test "$(wc -l < frozen/out/q4-replay/work/profiles.jsonl)" -eq 100
+
+      - name: Screen deterministic hiring paths
+        run: |
+          uv run python scripts/screen_q5_common_path_hiring_reach.py \
+            --profiles frozen/out/q4-replay/work/profiles.jsonl \
+            --output out/q5-common-path-hiring-reach.json \
+            --timeout 6 \
+            --expect-profiles 100 \
+            --expect-verified-sites 7
+
+      - name: Verify bounded source-selection semantics
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/q5-common-path-hiring-reach.json').read_text())
+          assert report['status'] == 'SCREEN_ONLY_NO_PRODUCTION_CHANGE', report
+          assert report['fresh_qualification'] is False, report
+          assert report['profiles'] == 100, report
+          assert report['verified_sites'] == 7, report
+          assert report['candidate_paths'] == [
+              'karriere', 'jobb', 'ledige-stillinger', 'careers', 'jobs'
+          ], report
+          assert len(report['attempts']) == 35, report
+          # Each candidate uses the existing bounded homepage fetch primitive:
+          # robots + one HTML request, with redirects charged separately by the evaluator.
+          assert report['network_requests'] <= 70, report
+          assert report['production_decision'] == 'UNDECIDED_SCREEN_ONLY', report
+          for attempt in report['attempts']:
+              if attempt.get('qualified'):
+                  assert attempt.get('reason') == 'strong_hiring_surface_evidence', attempt
+                  assert attempt.get('final_url'), attempt
+          print(json.dumps({
+              'verified_sites': report['verified_sites'],
+              'network_requests': report['network_requests'],
+              'qualified_companies_any_path': report['qualified_companies_any_path'],
+              'ranked_paths': report['ranked_paths'],
+              'path_results': report['path_results'],
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload hiring reach screen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q5-common-path-hiring-reach
+          retention-days: 30
+          if-no-files-found: error
+          path: out/q5-common-path-hiring-reach.json
