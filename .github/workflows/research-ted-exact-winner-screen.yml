@@ -1,0 +1,78 @@
+name: Research TED Exact Winner Screen
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_ted_exact_winner_reach.py
+      - tests/test_screen_ted_exact_winner_reach.py
+      - .github/workflows/research-ted-exact-winner-screen.yml
+      - docs/BULK_EXACT_ORG_RECALL_PLAN.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies and run precision tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_ted_exact_winner_reach.py
+
+      - name: Select deterministic already-consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          src = Path('submission/final-release-1000.jsonl')
+          rows = [json.loads(line) for line in src.read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000, len(rows)
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          out = Path('out/consumed-100.jsonl')
+          out.write_text(''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected), encoding='utf-8')
+          print('selected', len(selected), 'consumed companies')
+          print('sha256', hashlib.sha256(out.read_bytes()).hexdigest())
+          PY
+
+      - name: Screen TED exact winner identifiers
+        run: |
+          uv run python scripts/screen_ted_exact_winner_reach.py \
+            --companies out/consumed-100.jsonl \
+            --output-dir out/ted \
+            --chunk-size 25 \
+            --max-requests 5 \
+            --recent-since 2021-10-05
+          cat out/ted/report.json
+
+      - name: Upload screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-ted-exact-winner-screen
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/ted/report.json
+            out/ted/rows.jsonl
+            out/ted/raw/
