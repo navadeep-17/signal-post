@@ -552,3 +552,28 @@ Status: **DOCUMENTATION BRANCH**
 Branch: `docs/70-plus-continuation-system`.
 
 Added `docs/70_PLUS_IMPLEMENTATION_PLAN.md`, `docs/CONTINUATION_STATE.md`, and `docs/IMPLEMENTATION_LOG.md` so repository state, not conversation history, governs continuation.
+
+---
+
+## 2026-10-05 — Phase 7 Støtteregisteret support awards promoted to clean PR candidate
+
+Status: **PROMOTE / CONSUMED V8 QUALIFIED / CLEAN PR + MERGE GATE PENDING / NO FRESH COHORT**
+
+- production baseline before promotion: `main` `86b60b2b5e87966c4a8beb4719e01905421b68ac`;
+- clean branch: `feature/stotteregisteret-support-awards`;
+- clean production staging commit: `91e825e844100eaf1341317126dca5fe2e52fc9b`;
+- hardened production semantics head on experiment branch: `59dd767a7bbc4a5f99d076be633e29a582fd711b`;
+- definitive actual-V8 consumed qualification run `37254237936`, job `111587836938`: PASS;
+- artifact `phase5-support-v8-consumed-live-100`, ID `11321344340`, ZIP digest `ba2fcdcf22473cc5e6159086516e7eb32da14b43ff11c4717f889910a383e357`;
+- cohort: already-consumed certified final-release-1000 chunk 0, 100 companies; no fresh cohort consumed;
+- 100/100 terminal; 11 support-award companies; 46 support observations/claims/canonical facts;
+- 0 contract/canonical/synthesis/external/integrity/budget failures; manual artifact audit found 0 wrong-company publications;
+- source identity is primary-recipient org-number only; specified recipient and granting authority are context-only;
+- NLOD; <=365 days; max 5 events/company; exact row/snapshot hashes + retrieval time + evidence span; source-backed currencies;
+- one shared support request; one V8 BRREG change-feed request; H2g ceiling 97; observed conservative charge 1,366; theoretical ceiling exactly 2,000; external wall 784 s; third-party cost $0; search API requests 0.
+
+Historical pre-hardening 106/1000 and 88/1000 Støtte reach figures are research-only and are not production-equivalent after primary-recipient and amount/currency hardening.
+
+Parallel Phase-2 Common Crawl Stage 4 is **SHELVED**: 3,000 generic domains -> 453 indexed org numbers -> 4/5,900 consumed overlap -> 2 net-new verified websites, far below the 20+/100 breakthrough threshold.
+
+Decision: **PROMOTE Støtteregisteret through a clean PR only**. Do not merge the experiment branch or its workflows. After merge + post-merge CI, NEXT is Phase 11 fresh evaluator-shaped release qualification; no Builderr submission until that fresh release gate is clean.

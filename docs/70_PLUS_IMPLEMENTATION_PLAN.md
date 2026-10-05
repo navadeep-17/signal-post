@@ -352,3 +352,17 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 ## 23. NEXT
 
 **Run a consumed-only deterministic source/family selection audit. Screen rights, exact-ID join quality, likely evaluator-shaped reach and request/runtime budget for Doffin, Støtteregisteret, Patentstyret or another official source before implementing a connector. No fresh cohort yet.**
+
+---
+
+## 2026-10-05 roadmap advancement — deterministic source selection -> Phase 7 Støtteregisteret -> Phase 11
+
+Status: **SOURCE SELECTION COMPLETE / PHASE 7 PROMOTION QUALIFIED ON CONSUMED V8 / PHASE 11 NEXT AFTER MERGE**
+
+The post-Phase-4 deterministic source/family screen selected Brønnøysundregistrene Støtteregisteret because it combines NLOD rights, exact organisation-number recipient identity, recent dated events, one shared batch request and meaningful company-level reach. The final production semantics accept only the **primary recipient organisation number**, never `Spesifisert mottaker` or the granting authority, and publish typed `official.support_award` claims rather than company-authored news.
+
+The hardened actual-V8 consumed qualification (`37254237936`, artifact `11321344340`) passed on 100 already-consumed certified companies: 100 terminal, 11 support companies, 46 support claims/facts, zero contract/canonical/synthesis/external/integrity failures, $0 third-party cost, 1 support request, 1 BRREG change-feed request, H2g ceiling 97, 1,366 observed conservative requests and exactly 2,000 theoretical conservative requests. External wall runtime was 784 s.
+
+The parallel exact-org Common Crawl Stage-4 path remains **SHELVED**: 3,000 generic domains yielded 453 indexed org numbers, only 4/5,900 consumed-company overlap and 2 net-new verified sites. This is far below the 20+/100 website-breakthrough threshold.
+
+Roadmap consequence: do not spend the next main-track cycle on another speculative connector. Complete clean merge/post-merge qualification of Støtteregisteret, then advance to **Phase 11 fresh validation / release candidate**. A Builderr revision remains gated on fresh evaluator-shaped evidence, manual audit and an exact SHA/artifact freeze.
