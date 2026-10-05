@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .evidence_provenance import project_evaluator_visible_provenance
 from .external_footprint import publishable_observation
 
 
@@ -85,8 +86,11 @@ def project_support_award_observations(contract: dict[str, Any], profile: dict[s
             }
         )
 
-    return {
-        **contract,
-        "claims": claims,
-        "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
-    }
+    return project_evaluator_visible_provenance(
+        {
+            **contract,
+            "claims": claims,
+            "evidence": sorted(evidence_by_id.values(), key=lambda item: str(item.get("id") or "")),
+        },
+        profile,
+    )
