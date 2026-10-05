@@ -65,8 +65,10 @@ def project_support_award_observations(contract: dict[str, Any], profile: dict[s
             "source_class": "official",
             "retrieved_at": observation.get("retrieved_at"),
             "content_sha256": observation.get("content_sha256"),
+            "source_snapshot_sha256": observation.get("source_snapshot_sha256"),
             "claim_span": observation.get("evidence_span"),
             "effective_at": observation.get("effective_at"),
+            "source_row_number": observation.get("source_row_number"),
             "source_row_key": observation.get("source_row_key"),
         }
         claims.append(
