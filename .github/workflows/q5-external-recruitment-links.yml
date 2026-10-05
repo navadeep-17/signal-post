@@ -1,0 +1,95 @@
+name: Q5 External Recruitment Link Screen
+
+on:
+  push:
+    branches:
+      - audit/q5-external-recruitment-links
+    paths:
+      - 'scripts/screen_q5_external_recruitment_links.py'
+      - 'tests/test_q5_external_recruitment_links.py'
+      - '.github/workflows/q5-external-recruitment-links.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen-consumed-exact-homepages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_q5_external_recruitment_links.py
+
+      - name: Download frozen Q4/Q6 consumed profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen
+          gh run download 37334830712 \
+            --repo navadeep-17/signal-post \
+            --name q4-consumed-v8-integration-replay \
+            --dir frozen
+          test -s frozen/out/q4-replay/work/profiles.jsonl
+          test "$(wc -l < frozen/out/q4-replay/work/profiles.jsonl)" -eq 100
+
+      - name: Screen exact homepages for declared external recruitment surfaces
+        run: |
+          uv run python scripts/screen_q5_external_recruitment_links.py \
+            --profiles frozen/out/q4-replay/work/profiles.jsonl \
+            --output out/q5-external-recruitment-links.json \
+            --timeout 6 \
+            --expect-profiles 100 \
+            --expect-verified-sites 7
+
+      - name: Verify source-selection boundary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/q5-external-recruitment-links.json').read_text())
+          assert report['status'] == 'SCREEN_ONLY_NO_PRODUCTION_CHANGE', report
+          assert report['fresh_qualification'] is False, report
+          assert report['profiles'] == 100, report
+          assert report['verified_sites'] == 7, report
+          assert len(report['attempts']) == 7, report
+          assert report['network_requests'] <= 14, report
+          assert report['production_decision'] == 'UNDECIDED_SCREEN_ONLY', report
+          for attempt in report['attempts']:
+              for candidate in attempt.get('candidates') or []:
+                  assert candidate['url'].startswith(('http://', 'https://')), candidate
+                  assert candidate['host'], candidate
+                  assert candidate.get('markers') or candidate.get('known_recruitment_host'), candidate
+          print(json.dumps({
+              'verified_sites': report['verified_sites'],
+              'network_requests': report['network_requests'],
+              'companies_with_external_recruitment_candidates': report['companies_with_external_recruitment_candidates'],
+              'external_recruitment_candidates': report['external_recruitment_candidates'],
+              'known_ats_candidates': report['known_ats_candidates'],
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload recruitment-link screen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q5-external-recruitment-links
+          retention-days: 30
+          if-no-files-found: error
+          path: out/q5-external-recruitment-links.json
