@@ -1,0 +1,73 @@
+name: Research Peppol Website Overlap
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-peppol-website-overlap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Verify aggregate-only overlap comparator
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_peppol_website_overlap.py
+
+      - name: Download one Peppol export without retry
+        run: |
+          mkdir -p out/peppol-overlap
+          set +e
+          HTTP=$(curl --location --retry 0 --silent --show-error             --header 'Accept-Encoding: gzip'             --user-agent 'Signalpost-research-source-screen/1.0'             --output out/peppol-overlap/businesscards.csv.gz             --write-out '%{http_code}'             'https://directory.peppol.eu/export/businesscards-csv')
+          RC=$?
+          set -e
+          echo "peppol-export-http=$HTTP"
+          if [ "$RC" -ne 0 ]; then exit "$RC"; fi
+          if [ "$HTTP" = "429" ]; then
+            echo "Official export rate limit active; no retry."
+            exit 75
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "Unexpected export HTTP status: $HTTP"
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("out/peppol-overlap/businesscards.csv.gz")
+          assert p.read_bytes()[:2] == b"\x1f\x8b"
+          print("compressed-bytes=",p.stat().st_size)
+          PY
+
+      - name: Measure net-new website candidate overlap
+        run: |
+          uv run python scripts/screen_peppol_website_overlap.py             --export-gz out/peppol-overlap/businesscards.csv.gz             --production-output-gz submission/final-release-1000-output.jsonl.gz             --companies submission/final-release-1000.jsonl             --report out/peppol-overlap/report.json
+          cat out/peppol-overlap/report.json
+
+      - name: Remove source material
+        if: always()
+        run: rm -f out/peppol-overlap/businesscards.csv.gz
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-peppol-website-overlap
+          retention-days: 30
+          path: out/peppol-overlap/report.json
