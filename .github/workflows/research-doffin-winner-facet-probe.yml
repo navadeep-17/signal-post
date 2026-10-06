@@ -1,0 +1,111 @@
+name: Research Doffin Winner Facet Coverage Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-winner-facet-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe monthly RESULT winner facets
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          windows=[
+            ('2026-09','2026-09-01','2026-09-30'),
+            ('2026-08','2026-08-01','2026-08-31'),
+            ('2026-01','2026-01-01','2026-01-31'),
+          ]
+          for name,start,end in windows:
+              payload={
+                'numHitsPerPage':1,
+                'page':1,
+                'searchString':'',
+                'sortBy':'PUBLICATION_DATE_DESC',
+                'facets':{
+                  'cpvCodesLabel':{'checkedItems':[]},
+                  'cpvCodesId':{'checkedItems':[]},
+                  'type':{'checkedItems':['RESULT']},
+                  'status':{'checkedItems':[]},
+                  'contractNature':{'checkedItems':[]},
+                  'procurementStrategicLabels':{'checkedItems':[]},
+                  'publicationDate':{'from':start,'to':end},
+                  'location':{'checkedItems':[]},
+                  'buyer':{'checkedItems':[]},
+                  'winner':{'checkedItems':[]}
+                }
+              }
+              Path(f'out/{name}.json').write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8')
+          PY
+          for MONTH in 2026-09 2026-08 2026-01; do
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' --header 'Content-Type: application/json' \
+              --data-binary "@out/${MONTH}.json" \
+              --write-out '%{http_code}' \
+              'https://api.doffin.no/webclient/api/v2/search-api/search' \
+              -o "out/${MONTH}.response.json" || true)"
+            python - "${MONTH}" "${CODE}" <<'PY'
+          import json,sys
+          from pathlib import Path
+          month,code=sys.argv[1:3]
+          data=json.loads(Path(f'out/{month}.response.json').read_text(encoding='utf-8'))
+          winner=(data.get('facets') or {}).get('winner') or {}
+          items=winner.get('items') or []
+          print('MONTH',month,'http=',code,'hitsTotal=',data.get('numHitsTotal'),'winnerFacetItems=',len(items))
+          for i,item in enumerate(items[:30]):
+              print('WINNER',i,json.dumps(item,ensure_ascii=False,sort_keys=True))
+          print('winner-facet-keys=',sorted(winner) if isinstance(winner,dict) else type(winner).__name__)
+          PY
+          done
+
+      - name: Probe facet behavior at larger page size
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload={
+            'numHitsPerPage':1000,'page':1,'searchString':'','sortBy':'PUBLICATION_DATE_DESC',
+            'facets':{
+              'cpvCodesLabel':{'checkedItems':[]},'cpvCodesId':{'checkedItems':[]},
+              'type':{'checkedItems':['RESULT']},'status':{'checkedItems':[]},
+              'contractNature':{'checkedItems':[]},'procurementStrategicLabels':{'checkedItems':[]},
+              'publicationDate':{'from':'2026-09-01','to':'2026-09-30'},
+              'location':{'checkedItems':[]},'buyer':{'checkedItems':[]},'winner':{'checkedItems':[]}
+            }
+          }
+          Path('out/large.json').write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8')
+          PY
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            --header 'Accept: application/json' --header 'Content-Type: application/json' \
+            --data-binary @out/large.json \
+            'https://api.doffin.no/webclient/api/v2/search-api/search' \
+            -o out/large.response.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('out/large.response.json').read_text(encoding='utf-8'))
+          items=((data.get('facets') or {}).get('winner') or {}).get('items') or []
+          print('LARGE hits=',len(data.get('hits') or []),'total=',data.get('numHitsTotal'),'winnerFacetItems=',len(items))
+          for i,item in enumerate(items[:30]):
+              print('LARGE-WINNER',i,json.dumps(item,ensure_ascii=False,sort_keys=True))
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
