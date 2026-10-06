@@ -51,6 +51,7 @@ CANONICAL_FIELD_BY_TYPE = {
     "contact_phone": "website.contact_phone",
     "social_profile": "public.social_profile",
     "careers_page": "hiring.careers_page",
+    "hiring_intent": "hiring.company_authored_intent",
     "job_posting": "hiring.job_posting",
     "company_update": "public.company_update",
     "support_award": "public.official_support_award",
@@ -220,6 +221,8 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         facts.append(_fact("workforce_snapshot", claim))
     for claim in index.get("external.careers_page") or []:
         facts.append(_fact("careers_page", claim))
+    for claim in index.get("external.hiring_intent") or []:
+        facts.append(_fact("hiring_intent", claim))
     for claim in index.get("external.job_posting") or []:
         facts.append(_fact("job_posting", claim))
     for claim in index.get("external.company_update") or []:
@@ -271,7 +274,9 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "people": [item for item in facts if item["type"] == "person_role"],
         "locations": [item for item in facts if item["type"] == "registered_location"],
         "company_website": [item for item in facts if item["type"] in website_keys],
-        "hiring_signals": [item for item in facts if item["type"] == "careers_page"],
+        "hiring_signals": [
+            item for item in facts if item["type"] in {"careers_page", "hiring_intent"}
+        ],
         "jobs": [item for item in facts if item["type"] == "job_posting"],
         "public_activity": [item for item in facts if item["type"] in activity_keys],
     }
