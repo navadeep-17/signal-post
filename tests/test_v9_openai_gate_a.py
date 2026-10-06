@@ -60,6 +60,7 @@ def test_preflight_fails_closed_by_default() -> None:
     assert decision["allowed_for_live_v9_experiment"] is False
     assert "explicit_live_enable_required" in decision["reasons"]
     assert "provider_key_missing" in decision["reasons"]
+    assert "evaluator_supplied_credential_not_confirmed" in decision["reasons"]
     assert "provider_not_evaluator_reproducible" in decision["reasons"]
     assert "provider_rights_not_confirmed" in decision["reasons"]
     assert "project_zero_cost_policy" in decision["reasons"]
@@ -74,6 +75,7 @@ def test_preflight_requires_budget_for_search_plus_model_reserve() -> None:
             rights_status="contract_confirmed",
             challenge_cost_budget_usd=10.0,
             project_third_party_budget_usd=0.20,
+            evaluator_supplied_credential=True,
         ),
         company_count=20,
         api_key_available=True,
@@ -148,6 +150,7 @@ def test_machine_yield_never_auto_passes_gate_a() -> None:
             rights_status="contract_confirmed",
             challenge_cost_budget_usd=10.0,
             project_third_party_budget_usd=0.50,
+            evaluator_supplied_credential=True,
         ),
         search_fn=search_fn,
         fetch_fn=available_fetch,
@@ -196,6 +199,7 @@ def test_under_five_machine_verifications_stays_retune() -> None:
             rights_status="approved",
             challenge_cost_budget_usd=1.0,
             project_third_party_budget_usd=0.50,
+            evaluator_supplied_credential=True,
         ),
         search_fn=search_fn,
         fetch_fn=available_fetch,
