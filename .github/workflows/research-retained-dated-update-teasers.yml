@@ -1,0 +1,56 @@
+name: Research Retained Dated Homepage Teasers
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/audit_retained_dated_update_teasers.py
+      - tests/test_audit_retained_dated_update_teasers.py
+      - .github/workflows/research-retained-dated-update-teasers.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run strict teaser audit tests
+        run: |
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q             tests/test_audit_retained_dated_update_teasers.py             tests/test_c12_dated_first_party_news.py
+
+      - name: Download archived exact-site profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Audit retained dated homepage cards with zero network
+        run: |
+          mkdir -p out/dated-teasers
+          uv run python scripts/audit_retained_dated_update_teasers.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --as-of 2026-10-06             --lookback-days 365             --report out/dated-teasers/report.json
+          cat out/dated-teasers/report.json
+
+      - name: Upload aggregate result only
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-retained-dated-update-teasers
+          retention-days: 30
+          path: out/dated-teasers/report.json
