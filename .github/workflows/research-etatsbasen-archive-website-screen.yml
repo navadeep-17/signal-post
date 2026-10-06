@@ -1,0 +1,61 @@
+name: Research Archived Etatsbasen Website Screen
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-etatsbasen-archive-website-screen.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run join tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_etatsbasen_archive_website_reach.py
+
+      - name: Download two archived NLOD tables
+        run: |
+          mkdir -p out/etatsbasen
+          curl --fail --location --retry 1 --retry-delay 2             --user-agent 'Signalpost-research-source-screen/1.0'             'https://raw.githubusercontent.com/datahotellet/dataset-archive/main/datasets/difi/etatsbasen/organization/dataset.csv'             --output out/etatsbasen/organization.csv
+          curl --fail --location --retry 1 --retry-delay 2             --user-agent 'Signalpost-research-source-screen/1.0'             'https://raw.githubusercontent.com/datahotellet/dataset-archive/main/datasets/difi/etatsbasen/url/dataset.csv'             --output out/etatsbasen/url.csv
+          python - <<'PY'
+          from pathlib import Path
+          for name in ("organization.csv","url.csv"):
+              p=Path("out/etatsbasen")/name
+              print(name,"bytes=",p.stat().st_size,"prefix=",repr(p.read_bytes()[:100]))
+          PY
+
+      - name: Measure exact-org URL overlap
+        run: |
+          uv run python scripts/screen_etatsbasen_archive_website_reach.py             --organisations-csv out/etatsbasen/organization.csv             --urls-csv out/etatsbasen/url.csv             --companies submission/final-release-1000.jsonl             --production-output-gz submission/final-release-1000-output.jsonl.gz             --report out/etatsbasen/report.json
+          cat out/etatsbasen/report.json
+
+      - name: Remove source tables
+        if: always()
+        run: rm -f out/etatsbasen/organization.csv out/etatsbasen/url.csv
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-etatsbasen-archive-website-screen
+          retention-days: 30
+          path: out/etatsbasen/report.json
