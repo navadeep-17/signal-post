@@ -45,11 +45,46 @@ SITE_OWNER_GENERIC_SUBJECTS = {
     "this site",
 }
 
+# B.I.L. is a common abbreviation for "bedriftsidrettslag", but the ordinary
+# Norwegian word "bil" means "car". The old permissive expression also matched
+# contiguous BIL, which falsely classified companies such as "... BIL AS" as
+# sports clubs. Require an actual separator between B/I/L unless exact registry
+# activity/purpose text independently establishes an idrett context.
+BUSINESS_SPORTS_CLUB_ABBREVIATION_RE = re.compile(
+    r"(?i)(?<![A-ZÆØÅ0-9])"
+    r"B(?:\s*\.\s*|\s+)I(?:\s*\.\s*|\s+)L\.?"
+    r"(?![A-ZÆØÅ0-9])"
+)
+PLAIN_BIL_TOKEN_RE = re.compile(r"(?i)(?:^|\s)BIL(?:\s|$)")
+SPORTS_ACTIVITY_MARKERS = (
+    "bedriftsidrett",
+    "idrettslag",
+    "idrettslaget",
+    "idrettsforening",
+)
+
 
 def _tokens(value: Any) -> list[str]:
     text = str(value or "").translate(str.maketrans({"ø": "o", "Ø": "O", "å": "a", "Å": "A", "æ": "ae", "Æ": "AE"}))
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().casefold()
     return [token for token in re.findall(r"[a-z0-9]+", text) if token not in LEGAL_AND_GENERIC and len(token) > 1]
+
+
+def _is_business_sports_club(profile: dict[str, Any]) -> bool:
+    """Identify actual B.I.L./bedriftsidrett entities without treating 'bil' as an abbreviation."""
+    name = str(profile.get("name") or "")
+    if BUSINESS_SPORTS_CLUB_ABBREVIATION_RE.search(name):
+        return True
+    if not PLAIN_BIL_TOKEN_RE.search(name):
+        return False
+
+    raw = ((profile.get("evidence") or {}).get("registry") or {}).get("value") or {}
+    context = " ".join(
+        str(raw.get(key) or "")
+        for key in ("aktivitet", "vedtektsfestetFormaal", "vedtektsfestetFormål")
+    )
+    normalized = unicodedata.normalize("NFKD", context).encode("ascii", "ignore").decode().casefold()
+    return any(marker in normalized for marker in SPORTS_ACTIVITY_MARKERS)
 
 
 def _structured_names(value: Any) -> list[str]:
@@ -192,7 +227,7 @@ def assess_website_identity(profile: dict[str, Any]) -> dict[str, Any]:
     homepage_token_sets = [set(_tokens(part)) for part in homepage_identity_parts if part]
     exact_homepage_name = bool(core and any(set(core).issubset(tokens) for tokens in homepage_token_sets))
     substantive_homepage = len(str(value.get("main_text_excerpt") or "").strip()) >= 100
-    is_business_sports_club = bool(re.search(r"(?:^|\s)B\.?\s*I\.?\s*L\.?(?:\s|$)", str(profile.get("name") or ""), re.I))
+    is_business_sports_club = _is_business_sports_club(profile)
     if any(marker in normalized_raw for marker in parked_markers):
         score = 0.1
         reasons.append("captured page is a parked, for-sale, or generic hosting placeholder")
