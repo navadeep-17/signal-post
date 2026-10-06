@@ -1,0 +1,57 @@
+name: Research Patentstyret Public Metadata Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-public-metadata-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe only public API metadata surfaces
+        run: |
+          mkdir -p out
+          BASE='https://apimanagement.patentstyret.no/subscriptions/000/resourceGroups/000/providers/Microsoft.ApiManagement/service/apim-prd-001'
+          for SPEC in \
+            "apis-v1|${BASE}/apis?api-version=2022-04-01-preview" \
+            "apis-v2|${BASE}/apis?api-version=2021-08-01" \
+            "products|${BASE}/products?api-version=2022-04-01-preview" \
+            "portal-apis|https://developer.patentstyret.no/developer/apis?api-version=2022-04-01-preview" \
+            "portal-apis2|https://developer.patentstyret.no/developer/apis"; do
+            NAME="${SPEC%%|*}"
+            URL="${SPEC#*|}"
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --connect-timeout 10 --max-time 25 \
+              --dump-header "out/${NAME}.headers" \
+              --write-out '%{http_code}' \
+              "$URL" --output "out/${NAME}.body" || true)"
+            echo "=== ${NAME} http=${CODE} ==="
+            sed -n '1,40p' "out/${NAME}.headers" || true
+            python - "${NAME}" <<'PY'
+          import sys
+          from pathlib import Path
+          name = sys.argv[1]
+          p = Path(f'out/{name}.body')
+          if not p.exists():
+              print('no-body')
+          else:
+              text = p.read_text(encoding='utf-8', errors='replace')
+              print('bytes=', len(text))
+              print(text[:16000])
+          PY
+          done
+
+      - name: Remove metadata payloads
+        if: always()
+        run: rm -rf out
