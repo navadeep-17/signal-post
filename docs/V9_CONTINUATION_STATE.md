@@ -64,16 +64,84 @@ Do not:
 - increase `MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE`;
 - merge this branch before consumed baseline-vs-challenger transfer evidence exists.
 
-## Required next gate
+## M2 consumed-transfer decision
 
-1. Make Baseline CI green on the V9 branch.
-2. Replay baseline and challenger on consumed data.
-3. Run the family measurement harness on exactly the same companies.
-4. Manually audit every new external publication.
-5. Confirm:
-   - wrong-company publications = 0;
-   - existing verified websites lost = 0;
-   - net-new company-family coverage is positive;
-   - contract/canonical/synthesis/evidence checks remain clean;
-   - conservative request theorem is unchanged or lower.
-6. Decision: PROMOTE / RETUNE / SHELVE / DROP.
+Decision: **RETUNE**. M2 is not promoted and no later milestone may be stacked on it yet.
+
+The governing consumed evidence is the exact-branch push run `37464768685` at challenger
+`58723f89fa192a1dd449c72f907ac86bd477c203`, compared with frozen `main`
+`72f1bf2892ec1c1e35674aa383433c9a37afdaca`. The subsequent branch commit
+`69c73fb38371ee14312fb75c8b91c76947fc3e5c` was an empty commit with the same Git tree
+`19e9f049a1acbfe3ba3c1e24bc1fe8d7628dd37f`, so the measured implementation tree is identical.
+
+The PR-triggered run `37464804373` checked GitHub's synthetic merge commit
+`09020e31ba36147a360c5f93ccb579b58731d22d`; it is useful corroboration but is not the
+governing exact-branch result. The M2 workflow has since been tightened to explicitly check out
+the PR head SHA and verify that recorded challenger SHA.
+
+Consumed 100-company exact-branch result:
+
+- verified website companies: **6 -> 5**; net-new **0**; lost **1**;
+- social companies: **4 -> 4**;
+- external-contact companies: **5 -> 5**;
+- careers-surface companies: **0 -> 0**;
+- company-authored hiring-intent companies: **0 -> 0**;
+- specific active-job companies: **0 -> 0**;
+- dated first-party activity companies: **1 -> 1**;
+- net-new scored company-family coverage: **0**;
+- evaluator-family publications added: **0**;
+- evaluator-family publications lost: **1**;
+- reported per-company conservative request charge: **1378 -> 1320**;
+- whole-run observed logical requests: **692 -> 663**;
+- whole-run observed conservative challenge charge: **1384 -> 1326**;
+- theoretical conservative ceiling: **2000 -> 2000**;
+- wall runtime: **636.253 s -> 635.181 s**;
+- third-party API cost: **$0 -> $0**;
+- search API requests: **0 -> 0**;
+- terminal outputs: **100/100 -> 100/100**;
+- source-level reported errors: **162 -> 164**;
+- contract errors: **0**;
+- canonical validation errors: **0**;
+- synthesis validation errors: **0**;
+- external-observation validation errors: **0**;
+- wrong-company new publications after manual audit: **0**.
+
+Manual publication audit is complete because the challenger added **zero** evaluator-family
+publications. The single lost publication was separately regression-audited: organisation
+`921093934`, `https://www.aursneskiosk.no/`. The retained baseline evidence classified it
+as exact with score 0.98, full normalized legal-name tokens, registry-location/title-domain
+corroboration, and same-domain secondary identity corroboration. Treat the loss as a real
+verified-site regression, not as removal of a dubious publication.
+
+Why RETUNE rather than PROMOTE: the challenger saved observed requests but produced no
+net-new scored-family coverage and violated the no-existing-verified-site-loss gate. The likely
+retune target is candidate allocation/priority: a strong email-domain nomination must not
+consume the request opportunity needed to retain an already productive deterministic H1c path.
+Do not weaken identity gates to repair this.
+
+## Milestone sequencing lock
+
+Until the M2 retune passes consumed transfer and manual audit:
+
+- do not start M5 or M6;
+- do not stack M4 onto M2;
+- do not consume a fresh cohort;
+- do not merge PR #142;
+- keep PR #143 as the canonical isolated M4 experiment based from `main`;
+- PR #144 is superseded/closed and must not be revived;
+- keep PR #137 parked as optional M9-only search fallback.
+
+Builderr's current official path must remain credential-free. No general model/search provider
+is injected by default and participant-owned API keys are not used. If Builderr later explicitly
+arranges a reproducible provider/key, paid model/search/tool usage shares the official **$10**
+external-API cap per 100-company shard; internal planning should target at most **$8** with about
+**$2 reserve**. Current shard limits remain **45 minutes**, **2,000 outbound requests**, and
+**$10 external API cost**.
+
+## Exact next action
+
+Remain in **M2 RETUNE**. Diagnose and fix the one-site regression without increasing the
+four-logical-site-request ceiling, then re-run the same consumed 100-company baseline/challenger
+gate on the exact challenger head. Promotion still requires zero website losses, positive
+net-new scored-family coverage, zero wrong-company publications, clean contract/canonical/
+synthesis/evidence validation, and the unchanged <=2,000 worst-case request theorem.
