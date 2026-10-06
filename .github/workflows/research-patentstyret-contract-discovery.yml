@@ -1,0 +1,98 @@
+name: Research Patentstyret API Contract Discovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-contract-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch official developer pages
+        run: |
+          mkdir -p out/patentstyret/js
+          for SPEC in \
+            'home|https://developer.patentstyret.no/' \
+            'apis|https://developer.patentstyret.no/apis' \
+            'docs|https://developer.patentstyret.no/docs-open-data'; do
+            NAME="${SPEC%%|*}"
+            URL="${SPEC#*|}"
+            curl --fail --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              "$URL" --output "out/patentstyret/${NAME}.html"
+          done
+
+      - name: Download referenced JavaScript assets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess
+          refs = set()
+          for html_path in Path('out/patentstyret').glob('*.html'):
+              html = html_path.read_text(encoding='utf-8', errors='replace')
+              refs.update(re.findall(r'(?:src|href)=["\']([^"\']+\.js(?:\?[^"\']*)?)', html, flags=re.I))
+          print('js-ref-count:', len(refs))
+          for i, ref in enumerate(sorted(refs)):
+              url = urljoin('https://developer.patentstyret.no/', ref)
+              dest = Path('out/patentstyret/js') / f'{i:03d}.js'
+              print('fetch', url)
+              subprocess.run([
+                  'curl','--fail','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  url,'--output',str(dest)
+              ], check=True)
+          PY
+
+      - name: Search official portal assets for endpoint contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          files = [*Path('out/patentstyret').glob('*.html'), *Path('out/patentstyret/js').glob('*.js')]
+          needles = [
+              'IprCasesByCompany',
+              'subscription-key',
+              'Ocp-Apim-Subscription-Key',
+              'organizationNumber',
+              'organisationNumber',
+              '/register/v1',
+              'api-url',
+              'backend',
+          ]
+          for path in files:
+              text = path.read_text(encoding='utf-8', errors='replace')
+              low = text.lower()
+              if not any(n.lower() in low for n in needles):
+                  continue
+              print('\n===', path, 'bytes=', path.stat().st_size, '===')
+              for needle in needles:
+                  start = 0
+                  shown = 0
+                  while shown < 12:
+                      idx = low.find(needle.lower(), start)
+                      if idx < 0:
+                          break
+                      print('\n---', needle, '---')
+                      print(text[max(0, idx-900):min(len(text), idx+2200)])
+                      shown += 1
+                      start = idx + len(needle)
+              urls = sorted(set(re.findall(r'https?://[^"\'<>\\s]+', text)))
+              for url in urls:
+                  if any(k in url.lower() for k in ['patent', 'api', 'azure']):
+                      print('URL', url[:1000])
+          PY
+
+      - name: Remove fetched portal payloads
+        if: always()
+        run: rm -rf out/patentstyret
