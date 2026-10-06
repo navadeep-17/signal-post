@@ -1,11 +1,6 @@
 name: Research BRREG Announcement Binned Economics
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-announcement-binned-economics.yml
   workflow_dispatch:
 
 permissions:
