@@ -1,0 +1,366 @@
+name: Research Doffindata Live Model Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-live-model-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve public Power BI model contract safely
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import base64
+          import json
+          import re
+          import uuid
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs, unquote
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+
+          REPORT = "1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL = (
+              "https://api.doffin.no/webclient/api/v2/notices-api/"
+              f"getEmbedToken?reportId={REPORT}"
+          )
+          UA = "Signalpost-research-source-screen/1.0"
+
+          def request_json(url, *, headers=None, data=None, method=None, timeout=30):
+              h = {"User-Agent": UA, "Accept": "application/json"}
+              if headers:
+                  h.update(headers)
+              body = None
+              if data is not None:
+                  body = json.dumps(data, separators=(",", ":")).encode("utf-8")
+                  h["Content-Type"] = "application/json"
+              req = Request(url, data=body, headers=h, method=method)
+              try:
+                  with urlopen(req, timeout=timeout) as resp:
+                      raw = resp.read()
+                      status = resp.status
+                      ctype = resp.headers.get("Content-Type", "")
+              except HTTPError as e:
+                  raw = e.read()
+                  status = e.code
+                  ctype = e.headers.get("Content-Type", "") if e.headers else ""
+              except URLError as e:
+                  return 0, {}, b"", str(e)
+              try:
+                  obj = json.loads(raw.decode("utf-8")) if raw else {}
+              except Exception:
+                  obj = {}
+              return status, obj, raw, ctype
+
+          status, embed, raw, ctype = request_json(TOKEN_URL)
+          print("embed-http=", status)
+          print("embed-response-keys=", sorted(embed) if isinstance(embed, dict) else type(embed).__name__)
+          if status != 200 or not isinstance(embed, dict):
+              raise SystemExit("public Doffin embed metadata unavailable")
+
+          token = embed.get("accessToken") or ""
+          urls = embed.get("embedUrl") or []
+          if isinstance(urls, str):
+              urls = [urls]
+          if not token or not urls:
+              raise SystemExit("missing embed token/url")
+          print("access-token-present=", bool(token))
+          print("access-token-length=", len(token))
+          print("access-token-dot-count=", token.count("."))
+
+          embed_url = urls[0]
+          parsed = urlparse(embed_url)
+          query = parse_qs(parsed.query)
+          print("embed-host=", parsed.hostname)
+          print("embed-path=", parsed.path)
+          print("embed-query-keys=", sorted(query))
+          print("embed-reportId=", (query.get("reportId") or [""])[0])
+          print("embed-groupId=", (query.get("groupId") or [""])[0])
+
+          allowed_key = re.compile(
+              r"(cluster|dataset|model|report|workspace|group|resource|capacity|tenant)",
+              re.I,
+          )
+          urlish = re.compile(r"^https://", re.I)
+          guid_re = re.compile(
+              r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
+          )
+
+          def safe_walk(obj, path="root", depth=0):
+              if depth > 8:
+                  return
+              if isinstance(obj, dict):
+                  for k, v in obj.items():
+                      p = f"{path}.{k}"
+                      if allowed_key.search(str(k)):
+                          if isinstance(v, (str, int, float, bool)) and len(str(v)) < 800:
+                              print("SAFE-META", p, "=", str(v))
+                      safe_walk(v, p, depth + 1)
+              elif isinstance(obj, list):
+                  for i, v in enumerate(obj[:100]):
+                      safe_walk(v, f"{path}[{i}]", depth + 1)
+
+          # Decode URL config only when it is ordinary encoded JSON/base64.
+          for key in ("config", "settings"):
+              for raw_value in query.get(key, [])[:2]:
+                  candidates = [raw_value, unquote(raw_value)]
+                  for candidate in candidates:
+                      decoded = None
+                      try:
+                          decoded = json.loads(candidate)
+                      except Exception:
+                          pass
+                      if decoded is None:
+                          for alt in (candidate, candidate.replace("-", "+").replace("_", "/")):
+                              try:
+                                  padded = alt + "=" * ((4 - len(alt) % 4) % 4)
+                                  decoded = json.loads(base64.b64decode(padded).decode("utf-8"))
+                                  break
+                              except Exception:
+                                  continue
+                      if decoded is not None:
+                          print("decoded-embed-config-key=", key)
+                          safe_walk(decoded, "embedConfig")
+                          break
+
+          # Decode JWT-like payload locally and expose only model/cluster/report-style claims.
+          if token.count(".") >= 2:
+              parts = token.split(".")
+              try:
+                  payload = parts[1].replace("-", "+").replace("_", "/")
+                  payload += "=" * ((4 - len(payload) % 4) % 4)
+                  claims = json.loads(base64.b64decode(payload).decode("utf-8"))
+                  print("token-payload-json=", True)
+                  print("token-claim-keys=", sorted(claims)[:120])
+                  safe_walk(claims, "tokenClaims")
+              except Exception:
+                  print("token-payload-json=", False)
+
+          def pbi_headers(prefix):
+              return {
+                  "Authorization": f"{prefix} {token}",
+                  "ActivityId": str(uuid.uuid4()),
+                  "RequestId": str(uuid.uuid4()),
+                  "X-PowerBI-HostEnv": "Embed for Customers",
+                  "Origin": "https://app.powerbi.com",
+                  "Referer": "https://app.powerbi.com/",
+              }
+
+          cluster_candidates = []
+          # First reproduce the report shell's cluster-resolution request against app.powerbi.com.
+          for prefix in ("EmbedToken", "Bearer"):
+              status, obj, raw, ctype = request_json(
+                  "https://app.powerbi.com/metadata/cluster",
+                  headers=pbi_headers(prefix),
+              )
+              print("cluster-probe-prefix=", prefix, "http=", status, "bytes=", len(raw))
+              if isinstance(obj, dict):
+                  print("cluster-response-keys=", sorted(obj)[:80])
+                  for k in ("clusterUrl", "backendUrl"):
+                      v = obj.get(k)
+                      if isinstance(v, str) and urlish.match(v):
+                          print("cluster-"+k+"=", v)
+                          cluster_candidates.append((prefix, v.rstrip("/")))
+              if cluster_candidates:
+                  break
+
+          # Also admit a safely exposed cluster URL from decoded metadata if present.
+          # (The exact token itself is never printed or persisted.)
+          cluster_candidates = list(dict.fromkeys(cluster_candidates))
+          if not cluster_candidates:
+              raise SystemExit("could not resolve public Power BI cluster")
+
+          prefix, cluster = cluster_candidates[0]
+          print("selected-auth-prefix=", prefix)
+          print("selected-cluster-host=", urlparse(cluster).hostname)
+
+          model_url = (
+              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration"
+              "?preferReadOnlySession=true&skipQueryData=true"
+          )
+          status, model_obj, model_raw, ctype = request_json(
+              model_url,
+              headers=pbi_headers(prefix),
+              timeout=45,
+          )
+          print("models-http=", status, "bytes=", len(model_raw))
+          if isinstance(model_obj, dict):
+              print("models-top-keys=", sorted(model_obj)[:100])
+          if status != 200:
+              # Print only bounded non-secret error shape.
+              if isinstance(model_obj, dict):
+                  print("models-error-keys=", sorted(model_obj)[:80])
+              raise SystemExit("modelsAndExploration request failed")
+
+          # Extract only IDs, model/report structure, and field/name strings relevant to exact-org procurement.
+          dataset_ids = set()
+          model_ids = set()
+          relevant = set()
+          all_guids = set()
+
+          def scan(obj, path="root", depth=0):
+              if depth > 15:
+                  return
+              if isinstance(obj, dict):
+                  for k, v in obj.items():
+                      p = f"{path}.{k}"
+                      kl = str(k).lower()
+                      if isinstance(v, str):
+                          all_guids.update(guid_re.findall(v))
+                          if "dataset" in kl and guid_re.fullmatch(v.strip()):
+                              dataset_ids.add(v.strip())
+                          if "model" in kl and guid_re.fullmatch(v.strip()):
+                              model_ids.add(v.strip())
+                          low = v.lower()
+                          if any(term in low for term in (
+                              "org", "organisasjon", "organisation", "organization",
+                              "leverand", "supplier", "winner", "vinner",
+                              "tildel", "award", "contract", "kontrakt",
+                              "beløp", "belop", "amount", "value",
+                              "dato", "date"
+                          )):
+                              relevant.add((p, v[:700]))
+                      elif isinstance(v, (int, float, bool)):
+                          if "dataset" in kl or "model" in kl:
+                              relevant.add((p, str(v)))
+                      scan(v, p, depth + 1)
+              elif isinstance(obj, list):
+                  for i, v in enumerate(obj[:5000]):
+                      scan(v, f"{path}[{i}]", depth + 1)
+              elif isinstance(obj, str):
+                  all_guids.update(guid_re.findall(obj))
+
+          scan(model_obj)
+          print("dataset-ids=", sorted(dataset_ids))
+          print("model-ids=", sorted(model_ids))
+          print("guid-count-model-payload=", len(all_guids))
+          print("relevant-model-strings-count=", len(relevant))
+          for path, value in sorted(relevant)[:240]:
+              print("MODEL-RELEVANT", path, "=", value)
+
+          # Query conceptual schema using the exact report-bound path documented by the shell.
+          schema_url = (
+              f"{cluster}/explore/reports/{REPORT}/conceptualschema"
+              "?userPreferredLocale=nb-NO"
+          )
+          status, schema_obj, schema_raw, ctype = request_json(
+              schema_url,
+              headers=pbi_headers(prefix),
+              timeout=45,
+          )
+          print("schema-report-http=", status, "bytes=", len(schema_raw))
+          if isinstance(schema_obj, dict):
+              print("schema-report-top-keys=", sorted(schema_obj)[:100])
+
+          # If report-bound schema is unavailable and we learned a dataset ID, try dataset-bound POST.
+          if status != 200 and dataset_ids:
+              ds = sorted(dataset_ids)[0]
+              schema_url = f"{cluster}/explore/conceptualschema"
+              status, schema_obj, schema_raw, ctype = request_json(
+                  schema_url,
+                  headers=pbi_headers(prefix),
+                  data={"ModelObjectIds": [ds], "userPreferredLocale": "nb-NO"},
+                  method="POST",
+                  timeout=45,
+              )
+              print("schema-dataset-http=", status, "bytes=", len(schema_raw))
+              if isinstance(schema_obj, dict):
+                  print("schema-dataset-top-keys=", sorted(schema_obj)[:100])
+
+          if status != 200:
+              raise SystemExit("conceptual schema request failed")
+
+          schema_relevant = set()
+          entity_names = set()
+          property_names = set()
+
+          def scan_schema(obj, path="root", depth=0):
+              if depth > 20:
+                  return
+              if isinstance(obj, dict):
+                  for k, v in obj.items():
+                      p = f"{path}.{k}"
+                      kl = str(k).lower()
+                      if isinstance(v, str):
+                          low = v.lower()
+                          if kl in ("name", "displayname", "queryname", "column", "property"):
+                              if len(v) <= 300:
+                                  property_names.add(v)
+                          if "entities" in path.lower() and kl == "name" and len(v) <= 300:
+                              entity_names.add(v)
+                          if any(term in low for term in (
+                              "org", "organisasjon", "organisation", "organization",
+                              "leverand", "supplier", "winner", "vinner",
+                              "tildel", "award", "contract", "kontrakt",
+                              "beløp", "belop", "amount", "value",
+                              "dato", "date"
+                          )):
+                              schema_relevant.add((p, v[:700]))
+                      scan_schema(v, p, depth + 1)
+              elif isinstance(obj, list):
+                  for i, v in enumerate(obj[:10000]):
+                      scan_schema(v, f"{path}[{i}]", depth + 1)
+              elif isinstance(obj, str):
+                  low = obj.lower()
+                  if any(term in low for term in (
+                      "org", "organisasjon", "organisation", "organization",
+                      "leverand", "supplier", "winner", "vinner",
+                      "tildel", "award", "contract", "kontrakt",
+                      "beløp", "belop", "amount", "value",
+                      "dato", "date"
+                  )):
+                      schema_relevant.add((path, obj[:700]))
+
+          scan_schema(schema_obj)
+          print("schema-entity-count=", len(entity_names))
+          print("schema-property-name-count=", len(property_names))
+          print("schema-relevant-count=", len(schema_relevant))
+          for path, value in sorted(schema_relevant)[:400]:
+              print("SCHEMA-RELEVANT", path, "=", value)
+
+          # Explicit viability markers.
+          joined = "\n".join(v for _, v in schema_relevant).lower()
+          exact_org_terms = [
+              "organisasjonsnummer", "organisasjonsnr", "orgnr", "org.nr",
+              "organization number", "organisation number"
+          ]
+          supplier_terms = ["leverandør", "leverandor", "supplier", "winner", "vinner"]
+          award_terms = ["tildeling", "award", "kontrakt", "contract"]
+          date_terms = ["dato", "date"]
+          value_terms = ["beløp", "belop", "amount", "value", "verdi"]
+          print("VIABILITY exact-org-field=", any(x in joined for x in exact_org_terms))
+          print("VIABILITY supplier-field=", any(x in joined for x in supplier_terms))
+          print("VIABILITY award-field=", any(x in joined for x in award_terms))
+          print("VIABILITY date-field=", any(x in joined for x in date_terms))
+          print("VIABILITY value-field=", any(x in joined for x in value_terms))
+
+          # Do not persist credential-bearing responses.
+          Path("out/result.txt").write_text(
+              json.dumps({
+                  "reportId": REPORT,
+                  "clusterHost": urlparse(cluster).hostname,
+                  "datasetIds": sorted(dataset_ids),
+                  "modelIds": sorted(model_ids),
+                  "schemaRelevantCount": len(schema_relevant),
+              }, indent=2),
+              encoding="utf-8",
+          )
+          # token only lived in memory in this process.
+          PY
+          cat out/result.txt
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
