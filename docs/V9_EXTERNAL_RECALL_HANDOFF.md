@@ -2,7 +2,7 @@
 
 Updated: 2026-10-06
 
-Status: **WP0 complete; WP1 consumed baseline complete; WP2 nomination contract qualified on its isolated branch.**
+Status: **WP0/WP1 complete; WP2/WP3 merged into the V9 integration branch; Gate A is in RETUNE after measured 3/20 verifier-confirmed uplift.**
 
 This document is intentionally V9-specific. It does not rewrite V8 release history.
 
@@ -144,16 +144,50 @@ It contains a generic provider-contract gate requiring:
 
 Passing that gate permits only a bounded experiment, never production promotion. No concrete provider has been approved or enabled yet.
 
+## WP2/WP3 integration status
+
+The provider-agnostic nomination contract and generic provider gate are now merged into `experiment/v9-external-recall` only.
+
+The latest V9 integration merge after nomination-recall retuning is:
+
+`7699b7c44b1ff407893cfb8dba5571866050065e`
+
+The nomination retune passed workflow `37425242213` with 40 focused regressions. It changes only which provider URLs are worth independently fetching; publication authorization remains entirely downstream of the unchanged exact-company verifier.
+
+## Gate-A source screens
+
+Two narrow consumed-only screens have now been completed against the frozen 20-company Gate-A manifest.
+
+### BRREG annual-report domain screen
+
+Workflow `37424227898` passed, but produced only one domain candidate and **0 / 20** new verified websites. The one candidate was independently rejected as another legal entity. Decision: **SHELVE as a primary website-discovery source**.
+
+### Reconnaissance verifier calibration
+
+Workflow `37426159410` passed. Eight candidate URLs were independently fetched and sent through the unchanged verifier. Exactly three organisations were machine-verified:
+
+- AURSNES KIOSK AS → `aursneskiosk.no`
+- FALEX FORVALTNING AS → `falex.no`
+- PREG BARNEHAGER ÅLESUND AS → `pregalesund.barnehage.no`
+
+Wrong/weak controls remained rejected, including `bravoseafood.no` for BRAVO MATSENTER AS, the SPAR Førde hosted store page without exact legal-entity proof, and `dg13.no` for DRONNINGENS GATE 13 AS.
+
+This calibration is not provider qualification evidence: the candidate source was external reconnaissance rather than an evaluator-reproducible V9 provider.
+
+Full record: `docs/V9_GATE_A_RETUNE.md`.
+
 ## Current decision
 
-**CONTINUE.**
+**RETUNE.**
 
-No fresh cohort has been consumed. No provider search has been run. No V8 identity rule has been weakened.
+The plan's Gate-A continuation minimum is **5 / 20** new verified websites. Current machine-verifiable candidate uplift is **3 / 20**, so Gate A has not passed.
+
+No fresh cohort has been consumed. No production provider has been enabled. No V8 identity rule has been weakened. No V9 experiment has been merged to `main`.
 
 ## Exact next actions
 
-1. Merge WP2 into the V9 integration branch after its already-green exact-head checks.
-2. Finish/verify the WP3 provider-gate branch.
-3. Confirm a concrete evaluator-reproducible provider/right/cost contract before any live search.
-4. If a provider qualifies, run only the deterministic Gate-A 20 unresolved companies.
-5. Continue only if Gate A reaches at least **5/20 new verified sites**, with **0 wrong-company publications** and **0 evidence defects**.
+1. Keep the exact frozen Gate-A 20; do not replace or cherry-pick the cohort.
+2. Retune Website Discovery 3.0 nomination/source coverage until at least two more candidates independently pass the unchanged exact-company verifier.
+3. Require the generic provider gate before any live search-provider experiment: evaluator reproducibility, permitted rights/use, evaluator-accessible credential path when needed, bounded calls, and declared cost.
+4. Do **not** proceed to the consumed 100-company Gate B until Gate A reaches at least **5/20**, with **0 wrong-company publications** and **0 evidence defects**.
+5. Do not consume a fresh cohort before Gate A, Gate B, request-theorem proof, and full V9 CI all pass.
