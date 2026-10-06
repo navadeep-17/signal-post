@@ -1,35 +1,23 @@
 # Signalpost V8 submission guide
 
-Updated: 2026-10-03
+Updated: 2026-10-06
 
-This document describes the evaluator-facing Signalpost release currently submitted to Builderr. Builderr remains authoritative for the checked company collection, infrastructure limits and official score. Repository metrics below are engineering qualification evidence only.
+This document describes the **next Builderr revision candidate** after the completed Q8 fresh qualification. Builderr remains authoritative for the checked company collection, infrastructure limits and official score. Repository metrics below are engineering qualification evidence only.
 
-## 1. Submitted revision
+## 1. Exact revision to submit
 
-Official submitted evaluator revision:
+Use exactly:
 
 - repository: `navadeep-17/signal-post`;
-- submitted commit: `e7cbbcdd505596dbd5d819b5e8647602760a7aa3`;
-- frozen release ref: `release/v8-final-2026-10-03`;
+- production commit: `200f056a5a60cad23610a3958b6bec62dfb624a5`;
+- frozen release ref: `release/v8-qualified-2026-10-06`;
 - evaluator entry point: `scripts/run_signalpost_v8.py`.
 
-The default branch may receive documentation-only repository-hygiene commits after this release. Those do not change the evaluator SHA already supplied to Builderr unless a new revision is explicitly submitted.
+Do **not** submit the Q8 qualification branch SHA. The qualification branch contained only test/harness files and was intentionally not merged into production.
 
-## 2. Release lineage
+The earlier October 3 release `release/v8-final-2026-10-03` is historical and is superseded for the next revision by the qualified release above.
 
-Signalpost intentionally preserves its certified evidence-collection lineage:
-
-- V1 pinned submission SHA: `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa`;
-- V1 runner Git blob: `9be89b9827135b1ed703318e1d189d5d3b8ca604`;
-- V1 output-adapter Git blob: `c163f493017e39252ef200e68d53bcebc12930b4`;
-- certified V5 machine-readable lineage: `submission/manifest.json`;
-- certified V5/V2 data wrapper: `scripts/run_signalpost_v2.py`;
-- V7 evaluator/product path: `scripts/run_signalpost_v7.py`;
-- V8 compatibility wrapper: `scripts/run_signalpost_v8.py`.
-
-V8 does not introduce a new collector, source, identity heuristic, publication rule, model or UI behavior. It derives the actual evaluator batch size from the supplied organisation file, validates it, applies internal safety ceilings, and delegates once through V7 to the already-qualified V5/V2 path.
-
-## 3. Evaluator command
+## 2. Evaluator command
 
 ```bash
 uv run python scripts/run_signalpost_v8.py \
@@ -39,7 +27,7 @@ uv run python scripts/run_signalpost_v8.py \
   --report out/final-report.json \
   --product-output out/signalpost.html \
   --work-dir out/final-work \
-  --run-id builderr-eval-v8-001 \
+  --run-id builderr-eval-v8 \
   --workers 8 \
   --site-timeout 6 \
   --wikidata-timeout 8 \
@@ -51,20 +39,16 @@ uv run python scripts/run_signalpost_v8.py \
   --annual-workforce-ocr-dpi 110
 ```
 
-Do **not** hard-code `--expected-count` in the normal evaluator command.
+Do not hard-code `--expected-count` in the normal evaluator command. V8 derives the exact input size and forwards it through the qualified path.
 
-V8 reads and validates the supplied organisation file, derives the exact company count, and passes that count through V7 → V2 → the pinned base runner and final workspace builder. If an explicit expected count is supplied and does not match the input file, V8 fails before research begins.
-
-See `submission/V8_EVALUATOR_PATH.md` for the wrapper contract.
-
-## 4. Clean-machine setup
+## 3. Clean-machine setup
 
 Requirements:
 
-- Python 3.12+;
-- `uv`;
-- Poppler (`pdftoppm`);
-- Tesseract OCR.
+- Python 3.12+
+- `uv`
+- Poppler (`pdftoppm`)
+- Tesseract OCR
 
 Ubuntu/Debian:
 
@@ -78,80 +62,98 @@ curl --fail --location --retry 3 --retry-delay 2 \
   --output brreg-enheter.csv
 ```
 
-If OCR tooling is unavailable, OCR-dependent extraction abstains instead of fabricating a value.
+OCR-dependent extraction abstains if OCR tooling is unavailable.
 
-## 5. What the production evaluator does
+## 4. Production behavior
 
 For each supplied Norwegian organisation number, Signalpost:
 
 1. resolves the exact legal entity from Brønnøysundregistrene;
-2. gathers official registry, accounting, role, group and location evidence;
-3. resolves a company website only through bounded candidates and exact-entity verification;
-4. projects conservative first-party contact email and company-declared social-profile facts;
-5. extracts workforce evidence from the registry or qualified annual-account copies;
-6. extracts conservative company-scope description evidence from qualified annual reports or exact-org registry activity text;
-7. fetches bounded exact-org BRREG update history and publishes only qualified registry changes;
-8. projects source-backed claims into canonical facts;
-9. builds deterministic evidence-linked synthesis and decision briefs;
-10. builds the evaluator-facing static HTML workspace from the exact final JSONL.
+2. gathers registry, accounting, role, group and location evidence;
+3. gathers bounded official registry-change history;
+4. gathers recent official support awards from Støtteregisteret using the **primary recipient organisation number only**;
+5. resolves a website through bounded candidates and exact-entity verification;
+6. publishes first-party contact/social facts only from an exact verified company site;
+7. gathers registry/annual-report workforce and conservative company descriptions;
+8. may publish strict first-party jobs or dated company activity only when page-local publication rules pass;
+9. applies final zero-network precision guards before canonical projection;
+10. builds canonical facts, deterministic evidence-linked synthesis and the static evaluator workspace.
 
-A registry change is never relabelled as company-authored news. A company-owned careers page remains a `hiring.careers_page` signal and does not establish an active vacancy unless a separately qualified `hiring.job_posting` fact exists.
+Candidate generation never proves identity. Parent/group/subsidiary relationship alone never authorizes publication. Ambiguous identity abstains.
 
-## 6. Identity and evidence boundary
+## 5. Evidence contract
 
-Signalpost's publication rules are intentionally conservative:
+Every available claim remains linked to evaluator-visible evidence containing the required provenance boundary, including source URL, retrieval time, supporting span and content hash where applicable.
 
-- organisation number is the legal-entity anchor;
-- discovery candidates never prove identity by themselves;
-- conflicting explicit organisation numbers are rejected;
-- parent companies, namesakes and directories cannot be substituted for the target company;
-- published facts keep source evidence and provenance;
-- missing, blocked and ambiguous states remain explicit;
-- deterministic synthesis cannot create facts that are absent from canonical evidence.
+Identity-sensitive external/official-support claims additionally expose exact-company identity proof and an extraction method.
 
-## 7. Qualified release-path evidence
+The Q8 fresh qualification verified:
 
-The underlying V7 production path was exercised end to end on a reproducible 100-company release cohort at qualified head `80a0ff2e75fa31db4c5c3a195d245b5c04593dbe`.
+- 4,600 / 4,600 available claims with complete core evidence;
+- 4,600 / 4,600 with reopenable sources;
+- 164 / 164 identity-sensitive claims with visible identity proof;
+- 164 / 164 with visible extraction method;
+- zero evidence visibility issues.
 
-Successful release-qualification run: `37107505656`.
+## 6. Fresh qualification
 
-Measured result:
+Final fresh qualification record:
+
+- workflow run: `37403982422`;
+- qualification head: `93d3501fe5216f70f246c9ac97905bf2a1b14a4a`;
+- production SHA under qualification: `200f056a5a60cad23610a3958b6bec62dfb624a5`;
+- seed: `20261107`;
+- prior touched exclusion: 8,723 companies;
+- fresh cohort: 100 companies;
+- overlap: 0;
+- artifact ID: `11386579108`;
+- artifact digest: `sha256:74401ccf2e1c11832bc91563ce02c8cb4ff040491542c563052049205a1b995e`.
+
+Measured machine result:
 
 | Property | Result |
 |---|---:|
-| Input companies | 100 |
 | Terminal outputs | 100 / 100 |
-| Unique organisation numbers | 100 |
-| Canonical validation errors | 0 |
-| Synthesis validation errors | 0 |
-| Companies with decision brief | 100 / 100 |
-| Observed conservative request charge | 1,364 / 2,000 |
-| Wall runtime | 311.985 s |
+| Available claims | 4,600 |
+| Core evidence complete | 4,600 / 4,600 |
+| Reopenable sources | 4,600 / 4,600 |
+| Identity proof visible | 164 / 164 |
+| Extraction method visible | 164 / 164 |
+| Precision-guard residuals | 0 |
+| Contract errors | 0 |
+| Canonical errors | 0 |
+| Synthesis errors | 0 |
+| Dangling evidence refs | 0 |
+| Support projection errors | 0 |
+| Observed conservative request charge | 1,376 / 2,000 |
+| Theoretical conservative ceiling | 2,000 |
+| Wall runtime | 629.722 s |
 | Third-party API cost | $0.00 |
 | Search API requests | 0 |
-| Generated workspace bytes | 3,377,839 |
 
-The successful qualification artifact is `v7-release-qualification-100` (artifact ID `11268806967`).
+Manual audit also passed:
 
-The V8 wrapper then added arbitrary evaluator-batch handling without changing the qualified evidence/product behavior. V8 regression coverage includes 1, 17, 100, 250, 1,000, 1,200 and 1,350-company input sizes.
+- 20 external publication rows across 5 companies; no wrong-company publication found;
+- 42 official support rows across 12 companies; exact recipient org/name matches and 42 unique source-row keys;
+- all frozen deliverable hashes reverified successfully.
 
-These are engineering qualification results, not a claimed Builderr score.
+See `docs/Q8_FRESH_QUALIFICATION_2026-10-06.md` and `submission/v8-qualified-2026-10-06.json`.
 
-## 8. Production dependencies and cost
+## 7. Request and cost boundary
 
-Production V8:
+For 100 companies, the production structural theorem remains exactly **2,000 conservative challenge-request charge**.
 
-- requires no API key or secret;
-- uses no LLM API;
-- uses no paid search API;
-- uses no social-platform API/scraper;
-- declares $0.00 third-party API cost for the qualified release path.
+The fresh qualified run observed **1,376 / 2,000**.
 
-Server-side secrets required: **none**.
+Production requires:
 
-Any post-V8 model/search experimentation is isolated from the submitted evaluator and is not part of this release unless a later revision is separately qualified and submitted.
+- no LLM API;
+- no paid search API;
+- no social-platform scraper/API;
+- no server-side secret;
+- $0.00 third-party API cost in the qualified path.
 
-## 9. Output contract
+## 8. Output model
 
 Each terminal company object preserves:
 
@@ -166,50 +168,37 @@ Each terminal company object preserves:
 - `canonical_profile`;
 - `synthesis`.
 
-Canonical facts remain linked to their original source fields and evidence IDs.
+Canonical facts reference source fields and evidence IDs rather than replacing provenance.
 
-See `OUTPUT_CONTRACT.md` for the complete contract.
-
-## 10. Evaluator-facing workspace
+## 9. Evaluator-facing workspace
 
 The generated workspace includes:
 
 - global company search;
 - evidence-backed company profiles;
-- evidence-linked decision briefs;
+- decision briefs;
 - source/date context;
-- recent official changes;
-- evidence drawer and verify-all flow;
-- **Compare companies** descriptive side-by-side view;
-- deterministic grounded Ask Signalpost answers;
+- recent changes;
+- evidence drawer / verification;
+- descriptive side-by-side company comparison;
+- deterministic grounded Ask Signalpost;
 - explicit unknown/data-gap handling;
-- careers-surface discovery with conservative vacancy semantics;
 - responsive and keyboard-accessible interactions.
 
-Comparison is descriptive only. Signalpost does not rank companies or select a winner.
+Signalpost does not rank companies or invent a winner.
 
-## 11. Preserved compatibility and publication boundaries
+## 10. Publication boundaries
 
-The V2 canonical/product layer remains part of the certified lineage beneath V8. The immutable certified 1,000-company projection contains **19,951 canonical facts** with zero canonical validation errors, including **3,932 current individual role facts**.
+- a careers page is not an active vacancy;
+- a generic news/blog index is not a dated activity fact;
+- tenant/profile/listing pages are not careers/news evidence;
+- future publication dates are rejected;
+- default CMS placeholder posts are rejected;
+- a company-declared social URL means only that the exact verified company page declared it;
+- a contact email must be present in retained first-party evidence and satisfy the verified-site domain rule;
+- official support remains typed official support and is never relabelled as company-authored activity.
 
-Historical strict-activity diagnostics intentionally preserve the following result:
-
-| V2 diagnostic | Result |
-|---|---:|
-| Strict job-posting facts | **0** |
-| Strict dated company-update facts | **0** |
-
-Those zeroes are abstentions, not claims that the companies had no jobs or updates.
-
-A strict job posting requires the same verified company-owned site, a role/job **detail URL**, a specific title, a job-detail marker, and an **explicit apply/application action**.
-
-A strict company update requires the same verified company-owned site, a specific article/update **detail URL**, a non-generic title, and an **explicit publication date**.
-
-A **generic careers** page or section index is not an active-job fact. A company-declared social profile means only that the exact verified company page declared that URL; it does not imply that Signalpost fetched the platform or observed a current **follower** count. A retained contact email does not establish **mailbox deliverability**.
-
-The current public challenge qualification line is **65/100 overall on an official run**. Recall/coverage, precision/evidence, synthesis and UX are score dimensions; they are **not separate qualification thresholds**. Builderr owns the official matching and score.
-
-## 12. Verification
+## 11. Verification
 
 Repository baseline:
 
@@ -219,19 +208,10 @@ uv run python scripts/audit_canonical_v2.py
 uv run python scripts/verify_submission_bundle.py
 ```
 
-Baseline CI additionally runs deterministic refresh replay and refresh-output verification.
+The immutable V1/V5 historical release artifacts remain preserved for compatibility and auditability. They are not the current fresh qualification record.
 
-The frozen V1 bundle verifier must remain unchanged and continue to reject drift in the pinned V1 runner/output-adapter blobs.
+## 12. Builderr status
 
-## 13. Important repository references
+The repository release is **ready for the next Builderr revision submission**.
 
-- `README.md` — concise project overview and quick start;
-- `submission/V8_EVALUATOR_PATH.md` — current evaluator-wrapper contract;
-- `submission/V7_EVALUATOR_PATH.md` — qualified underlying evaluator/product path;
-- `submission/manifest.json` — certified V5 machine-readable lineage;
-- `OUTPUT_CONTRACT.md` — output/evidence contract;
-- `docs/REQUIREMENTS_MATRIX.md` — challenge requirement coverage;
-- `docs/SUBMISSION_SOURCE_RIGHTS.md` — source rights/acquisition policy;
-- `docs/FINAL_RELEASE_1000_AUDIT.md` — certified large-batch baseline audit.
-
-Builderr remains authoritative for the official scoring result and evaluation environment.
+No new official score is claimed in this repository. Builderr's next official evaluation decides whether the revision crosses the 65/100 qualification line and provides the category breakdown for any subsequent optimization.
