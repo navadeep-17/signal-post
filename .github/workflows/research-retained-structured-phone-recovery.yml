@@ -1,0 +1,59 @@
+name: Research Retained Structured Phone Recovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/audit_retained_structured_phone_recovery.py
+      - tests/test_audit_retained_structured_phone_recovery.py
+      - .github/workflows/research-retained-structured-phone-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test structured phone audit
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_retained_structured_phone_recovery.py
+
+      - name: Download archived final-release retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          find archived/final-release -name profiles.jsonl -print | sort
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Audit zero-network structured telephone coverage
+        run: |
+          mkdir -p out/structured-phone
+          uv run python scripts/audit_retained_structured_phone_recovery.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/structured-phone/report.json             --audit out/structured-phone/audit.jsonl
+          cat out/structured-phone/report.json
+
+      - name: Upload aggregate and privacy-minimized audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-retained-structured-phone-recovery
+          retention-days: 30
+          path: |
+            out/structured-phone/report.json
+            out/structured-phone/audit.jsonl
