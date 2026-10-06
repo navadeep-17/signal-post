@@ -82,7 +82,7 @@ def _validated_contact_emails(profile: dict[str, Any]) -> list[dict[str, Any]]:
 def _validated_contact_phones(profile: dict[str, Any]) -> list[dict[str, Any]]:
     org = str(profile.get("organisation_number") or "")
     accepted = []
-    phone_re = __import__("re").compile(r"^\+47\d{8}$")
+    phone_re = re.compile(r"^\+47\d{8}$")
     for observation in profile.get("external_observations") or []:
         if not isinstance(observation, dict):
             continue
