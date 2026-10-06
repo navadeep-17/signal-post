@@ -1,0 +1,67 @@
+name: Research eInnsyn Consumed-100 Exact-Org Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_einnsyn_exact_org_reach.py
+      - tests/test_screen_einnsyn_exact_org_reach.py
+      - .github/workflows/research-einnsyn-exact-org-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run exactness unit tests
+        run: python -m pytest -q tests/test_screen_einnsyn_exact_org_reach.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out/einnsyn
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows=[
+              json.loads(line)
+              for line in Path("submission/final-release-1000.jsonl").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          assert len(rows)==1000
+          seed="bulk-exact-org-r1-v1|"
+          rows.sort(key=lambda row: hashlib.sha256((seed+str(row["organisation_number"])).encode()).hexdigest())
+          selected=rows[:100]
+          assert len({str(row["organisation_number"]) for row in selected})==100
+          Path("out/einnsyn/consumed-100.jsonl").write_text(
+              "".join(json.dumps(row,ensure_ascii=False,separators=(",",":"))+"\n" for row in selected),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Screen recent exact-org public-record reach
+        run: |
+          python scripts/screen_einnsyn_exact_org_reach.py             --companies out/einnsyn/consumed-100.jsonl             --limit 100             --lookback-days 365             --delay-seconds 0.5             --report out/einnsyn/report.json
+          cat out/einnsyn/report.json
+
+      - name: Remove cohort rows
+        if: always()
+        run: rm -f out/einnsyn/consumed-100.jsonl
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-einnsyn-exact-org-reach
+          retention-days: 30
+          path: out/einnsyn/report.json
