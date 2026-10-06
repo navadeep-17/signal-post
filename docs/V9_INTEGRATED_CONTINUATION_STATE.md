@@ -27,11 +27,12 @@ network requests.
 
 ## Integration-specific change
 
-The standalone M4 experiment deliberately kept the pinned production runner immutable. This
-integrated branch wires the qualified M4 behavior into the actual evaluator path: structured
-email and conservative Norwegian structured-phone observations are attached from the already
-retained exact-site snapshot, `external.contact_phone` is projected into the output contract,
-and the canonical projection exposes it as `website.contact_phone`.
+The standalone M4 experiment deliberately kept the pinned V1 runner immutable, and integration
+preserves that invariant. Structured email recovery takes effect through the already-called
+company-site contact module. Structured phone recovery is wired at the V8 wrapper's zero-network
+post-processing stage over the retained exact-site profile: `external.contact_phone` is
+projected into the output contract and canonicalized as `website.contact_phone` without
+changing the pinned V1 collector file.
 
 Contact recovery remains zero-network and outside request accounting. No site identity rule,
 wrong-organisation veto, evidence rule, or four-logical-site-request ceiling is weakened.
@@ -45,3 +46,12 @@ baseline, theoretical charge <= 2000, zero search/paid API usage, complete evide
 precision review of every new external publication.
 
 Fresh qualification remains locked until this integrated consumed gate passes.
+
+
+### CI correction during integration
+
+The first integrated wiring attempt modified `scripts/run_signalpost_final.py`. Baseline CI
+correctly rejected that with `V1 base file drifted`. The integration was moved one layer up to
+`scripts/run_signalpost_v8.py`, and the pinned V1 runner was restored byte-for-byte. This keeps
+the submission immutability check meaningful while still putting M4 phone recovery on the actual
+V8 evaluator path.
