@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+from collections import Counter
 import html as html_lib
 import json
 import re
@@ -161,6 +162,12 @@ def screen(
     matched: dict[str, dict[str, Any]] = {}
     ambiguous_rows = 0
     undated_rows = 0
+    source_orgs: set[str] = set()
+    source_org_row_counts: Counter[str] = Counter()
+    source_type_counts: Counter[str] = Counter()
+    source_date_counts: Counter[str] = Counter()
+    target_type_counts: Counter[str] = Counter()
+    target_announcement_rows = 0
     for row in all_rows:
         if row.get("ambiguous_org_count"):
             ambiguous_rows += 1
@@ -168,10 +175,19 @@ def screen(
         org = row.get("organisation_number")
         if not org:
             continue
-        if not row.get("announcement_date"):
+        source_orgs.add(org)
+        source_org_row_counts[org] += 1
+        if row.get("announcement_date"):
+            source_date_counts[str(row["announcement_date"])] += 1
+        else:
             undated_rows += 1
+        if row.get("type_candidate"):
+            source_type_counts[str(row["type_candidate"])] += 1
         if org not in targets:
             continue
+        target_announcement_rows += 1
+        if row.get("type_candidate"):
+            target_type_counts[str(row["type_candidate"])] += 1
         entry = matched.setdefault(
             org,
             {
@@ -208,8 +224,14 @@ def screen(
         "target_companies": len(targets),
         "source_html_files": len(html_paths),
         "parsed_announcement_rows": len(all_rows),
+        "unique_source_orgs": len(source_orgs),
+        "source_orgs_with_multiple_rows": sum(count > 1 for count in source_org_row_counts.values()),
+        "source_date_counts": dict(sorted(source_date_counts.items())),
+        "source_type_counts": dict(source_type_counts.most_common()),
         "ambiguous_org_rows_excluded": ambiguous_rows,
         "undated_org_rows": undated_rows,
+        "target_announcement_rows": target_announcement_rows,
+        "target_type_counts": dict(target_type_counts.most_common()),
         "exact_target_companies": len(matched_orgs),
         "exact_target_reach": round(len(matched_orgs) / len(targets), 6) if targets else 0.0,
         "current_production_registry_change_companies": len(current_changes),
