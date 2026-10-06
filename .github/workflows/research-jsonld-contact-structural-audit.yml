@@ -136,7 +136,6 @@ jobs:
           risky=[
               r for r in rows
               if r["same_domain_email_count_on_non_target_nodes"]>0
-              or r["target_email_node_count"]>1
           ]
           report={
               "screen_type":"jsonld_contact_structural_precision_audit",
@@ -150,6 +149,9 @@ jobs:
               ),
               "candidates_with_any_explicit_different_org_node":sum(
                   r["explicit_different_org_node_count"]>0 for r in rows
+              ),
+              "duplicate_target_node_candidates":sum(
+                  r["target_email_node_count"]>1 for r in rows
               ),
               "structurally_ambiguous_candidates":len(risky),
               "zero_network_provider_requests":True,
