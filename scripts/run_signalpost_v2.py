@@ -288,8 +288,9 @@ def main() -> None:
         "published_claims": hiring_intent_claims,
         "companies_with_published_claims": hiring_intent_companies,
         "requirement": (
-            "exact verified company homepage + explicit positive homepage vacancy-count phrase; "
-            "careers surface alone is insufficient; no specific vacancy is asserted"
+            "exact verified company-owned retained page + explicit recruitment language; "
+            "broad search/looking-for phrases require people or role context; negative statements "
+            "and generic careers navigation are excluded; no specific vacancy is asserted"
         ),
     }
     report["registry_change_feed"] = {
