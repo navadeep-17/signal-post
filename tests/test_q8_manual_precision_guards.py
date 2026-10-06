@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
+from norway_company_agent.external_precision_guard import project_external_precision_guard
 from norway_company_agent.first_party_activity import project_first_party_activity_claims
 from norway_company_agent.first_party_feed import parse_company_feed
 from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates
@@ -164,3 +165,75 @@ def test_future_feed_entry_is_not_projected() -> None:
     )
 
     assert [claim for claim in projected["claims"] if claim.get("field") == "external.company_update"] == []
+
+
+
+def test_final_precision_guard_removes_only_audited_false_positive_shapes() -> None:
+    evidence = [
+        {
+            "id": f"ev-{index}",
+            "source_url": "https://example.no/",
+            "source_class": "company_owned",
+            "retrieved_at": "2026-10-05T18:00:00Z",
+            "content_sha256": str(index) * 64,
+            "claim_span": "fixture",
+        }
+        for index in range(1, 6)
+    ]
+    claims = [
+        {
+            "field": "external.careers_page",
+            "value": {"url": "https://jobb.hybel.no/", "anchor_text": "Karriere"},
+            "availability": "available",
+            "evidence_ids": ["ev-1"],
+        },
+        {
+            "field": "external.careers_page",
+            "value": {"url": "https://listefrie.no/for-naering/", "anchor_text": "SMÅJOBBER - NÆRINGSBYGG"},
+            "availability": "available",
+            "evidence_ids": ["ev-2"],
+        },
+        {
+            "field": "external.careers_page",
+            "value": {
+                "url": "https://hybel.no/profil/238397/kvinne-29-ar-soker-bolig/",
+                "anchor_text": "Diella 29 år jobber fulltid og søker bolig",
+            },
+            "availability": "available",
+            "evidence_ids": ["ev-3"],
+        },
+        {
+            "field": "external.company_update",
+            "value": {
+                "title": "Hei verden!",
+                "url": "https://medinovo.no/2019/04/22/hello-world/",
+                "published_date": "2019-04-22",
+            },
+            "availability": "available",
+            "evidence_ids": ["ev-4"],
+        },
+        {
+            "field": "external.company_update",
+            "value": {
+                "title": "Bergen Parkering åpner nytt anlegg",
+                "url": "https://bergenparkering.no/nytt-anlegg/",
+                "published_date": "2026-09-01",
+            },
+            "availability": "available",
+            "evidence_ids": ["ev-5"],
+        },
+    ]
+
+    guarded = project_external_precision_guard(
+        {"organisation_number": "123456789", "claims": claims, "evidence": evidence}
+    )
+
+    assert [claim["value"] for claim in guarded["claims"]] == [
+        {"url": "https://jobb.hybel.no/", "anchor_text": "Karriere"},
+        {
+            "title": "Bergen Parkering åpner nytt anlegg",
+            "url": "https://bergenparkering.no/nytt-anlegg/",
+            "published_date": "2026-09-01",
+        },
+    ]
+    assert {item["id"] for item in guarded["evidence"]} == {"ev-1", "ev-5"}
