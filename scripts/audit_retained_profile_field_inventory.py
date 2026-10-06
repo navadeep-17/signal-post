@@ -86,6 +86,16 @@ def _walk(value: Any, path: str, out: dict[str, set[str]], types: dict[str, Coun
         for key, child in value.items():
             key_s = str(key)
             child_path = f"{path}.{key_s}" if path else key_s
+            if any(
+                child_path == prefix or child_path.startswith(prefix + ".")
+                for prefix in EXCLUDED_BRANCHES
+            ):
+                continue
+            if any(
+                child_path == prefix or child_path.startswith(prefix + ".")
+                for prefix in IGNORED_PREFIXES
+            ):
+                continue
             # Keep structural/container presence, but do not descend into rawish
             # free-text/provenance payloads.
             if _nonempty(child):
