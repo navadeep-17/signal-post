@@ -45,12 +45,13 @@ jobs:
         run: |
           mkdir -p out/activity/live
           uv run python - <<'PY'
-          import base64, copy, datetime as dt, json, re, uuid
+          import base64, copy, datetime as dt, json, re, uuid, sys
           from pathlib import Path
           from urllib.parse import urlparse, parse_qs
           from urllib.request import Request, urlopen
           from urllib.error import HTTPError
 
+          sys.path.insert(0, str(Path("src").resolve()))
           from norway_company_agent.support_registry import fetch_support_award_batch
 
           REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
