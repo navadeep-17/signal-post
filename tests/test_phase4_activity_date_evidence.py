@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from bs4 import BeautifulSoup
+
 from norway_company_agent.evidence import evidence
+from norway_company_agent.final_site_discovery import _page_date_candidates
 from norway_company_agent.first_party_activity import extract_strict_first_party_facts
 
 
@@ -111,3 +114,48 @@ def test_default_wordpress_placeholder_is_never_company_activity() -> None:
         candidates=[{"raw": "2021-11-16", "method": "meta_article_published_time"}],
     )
     assert extract_strict_first_party_facts(profile)["updates"] == []
+
+
+def test_page_date_candidates_retain_jsonld_article_publication_dates() -> None:
+    soup = BeautifulSoup("<html><head></head><body></body></html>", "lxml")
+    candidates = _page_date_candidates(
+        soup,
+        structured={
+            "json-ld": [
+                {
+                    "@type": "NewsArticle",
+                    "headline": "Specific company update",
+                    "datePublished": "2026-09-18T09:00:00+02:00",
+                },
+                {
+                    "@type": "BlogPosting",
+                    "headline": "Another company update",
+                    "datePublished": "2026-09-17",
+                },
+            ]
+        },
+    )
+    assert candidates == [
+        {
+            "raw": "2026-09-18T09:00:00+02:00",
+            "method": "jsonld_newsarticle_date_published",
+        },
+        {
+            "raw": "2026-09-17",
+            "method": "jsonld_blogposting_date_published",
+        },
+    ]
+
+
+def test_blogposting_jsonld_date_is_strict_page_local_metadata() -> None:
+    profile = _profile(
+        title="Example publishes new sustainability update",
+        text="Example AS publishes a detailed sustainability update.",
+        candidates=[
+            {"raw": "2026-09-19", "method": "jsonld_blogposting_date_published"}
+        ],
+    )
+    updates = extract_strict_first_party_facts(profile)["updates"]
+    assert len(updates) == 1
+    assert updates[0]["published_date"] == "2026-09-19"
+    assert updates[0]["date_extraction_method"] == "jsonld_blogposting_date_published"
