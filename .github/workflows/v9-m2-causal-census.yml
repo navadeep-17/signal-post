@@ -1,0 +1,85 @@
+name: V9 M2 Causal Exposure Census
+
+on:
+  push:
+    branches:
+      - experiment/v9-email-domain-substitution
+    paths:
+      - .github/workflows/v9-m2-causal-census.yml
+      - scripts/report_v9_m2_population.py
+      - src/norway_company_agent/v9_m2_targeting.py
+      - src/norway_company_agent/v9_email_domain.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact challenger head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: challenger
+          fetch-depth: 1
+
+      - name: Checkout frozen main manifest
+        uses: actions/checkout@v4
+        with:
+          ref: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
+          path: baseline
+          fetch-depth: 1
+
+      - name: Verify source manifest is frozen
+        run: |
+          git -C baseline rev-parse HEAD
+          test "$(git -C baseline rev-parse HEAD)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+          test -f baseline/submission/final-release-1000.jsonl
+          test "$(wc -l < baseline/submission/final-release-1000.jsonl)" -eq 1000
+          sha256sum baseline/submission/final-release-1000.jsonl | tee manifest.sha256
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync challenger dependencies
+        run: |
+          cd challenger
+          uv sync --locked
+
+      - name: Download one BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv | tee brreg-enheter.sha256
+
+      - name: Build aggregate M2 causal-exposure census
+        run: |
+          cd challenger
+          uv run python scripts/report_v9_m2_population.py \
+            --source-manifest ../baseline/submission/final-release-1000.jsonl \
+            --bulk ../brreg-enheter.csv \
+            --report ../m2-causal-census.json
+
+      - name: Upload aggregate census only
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m2-causal-exposure-census
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            m2-causal-census.json
+            manifest.sha256
+            brreg-enheter.sha256

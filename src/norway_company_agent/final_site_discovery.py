@@ -36,6 +36,7 @@ from .website import (
 )
 from .zero_cost_discovery import deterministic_domain_candidates, qualify_deterministic_domain_identity
 from .zero_cost_registry_guard import apply_registry_risk_guard
+from .v9_email_domain import select_registry_email_domain_candidate
 
 BRREG_BULK_URL = "https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv"
 MAX_REDIRECTS_PER_REQUEST = 1
@@ -647,10 +648,9 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
                 )
             return row, total
     else:
-        plan = registry_email_domain_candidates(row)
-        candidates = plan.get("candidates") or []
-        if plan.get("eligible") and candidates:
-            candidate = candidates[0]
+        email_plan = registry_email_domain_candidates(row)
+        candidate = select_registry_email_domain_candidate(row, plan=email_plan)
+        if candidate:
             total["email_attempted"] = True
             record, ops = fetch_bounded_homepage(
                 candidate["url"],

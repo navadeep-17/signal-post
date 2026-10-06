@@ -1,0 +1,235 @@
+name: V9 Consumed Transfer Gate
+
+on:
+  push:
+    branches:
+      - experiment/v9-email-domain-substitution
+    paths:
+      - src/norway_company_agent/**
+      - scripts/measure_v9_company_family_coverage.py
+      - tests/test_v9_*.py
+      - .github/workflows/v9-consumed-transfer.yml
+  workflow_dispatch:
+
+concurrency:
+  group: v9-consumed-transfer
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+
+    steps:
+      - name: Checkout exact V9 challenger
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Checkout frozen baseline main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline
+          fetch-depth: 1
+
+      - name: Record exact heads
+        run: |
+          mkdir -p out/v9-transfer
+          git rev-parse HEAD | tee out/v9-transfer/challenger-sha.txt
+          git -C baseline rev-parse HEAD | tee out/v9-transfer/baseline-sha.txt
+          test "$(cat out/v9-transfer/baseline-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Sync locked dependencies
+        run: |
+          uv sync --locked
+          (cd baseline && uv sync --locked)
+
+      - name: Recover already-consumed 100-company cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed inputs
+          gh run download 37314396820 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name phase11-owner-veto-consumed-replay \
+            --dir consumed
+          MANIFEST="$(find consumed -type f -name 'phase11-fresh-100.jsonl' | head -n 1)"
+          test -n "$MANIFEST"
+          cp "$MANIFEST" inputs/consumed-100.jsonl
+          test "$(wc -l < inputs/consumed-100.jsonl)" -eq 100
+          echo '394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99  inputs/consumed-100.jsonl' | sha256sum -c -
+
+      - name: Download one shared BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output inputs/brreg-enheter.csv
+          test -s inputs/brreg-enheter.csv
+          sha256sum inputs/brreg-enheter.csv > out/v9-transfer/brreg-enheter.sha256
+
+      - name: Run current main baseline on consumed 100
+        run: |
+          mkdir -p out/baseline
+          cd baseline
+          PYTHONPATH=src uv run python scripts/run_signalpost_v8.py \
+            --organisations ../inputs/consumed-100.jsonl \
+            --bulk ../inputs/brreg-enheter.csv \
+            --output ../out/baseline/output.jsonl \
+            --report ../out/baseline/report.json \
+            --product-output ../out/baseline/product.html \
+            --work-dir ../out/baseline/work \
+            --run-id v9-consumed-baseline \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Run V9 challenger on identical consumed 100
+        run: |
+          mkdir -p out/challenger
+          PYTHONPATH=src uv run python scripts/run_signalpost_v8.py \
+            --organisations inputs/consumed-100.jsonl \
+            --bulk inputs/brreg-enheter.csv \
+            --output out/challenger/output.jsonl \
+            --report out/challenger/report.json \
+            --product-output out/challenger/product.html \
+            --work-dir out/challenger/work \
+            --run-id v9-consumed-challenger \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Measure score-family transfer
+        run: |
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline out/baseline/output.jsonl \
+            --challenger out/challenger/output.jsonl \
+            --report out/v9-transfer/family-comparison.json \
+            --new-publications out/v9-transfer/new-publications.jsonl \
+            --lost-publications out/v9-transfer/lost-publications.jsonl
+
+      - name: Enforce consumed machine gates
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          baseline = json.loads(Path("out/baseline/report.json").read_text(encoding="utf-8"))
+          challenger = json.loads(Path("out/challenger/report.json").read_text(encoding="utf-8"))
+          comparison = json.loads(Path("out/v9-transfer/family-comparison.json").read_text(encoding="utf-8"))
+
+          assert baseline.get("passed") is True, baseline
+          assert challenger.get("passed") is True, challenger
+          assert comparison["companies"] == 100
+          assert comparison["same_company_set"] is True
+
+          website = comparison["families"]["verified_website"]
+          assert website["lost_companies"] == 0, website
+
+          baseline_budget = baseline.get("request_budget") or {}
+          challenger_budget = challenger.get("request_budget") or {}
+          b_ceiling = int(baseline_budget.get("theoretical_challenge_request_charge_ceiling") or 0)
+          c_ceiling = int(challenger_budget.get("theoretical_challenge_request_charge_ceiling") or 0)
+          assert b_ceiling <= 2000, baseline_budget
+          assert c_ceiling <= b_ceiling <= 2000, (baseline_budget, challenger_budget)
+
+          b_observed = int(baseline_budget.get("observed_conservative_challenge_request_charge") or 0)
+          c_observed = int(challenger_budget.get("observed_conservative_challenge_request_charge") or 0)
+          assert c_observed <= 2000, challenger_budget
+
+          for report in (baseline, challenger):
+              policy = report.get("source_policy") or {}
+              assert float(policy.get("third_party_cost_usd") or 0.0) == 0.0, policy
+              assert int(policy.get("search_api_requests") or 0) == 0, policy
+
+          summary = {
+              "status": "M10_CONSUMED_MACHINE_GATE_PASS",
+              "fresh_qualification": False,
+              "companies": 100,
+              "verified_website": website,
+              "families": comparison["families"],
+              "baseline_request_charge": b_observed,
+              "challenger_request_charge": c_observed,
+              "baseline_theoretical_ceiling": b_ceiling,
+              "challenger_theoretical_ceiling": c_ceiling,
+              "new_publications": comparison.get("new_publications"),
+              "lost_publications": comparison.get("lost_publications"),
+              "manual_precision_audit_required": True,
+              "wrong_company_publications": None,
+          }
+          Path("out/v9-transfer/summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove raw outputs from retained artifact
+        if: always()
+        run: |
+          rm -f out/baseline/output.jsonl out/baseline/product.html
+          rm -f out/challenger/output.jsonl out/challenger/product.html
+          rm -rf out/baseline/work out/challenger/work
+
+      - name: Upload V9 consumed transfer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-consumed-transfer
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-transfer/challenger-sha.txt
+            out/v9-transfer/baseline-sha.txt
+            out/v9-transfer/brreg-enheter.sha256
+            out/v9-transfer/family-comparison.json
+            out/v9-transfer/new-publications.jsonl
+            out/v9-transfer/lost-publications.jsonl
+            out/v9-transfer/summary.json
+            out/baseline/report.json
+            out/challenger/report.json

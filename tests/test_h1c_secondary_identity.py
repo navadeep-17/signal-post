@@ -351,24 +351,24 @@ def test_title_domain_h1c_is_promoted_when_secondary_page_matches_registry_locat
     assert any("secondary" in reason.casefold() for reason in assessment["reasons"])
 
 
-def test_weak_h1c_abstains_when_previous_probe_consumed_secondary_budget(monkeypatch):
-    failed_email = _website(
-        "https://mail.invalid/",
-        title="",
-        text="",
-        status="source_error",
-    )
+def test_weak_email_candidate_does_not_consume_h1c_secondary_budget(monkeypatch):
     homepage = _website(
         "https://oslomikrosement.no/",
         title="Oslo Mikrosement - Mikrosement",
         text="Oslo Mikrosement lager moderne overflater. " * 12,
         identity_links=["https://oslomikrosement.no/kontakt/"],
     )
+    contact = _website(
+        "https://oslomikrosement.no/kontakt/",
+        title="Kontakt - Oslo Mikrosement",
+        text="Carl Bergersens vei 47A, 1481 Hagan. Kontakt Oslo Mikrosement.",
+        digest="f" * 64,
+    )
     calls: list[str] = []
 
     def fake_fetch(url, *, source_type, timeout=6.0, max_bytes=750_000):
         calls.append(url)
-        record = failed_email if len(calls) == 1 else homepage
+        record = homepage if len(calls) == 1 else contact
         return record, {"requests": 2, "bytes": 100, "latencies_ms": [10]}
 
     monkeypatch.setattr(
@@ -386,7 +386,9 @@ def test_weak_h1c_abstains_when_previous_probe_consumed_secondary_budget(monkeyp
     row, metrics = final_site.discover_final_website(_profile(email="post@mail.invalid"))
 
     assert metrics["requests"] == final_site.MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE == 4
-    assert calls == ["https://mail.invalid/", "https://oslomikrosement.no/"]
-    assert metrics["h1c_secondary_attempted"] is False
-    assert metrics["promoted"] is False
-    assert row["evidence"]["website"]["status"] == "not_found"
+    assert calls == ["https://oslomikrosement.no/", "https://oslomikrosement.no/kontakt/"]
+    assert metrics["email_attempted"] is False
+    assert metrics["h1c_secondary_attempted"] is True
+    assert metrics["h1c_secondary_verified"] is True
+    assert metrics["promoted"] is True
+    assert row["website"] == "https://oslomikrosement.no/"
