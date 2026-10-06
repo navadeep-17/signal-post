@@ -1,0 +1,257 @@
+name: V9 Integrated Consumed Gate
+
+on:
+  push:
+    branches:
+      - experiment/v9-integrated-candidate
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/v9-integrated-consumed-gate.yml
+      - scripts/run_signalpost_final.py
+      - scripts/audit_v9_integrated_contacts.py
+      - scripts/build_v9_m2_targeted_consumed_cohort.py
+      - scripts/measure_v9_company_family_coverage.py
+      - scripts/audit_v9_new_site_unlock.py
+      - src/norway_company_agent/final_site_discovery.py
+      - src/norway_company_agent/v9_email_domain.py
+      - src/norway_company_agent/v9_m2_targeting.py
+      - src/norway_company_agent/v9_measurement.py
+      - src/norway_company_agent/v9_site_unlock.py
+      - src/norway_company_agent/company_site_contact.py
+      - src/norway_company_agent/company_site_phone.py
+      - src/norway_company_agent/external_contract.py
+      - src/norway_company_agent/canonical_projection.py
+      - tests/test_v9_integrated_runner_wiring.py
+      - tests/test_company_site_contact.py
+      - tests/test_company_site_phone.py
+      - tests/test_contact_phone_external_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  integrated-consumed-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact integrated challenger head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: challenger
+          fetch-depth: 1
+
+      - name: Checkout frozen production baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
+          path: baseline
+          fetch-depth: 1
+
+      - name: Record exact SHAs
+        run: |
+          mkdir -p shared/out
+          git -C baseline rev-parse HEAD | tee shared/out/baseline-main-sha.txt
+          git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
+          test "$(cat shared/out/baseline-main-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+          EXPECTED_CHALLENGER="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(cat shared/out/challenger-sha.txt)" = "$EXPECTED_CHALLENGER"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Sync locked dependencies
+        run: |
+          (cd baseline && uv sync --locked)
+          (cd challenger && uv sync --locked)
+
+      - name: Run integrated focused tests
+        run: |
+          cd challenger
+          uv run --with pytest pytest -q             tests/test_v9_email_domain.py             tests/test_v9_m2_targeting.py             tests/test_company_site_contact.py             tests/test_company_site_phone.py             tests/test_contact_phone_external_contract.py             tests/test_v9_integrated_runner_wiring.py
+
+      - name: Recover frozen already-consumed 1000-company manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p shared/consumed1000
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --name final-release-manifest-1000             --dir shared/consumed1000
+          SOURCE="$(find shared/consumed1000 -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" shared/out/source-consumed-1000.jsonl
+          test "$(wc -l < shared/out/source-consumed-1000.jsonl)" -eq 1000
+          sha256sum shared/out/source-consumed-1000.jsonl | tee shared/out/source-consumed-1000.sha256
+
+      - name: Download one shared current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          sha256sum shared/brreg-enheter.csv | tee shared/out/brreg-enheter.sha256
+
+      - name: Build integrated causal-exposure consumed 100
+        run: |
+          cd challenger
+          uv run python scripts/build_v9_m2_targeted_consumed_cohort.py             --source-manifest ../shared/out/source-consumed-1000.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/integrated-targeted-consumed-100.jsonl             --audit ../shared/out/integrated-targeted-cohort-audit.jsonl             --report ../shared/out/integrated-targeted-cohort-report.json             --target-count 100
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("../shared/out/integrated-targeted-cohort-report.json").read_text())
+          assert report["selected_companies"] == 100, report
+          assert report["m2_behavioral_exposure_in_target"] > 0, report
+          assert report["fresh_companies_used"] == 0, report
+          print("INTEGRATED_TARGET_COHORT_READY", report["selected_bucket_counts"])
+          PY
+
+      - name: Run frozen main baseline on integrated target
+        run: |
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/out/integrated-targeted-consumed-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/baseline-output.jsonl             --report ../shared/out/baseline-report.json             --product-output ../shared/out/baseline-product.html             --work-dir ../shared/out/baseline-work             --run-id v9-integrated-baseline             --expected-count 100             --workers 8             --site-timeout 6             --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Run integrated challenger on identical target
+        run: |
+          cd challenger
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/out/integrated-targeted-consumed-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/challenger-output.jsonl             --report ../shared/out/challenger-report.json             --product-output ../shared/out/challenger-product.html             --work-dir ../shared/out/challenger-work             --run-id v9-integrated-challenger             --expected-count 100             --workers 8             --site-timeout 6             --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Measure integrated scored-family transfer
+        run: |
+          cd challenger
+          uv run python scripts/measure_v9_company_family_coverage.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/integrated-family-transfer.json             --new-publications ../shared/out/integrated-new-publications.jsonl             --lost-publications ../shared/out/integrated-lost-publications.jsonl
+
+      - name: Audit M2 site unlock inside integrated candidate
+        run: |
+          cd challenger
+          uv run python scripts/audit_v9_new_site_unlock.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/integrated-site-unlock.json             --manual-audit-jsonl ../shared/out/integrated-site-manual-audit.jsonl
+
+      - name: Audit integrated contact deltas
+        run: |
+          cd challenger
+          uv run python scripts/audit_v9_integrated_contacts.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/integrated-contact-audit.json             --manual-audit ../shared/out/integrated-contact-manual-audit.jsonl
+          echo '--- integrated contact manual audit rows ---'
+          cat ../shared/out/integrated-contact-manual-audit.jsonl || true
+
+      - name: Enforce integrated structural and regression gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          out = Path("shared/out")
+          target = json.loads((out / "integrated-targeted-cohort-report.json").read_text())
+          baseline = json.loads((out / "baseline-report.json").read_text())
+          challenger = json.loads((out / "challenger-report.json").read_text())
+          family = json.loads((out / "integrated-family-transfer.json").read_text())
+          unlock = json.loads((out / "integrated-site-unlock.json").read_text())
+          contacts = json.loads((out / "integrated-contact-audit.json").read_text())
+
+          assert baseline.get("passed") is True, baseline
+          assert challenger.get("passed") is True, challenger
+          assert family.get("same_company_set") is True
+          assert family.get("companies") == 100
+          assert target.get("fresh_companies_used") == 0
+          assert target.get("m2_behavioral_exposure_in_target", 0) > 0
+
+          bp = baseline.get("request_budget") or {}
+          cp = challenger.get("request_budget") or {}
+          b_ceiling = int(bp.get("theoretical_challenge_request_charge_ceiling") or 0)
+          c_ceiling = int(cp.get("theoretical_challenge_request_charge_ceiling") or 0)
+          b_observed = int(bp.get("observed_conservative_challenge_request_charge") or 0)
+          c_observed = int(cp.get("observed_conservative_challenge_request_charge") or 0)
+          assert 0 < c_ceiling <= b_ceiling <= 2000, (bp, cp)
+          assert c_observed <= b_observed <= 2000, (bp, cp)
+
+          for report in (baseline, challenger):
+              policy = report.get("source_policy") or {}
+              assert float(policy.get("third_party_cost_usd") or 0.0) == 0.0, policy
+              assert int(policy.get("search_api_requests") or 0) == 0, policy
+
+          lost_total = sum(int(item.get("lost_companies") or 0) for item in family["families"].values())
+          net_new_total = sum(int(item.get("net_new_companies") or 0) for item in family["families"].values())
+          assert lost_total == 0, family
+          assert unlock.get("lost_verified_website_companies") == 0, unlock
+          assert unlock.get("new_verified_website_companies", 0) >= 1, unlock
+          assert net_new_total >= 4, family
+          assert contacts.get("lost_contact_claims") == 0, contacts
+          assert contacts.get("all_new_contact_evidence_complete") is True, contacts
+
+          summary = {
+              "machine_decision": "MANUAL_AUDIT_REQUIRED",
+              "fresh_qualification": False,
+              "companies": 100,
+              "target_bucket_counts": target["selected_bucket_counts"],
+              "behaviorally_affected_companies": target["m2_behavioral_exposure_in_target"],
+              "families": family["families"],
+              "net_new_family_company_edges": net_new_total,
+              "lost_family_company_edges": lost_total,
+              "new_publications": family.get("new_publications"),
+              "lost_publications": family.get("lost_publications"),
+              "new_verified_website_companies": unlock["new_verified_website_companies"],
+              "lost_verified_website_companies": unlock["lost_verified_website_companies"],
+              "new_contact_claims": contacts["new_contact_claims"],
+              "new_contact_claims_by_field": contacts["new_contact_claims_by_field"],
+              "lost_contact_claims": contacts["lost_contact_claims"],
+              "baseline_observed_conservative_request_charge": b_observed,
+              "challenger_observed_conservative_request_charge": c_observed,
+              "baseline_theoretical_ceiling": b_ceiling,
+              "challenger_theoretical_ceiling": c_ceiling,
+              "baseline_wall_runtime_seconds": (baseline.get("runtime") or {}).get("wall_runtime_seconds"),
+              "challenger_wall_runtime_seconds": (challenger.get("runtime") or {}).get("wall_runtime_seconds"),
+              "third_party_cost_usd": (challenger.get("source_policy") or {}).get("third_party_cost_usd"),
+              "search_api_requests": (challenger.get("source_policy") or {}).get("search_api_requests"),
+              "manual_precision_audit_required": True,
+              "wrong_company_publications": None,
+          }
+          (out / "integrated-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove product HTML before archive
+        if: always()
+        run: rm -f shared/out/baseline-product.html shared/out/challenger-product.html
+
+      - name: Upload integrated consumed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-integrated-consumed-gate
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/out/baseline-main-sha.txt
+            shared/out/challenger-sha.txt
+            shared/out/source-consumed-1000.sha256
+            shared/out/brreg-enheter.sha256
+            shared/out/integrated-targeted-consumed-100.jsonl
+            shared/out/integrated-targeted-cohort-audit.jsonl
+            shared/out/integrated-targeted-cohort-report.json
+            shared/out/baseline-report.json
+            shared/out/challenger-report.json
+            shared/out/baseline-output.jsonl
+            shared/out/challenger-output.jsonl
+            shared/out/integrated-family-transfer.json
+            shared/out/integrated-new-publications.jsonl
+            shared/out/integrated-lost-publications.jsonl
+            shared/out/integrated-site-unlock.json
+            shared/out/integrated-site-manual-audit.jsonl
+            shared/out/integrated-contact-audit.json
+            shared/out/integrated-contact-manual-audit.jsonl
+            shared/out/integrated-summary.json
