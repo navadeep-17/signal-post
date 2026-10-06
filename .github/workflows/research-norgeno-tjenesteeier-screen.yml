@@ -1,0 +1,60 @@
+name: Research Norge.no Website Candidate Screen
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-norgeno-tjenesteeier-screen.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run parser tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_norgeno_tjenesteeier_website_reach.py
+
+      - name: Download one NLOD Norge.no service-owner snapshot
+        run: |
+          mkdir -p out/norgeno
+          curl --fail --location --retry 1 --retry-delay 2             --user-agent 'Signalpost-research-source-screen/1.0'             'https://hotell.difi.no/download/difi/norgeno/tjenesteeier?download'             --output out/norgeno/tjenesteeier.csv
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("out/norgeno/tjenesteeier.csv")
+          print("source-bytes=",p.stat().st_size)
+          print("source-prefix=",repr(p.read_bytes()[:120]))
+          PY
+
+      - name: Measure exact-org website candidate overlap
+        run: |
+          uv run python scripts/screen_norgeno_tjenesteeier_website_reach.py             --source out/norgeno/tjenesteeier.csv             --companies submission/final-release-1000.jsonl             --production-output-gz submission/final-release-1000-output.jsonl.gz             --report out/norgeno/report.json
+          cat out/norgeno/report.json
+
+      - name: Remove source snapshot
+        if: always()
+        run: rm -f out/norgeno/tjenesteeier.csv
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-norgeno-tjenesteeier-screen
+          retention-days: 30
+          path: out/norgeno/report.json
