@@ -190,6 +190,106 @@ Additional useful negative/availability evidence:
 This raises the observed manual/external reconnaissance ceiling from **3 / 20 to 4 / 20**, while preserving the conservative rule that inaccessible or non-independently-verifiable pages do not receive credit.
 
 
+
+## Source screen 5 — fetch-relaxation calibration
+
+After the manual ceiling reached 4 / 20, three narrowly isolated experiments tested whether the missing fifth site was primarily an evaluator-fetch limitation rather than a nomination limitation. These experiments did **not** weaken company identity rules and did **not** change production defaults.
+
+### 5a — explicit two-hop redirect option
+
+Branch:
+
+`experiment/v9-safe-two-hop-redirect`
+
+Consumed calibration:
+
+- workflow: `37442426876` — PASS
+- artifact ID: `11401279201`
+- artifact digest: `sha256:9525bca9888241e393ac18646d9c0fa03a3a482842a9be62ea73817f0665a3cf`
+- candidates tested: **4**
+- incremental verified organisations: **0**
+- logical site requests: **8**
+- conservative request charge: **16**
+- third-party API cost: **$0**
+- production/default redirect ceiling changed: **false**
+
+The ordinary fetch default remained one redirect. The experiment explicitly allowed two SSRF-checked redirects.
+
+Observed:
+
+- SVERRESPLASS BORETTSLAG → `https://vibbo.no/sverresplass/om`: still ended as `source_error` / HTTP 302 after the bounded redirect allowance.
+- YD MASKIN AS → `https://yd-maskin.no/`: the redirect chain progressed farther, but the destination exceeded the ordinary 750 kB page ceiling.
+- TRE FOR EN AS positive control remained exact.
+- BRAVO SEAFOOD wrong-company control remained rejected.
+
+Decision: **SHELVE.** Two redirects added no Gate-A company.
+
+### 5b — explicit three-hop redirect calibration
+
+Branch:
+
+`experiment/v9-safe-three-hop-redirect`
+
+Workflow:
+
+- workflow: `37442796321` — **FAILED safety-control step**
+- artifact ID: `11401926652`
+- artifact digest: `sha256:a4bfdf2a66545703b95393bca037d668a421c19c4466072797e76abbeff0bab7`
+- candidates tested: **4**
+- machine-verified organisations in that run: **0**
+- third-party API cost: **$0**
+
+The failure must not be rewritten as a success. The exact TRE FOR EN positive control hit a transient network-unreachable error during that run, causing the workflow assertion to fail.
+
+The useful diagnostic result is nevertheless negative for the hypothesis:
+
+- the SVERRESPLASS Vibbo page still ended at HTTP 302 even with three SSRF-checked redirects;
+- YD MASKIN still exceeded the ordinary page-byte ceiling;
+- BRAVO SEAFOOD remained rejected.
+
+Decision: **DROP further redirect-ceiling escalation.** Repeatedly increasing redirect depth would add attack/runtime surface without measured recall gain. Vibbo remains evaluator-inaccessible in the bounded path and receives no credit.
+
+### 5c — bounded 1.5 MB page calibration
+
+Branch:
+
+`experiment/v9-bounded-large-page`
+
+Consumed calibration:
+
+- workflow: `37443154952` — PASS
+- head: `b0ffe467ea788a2b9c176f2d1658cf7e245541aa`
+- artifact ID: `11402041800`
+- artifact digest: `sha256:4a39fe77491d1c4fe6b0e1f06ec34654662efef40f72c8a0938822f4fc1363ee`
+- candidates tested: **2**
+- incremental verified organisations: **0**
+- logical site requests: **4**
+- conservative request charge: **8**
+- third-party API cost: **$0**
+- production/default 750 kB byte ceiling changed: **false**
+- production/default one-redirect ceiling changed: **false**
+
+The larger bounded fetch showed that `https://yd-maskin.no/` resolves to:
+
+`https://www.facebook.com/yngvedalemaskin`
+
+The destination is therefore a social-network surface, not a first-party company domain. The unchanged verifier correctly kept it non-publishable. The BRAVO SEAFOOD wrong-company control also remained rejected.
+
+Decision: **SHELVE / NO-GO.** Increasing the page-byte ceiling does not recover YD MASKIN as a first-party site.
+
+### Fetch-relaxation conclusion
+
+These screens close the current fetch-relaxation hypothesis:
+
+```text
+two redirects:       +0 Gate-A companies
+three redirects:     +0; run also had transient positive-control failure
+1.5 MB page ceiling: +0; YD resolves to Facebook
+```
+
+Do not merge these runtime relaxations into the V9 integration branch. Continue looking for a genuinely new first-party candidate/source for the fifth Gate-A organisation instead.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
