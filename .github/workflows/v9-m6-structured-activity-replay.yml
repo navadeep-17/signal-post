@@ -1,0 +1,279 @@
+name: V9 M6 Structured Activity Replay
+
+on:
+  push:
+    branches:
+      - experiment/v9-m6-structured-activity-integrated
+  pull_request:
+    branches:
+      - experiment/v9-m5-hiring-semantics-integrated
+    paths:
+      - .github/workflows/v9-m6-structured-activity-replay.yml
+      - src/norway_company_agent/final_site_discovery.py
+      - src/norway_company_agent/first_party_activity.py
+      - src/norway_company_agent/v9_activity_audit.py
+      - scripts/run_signalpost_v8.py
+      - scripts/build_v9_m6_registry_site_cohort.py
+      - scripts/replay_v9_m6_structured_dates.py
+      - scripts/audit_v9_dated_activity.py
+      - tests/test_v9_structured_activity.py
+      - tests/test_v9_activity_audit.py
+      - tests/test_phase4_activity_date_evidence.py
+      - tests/test_c12_dated_first_party_news.py
+      - tests/test_q4_feed_projection_hardening.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  structured-activity-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact M6 challenger
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Record exact challenger SHA
+        run: |
+          mkdir -p shared/out
+          git rev-parse HEAD | tee shared/out/challenger-sha.txt
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(cat shared/out/challenger-sha.txt)" = "$EXPECTED"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused M6 precision tests
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v9_structured_activity.py \
+            tests/test_v9_activity_audit.py \
+            tests/test_phase4_activity_date_evidence.py \
+            tests/test_c12_dated_first_party_news.py \
+            tests/test_q4_feed_projection_hardening.py
+
+      - name: Verify frozen consumed 1000 source manifest
+        run: |
+          test -f submission/final-release-1000.jsonl
+          test "$(wc -l < submission/final-release-1000.jsonl)" -eq 1000
+          sha256sum submission/final-release-1000.jsonl | tee shared/out/source-consumed-1000.sha256
+
+      - name: Download one shared current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          sha256sum shared/brreg-enheter.csv | tee shared/out/brreg-enheter.sha256
+
+      - name: Build outcome-blind registry-site consumed cohort
+        run: |
+          uv run python scripts/build_v9_m6_registry_site_cohort.py \
+            --source-manifest submission/final-release-1000.jsonl \
+            --bulk shared/brreg-enheter.csv \
+            --output shared/out/m6-registry-site-100.jsonl \
+            --report shared/out/m6-cohort-report.json \
+            --target-count 100
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("shared/out/m6-cohort-report.json").read_text())
+          assert report["selected_companies"] == 100, report
+          assert report["registry_website_eligible_companies"] >= 100, report
+          assert report["outcome_blind_selection"] is True, report
+          assert report["fresh_companies_used"] == 0, report
+          print("M6_COHORT_READY", report["registry_website_eligible_companies"])
+          PY
+
+      - name: Run M6 collector once on consumed cohort
+        run: |
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations shared/out/m6-registry-site-100.jsonl \
+            --bulk shared/brreg-enheter.csv \
+            --output shared/out/m6-collector-output.jsonl \
+            --report shared/out/m6-collector-report.json \
+            --product-output shared/out/m6-product.html \
+            --work-dir shared/out/m6-work \
+            --run-id v9-m6-registry-site-consumed \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Locate retained exact-site profiles
+        run: |
+          PROFILE_PATH="$(find shared/out/m6-work -type f -name profiles.jsonl | head -n 1)"
+          test -n "$PROFILE_PATH"
+          test "$(wc -l < "$PROFILE_PATH")" -eq 100
+          echo "$PROFILE_PATH" | tee shared/out/m6-profiles-path.txt
+
+      - name: Build same-snapshot M5 baseline and M6 challenger
+        run: |
+          PROFILE_PATH="$(cat shared/out/m6-profiles-path.txt)"
+          uv run python scripts/replay_v9_m6_structured_dates.py \
+            --profiles "$PROFILE_PATH" \
+            --collector-output shared/out/m6-collector-output.jsonl \
+            --baseline-output shared/out/m6-causal-baseline.jsonl \
+            --challenger-output shared/out/m6-causal-challenger.jsonl \
+            --report shared/out/m6-causal-replay.json
+
+      - name: Measure same-snapshot family delta
+        run: |
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline shared/out/m6-causal-baseline.jsonl \
+            --challenger shared/out/m6-causal-challenger.jsonl \
+            --report shared/out/m6-family-transfer.json \
+            --new-publications shared/out/m6-new-publications.jsonl \
+            --lost-publications shared/out/m6-lost-publications.jsonl
+
+      - name: Audit page-local dated activity
+        run: |
+          uv run python scripts/audit_v9_dated_activity.py \
+            --baseline shared/out/m6-causal-baseline.jsonl \
+            --challenger shared/out/m6-causal-challenger.jsonl \
+            --report shared/out/m6-activity-audit.json \
+            --manual-audit-jsonl shared/out/m6-manual-audit.jsonl
+          echo '--- M6 manual audit rows ---'
+          cat shared/out/m6-manual-audit.jsonl || true
+
+      - name: Enforce M6 structural gates and record decision state
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          out = Path("shared/out")
+          cohort = json.loads((out / "m6-cohort-report.json").read_text())
+          collector = json.loads((out / "m6-collector-report.json").read_text())
+          causal = json.loads((out / "m6-causal-replay.json").read_text())
+          family = json.loads((out / "m6-family-transfer.json").read_text())
+          activity = json.loads((out / "m6-activity-audit.json").read_text())
+
+          assert cohort["selected_companies"] == 100, cohort
+          assert cohort["fresh_companies_used"] == 0, cohort
+          assert collector.get("passed") is True, collector
+          assert causal["companies"] == 100, causal
+          assert causal["fresh_companies_used"] == 0, causal
+          assert causal["validation_errors"] == 0, causal
+          assert causal["lost_strict_update_keys"] == 0, causal
+          assert family.get("same_company_set") is True, family
+          assert family.get("companies") == 100, family
+          assert activity.get("companies") == 100, activity
+          assert activity.get("lost_update_publications") == 0, activity
+          assert activity.get("audit_error_count") == 0, activity
+          assert activity.get("network_requests_added_by_m6_extraction") == 0, activity
+
+          lost_family_edges = sum(
+              int(value.get("lost_companies") or 0)
+              for value in family["families"].values()
+          )
+          assert lost_family_edges == 0, family
+
+          budget = collector.get("request_budget") or {}
+          observed = int(budget.get("observed_conservative_challenge_request_charge") or 0)
+          ceiling = int(budget.get("theoretical_challenge_request_charge_ceiling") or 0)
+          assert 0 < ceiling <= 2000, budget
+          assert 0 <= observed <= 2000, budget
+
+          policy = collector.get("source_policy") or {}
+          assert float(policy.get("third_party_cost_usd") or 0.0) == 0.0, policy
+          assert int(policy.get("search_api_requests") or 0) == 0, policy
+          assert int(policy.get("structured_article_date_extraction_network_requests") or 0) == 0, policy
+
+          dated = family["families"]["dated_first_party_activity"]
+          net_new = int(dated.get("net_new_companies") or 0)
+          new_updates = int(activity.get("new_update_publications") or 0)
+          decision = (
+              "MANUAL_AUDIT_REQUIRED"
+              if net_new > 0 and new_updates > 0
+              else "SHELVE_OR_RETUNE_ZERO_LIFT"
+          )
+          summary = {
+              "machine_decision": decision,
+              "fresh_qualification": False,
+              "companies": 100,
+              "registry_website_eligible_companies": cohort["registry_website_eligible_companies"],
+              "affected_companies": causal["affected_companies"],
+              "net_new_strict_update_keys": causal["net_new_strict_update_keys"],
+              "lost_strict_update_keys": causal["lost_strict_update_keys"],
+              "dated_activity_family_delta": dated,
+              "new_update_publications": new_updates,
+              "structured_jsonld_new_updates": activity[
+                  "new_updates_with_structured_jsonld_date_evidence"
+              ],
+              "lost_update_publications": activity["lost_update_publications"],
+              "audit_error_count": activity["audit_error_count"],
+              "observed_conservative_request_charge": observed,
+              "theoretical_conservative_ceiling": ceiling,
+              "third_party_cost_usd": policy.get("third_party_cost_usd"),
+              "search_api_requests": policy.get("search_api_requests"),
+              "manual_precision_audit_required": new_updates > 0,
+              "wrong_company_publications": None if new_updates > 0 else 0,
+          }
+          (out / "m6-summary.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print("M6_STRUCTURAL_GATES=PASS")
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove product HTML before archive
+        if: always()
+        run: rm -f shared/out/m6-product.html
+
+      - name: Upload M6 consumed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m6-structured-activity-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/out/challenger-sha.txt
+            shared/out/source-consumed-1000.sha256
+            shared/out/brreg-enheter.sha256
+            shared/out/m6-cohort-report.json
+            shared/out/m6-registry-site-100.jsonl
+            shared/out/m6-collector-report.json
+            shared/out/m6-causal-replay.json
+            shared/out/m6-causal-baseline.jsonl
+            shared/out/m6-causal-challenger.jsonl
+            shared/out/m6-family-transfer.json
+            shared/out/m6-new-publications.jsonl
+            shared/out/m6-lost-publications.jsonl
+            shared/out/m6-activity-audit.json
+            shared/out/m6-manual-audit.jsonl
+            shared/out/m6-summary.json
