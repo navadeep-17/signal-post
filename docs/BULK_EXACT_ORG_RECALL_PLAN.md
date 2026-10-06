@@ -1,6 +1,6 @@
 # Signalpost — isolated bulk exact-org recall plan
 
-Date: 2026-10-05
+Date: 2026-10-06
 Branch: `research/bulk-exact-org-recall`
 Base main SHA: `88be83e226da13ba6f7a2717c72c1d2d94cf5bec`
 
@@ -148,30 +148,90 @@ Reach:
 
 Decision: **do not build as a standalone production source**. Keep as a possible member of a larger exact-org registry union because it is precise, current, rights-clean and nearly free in request terms, but individual reach is too niche.
 
-## R4 — source-union comparison
+## R4 — rights-clean official-activity union
 
-Status: **PENDING MORE VIABLE MEMBERS**.
+Status: **MEASURED / SHELVE FOR 65+/70+ CRITICAL PATH**.
 
-Once R2 and further R3 source screens produce candidates, compare their union on the same consumed material and compute:
+Implementation:
 
-- exact companies covered;
-- net-new companies over current output;
-- recent activity companies;
-- website candidates;
-- email candidates;
-- external requests;
-- `net_new_companies / requests`;
-- rights status;
-- precision exceptions;
-- overlap between sources so raw hit counts are not double-counted.
+- `scripts/compare_official_activity_union.py`;
+- `tests/test_compare_official_activity_union.py`;
+- `.github/workflows/research-rights-clean-official-activity-union.yml`;
+- successful workflow run: **37409025540**;
+- frozen artifact: **11389007073**;
+- artifact ZIP SHA-256: `52e2898b68c88d9c0702330c476343744ff7b0ff04f61062ecd3ee1e22bf9097`.
 
-Only after this comparison should any production reallocation be discussed.
+The comparison deliberately used only exact-org source families whose reuse position is sufficiently clean for this gate:
+
+- current production Støtteregisteret as baseline;
+- Doffin exact winners;
+- Forskningsrådet funded projects;
+- Arbeidstilsynet open registries;
+- Landbruksdirektoratet 2025 support data.
+
+The current Støtteregisteret snapshot was fetched once and matched **88/1000** consumed companies with <=365-day official support evidence.
+
+Measured candidate union:
+
+- candidate sources: **4**;
+- candidate union exact companies: **19/1000 = 1.9%**;
+- candidate union recent-activity companies: **6/1000 = 0.6%**;
+- overlap with current support: **10** all / **2** recent;
+- **net-new exact companies over current support: 9/1000 = 0.9%**;
+- **net-new recent-activity companies over current support: 4/1000 = 0.4%**;
+- post-union official-activity coverage: **97/1000** all, **92/1000** recent.
+
+Per-source contribution versus current support:
+
+| Source | Exact companies | Net-new all | Recent companies | Net-new recent |
+|---|---:|---:|---:|---:|
+| Doffin | 12 | 5 | 5 | 3 |
+| Forskningsrådet | 3 funded-project companies | 2 | 1 | 1 |
+| Arbeidstilsynet | 3 | 1 | 0 | 0 |
+| Landbruk 2025 | 2 | 1 | 0 | 0 |
+
+Net-new recent companies were:
+
+- JOHANSEN MONUMENTHUGGERI AS (`835761762`);
+- WAI ENVIRONMENTAL SOLUTIONS AS (`919383712`);
+- TRUCKTECH AS (`980152634`);
+- UNIFON AS (`987100648`).
+
+Decision: **do not spend production request budget on this union for the 65+/70+ critical path**. The union is exact and useful, but a 0.4% net-new recent-company lift is too small relative to the current recall deficit and the already-full theoretical request ceiling. Preserve the research artifacts for later enrichment.
+
+## R5 — Doffin exact-winner Power BI screen
+
+Status: **TECHNICALLY PROVEN / PRECISION-CLEAN / LOW TRANSFER / RIGHTS DECLARATION STILL NEEDS FINAL MAPPING**.
+
+The public Doffin supplier-statistics surface exposes an anonymous Power BI embed token. Research reproduced the public report contract without persisting credentials, resolved the report model/schema and queried the exact winner organisation-number field:
+
+- report ID: `1e4ba2c1-d15e-41c3-8cba-6166c3812f1a`;
+- exact identity: `winner_eu_registration_number`;
+- winner legal name: `winner_eeig_official_name_nor`;
+- dated evidence includes contract-conclusion, winner-decision and notice dispatch/publication dates.
+
+Consumed-1000 result:
+
+- **12/1000** exact winner companies;
+- **5/1000** with an official date inside 365 days;
+- **5/1000** net-new all versus current support;
+- **3/1000** net-new recent versus current support;
+- all 12 winner identities passed BRREG legal-name/historical-name audit;
+- zero unresolved identity matches.
+
+Rights note:
+
+- the official Data.norge Doffin notice dataset is public/open and its registered CSV distribution is CC BY 4.0;
+- Doffin publicly exposes the notice flow to API/Doffindata;
+- the research Power BI presentation itself has not yet been explicitly documented as the same licensed distribution, so production promotion still requires a source-declaration/reuse mapping. Do not assume the Power BI transport inherits the CSV distribution licence without documenting that mapping.
+
+Decision: retain Doffin as a possible later exact activity connector, but **do not promote it alone** for the score-critical path.
 
 ## Current direction
 
-1. Do not revisit TED unchanged.
-2. Run the corrected Peppol exact-0192 screen only after the export rate-limit window; do not weaken the rights gate.
-3. Continue Data.norge/source discovery for additional **bulk + exact-org + rights-clean** registries, with priority on website/contact and recent business-activity sources rather than more narrow historical facts.
-4. Screen one new source family at a time on consumed material.
-5. Build the union comparator once at least two nontrivial candidate sources survive.
-6. Keep this entire track isolated from production until a source/union demonstrates materially better coverage-per-request.
+1. Treat the rights-clean official-activity union as measured and shelved for the immediate 65+/70+ objective; do not spend more time adding similarly narrow registries one by one.
+2. Prioritize sources that can materially improve **website/contact or broad company-level activity coverage**, because those can affect substantially more evaluator companies.
+3. The next highest-upside unresolved screen is the corrected Peppol exact-`0192` export because it can expose exact-org website candidates at broad scale. Run the coverage screen when the official export limit permits, but keep personal/contact data out of any production proposal unless its permitted-use basis is explicit.
+4. Peppol website values, if useful, remain **candidates only** and must pass Signalpost's existing independent exact-company website verification before publication.
+5. Keep SGregister/DSB and any other source with unresolved reuse rights out of the rights-clean production proposal even if raw coverage is attractive.
+6. Keep this entire track isolated from production and from fresh evaluator cohorts until a candidate demonstrates a material consumed-cohort lift that justifies explicit request-budget reallocation.
