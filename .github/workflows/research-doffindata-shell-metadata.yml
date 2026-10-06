@@ -1,0 +1,75 @@
+name: Research Doffindata Shell Metadata Extraction
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-shell-metadata.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch supplier report shell without token
+        run: |
+          mkdir -p out
+          BASE='https://api.doffin.no/webclient/api/v2/notices-api'
+          REPORT='1e4ba2c1-d15e-41c3-8cba-6166c3812f1a'
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            --header 'Accept: application/json' "${BASE}/getEmbedToken?reportId=${REPORT}" -o out/embed.json
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          data=json.loads(Path('out/embed.json').read_text(encoding='utf-8'))
+          urls=data.get('embedUrl') or []
+          if isinstance(urls,str): urls=[urls]
+          if not urls: raise SystemExit('no embed url')
+          subprocess.run([
+            'curl','--fail','--location','--compressed',
+            '--user-agent','Signalpost-research-source-screen/1.0',
+            urls[0],'-o','out/shell.html'
+          ],check=True)
+          Path('out/embed.json').unlink(missing_ok=True)
+          PY
+
+      - name: Print bounded non-secret metadata windows
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          s=Path('out/shell.html').read_text(encoding='utf-8',errors='replace')
+          for needle in ['datasetId','resolvedCluster','requestId','modelsId','reportId']:
+              positions=[m.start() for m in re.finditer(needle,s,re.I)]
+              print('\n===',needle,'occurrences=',len(positions),'===')
+              for idx in positions[:12]:
+                  chunk=s[max(0,idx-500):min(len(s),idx+1200)]
+                  # Redact anything token-like defensively, even though shell fetch had no token.
+                  chunk=re.sub(r'(?i)(accessToken|embedToken|token)["\']?\s*[:=]\s*["\'][^"\']+["\']',r'\1="[REDACTED]"',chunk)
+                  print(chunk)
+                  print('---')
+
+          print('\n=== GUIDS NEAR DATASET/CLUSTER CONTEXT ===')
+          context=[]
+          for needle in ['datasetId','resolvedCluster']:
+              for m in re.finditer(needle,s,re.I):
+                  context.append(s[max(0,m.start()-2000):min(len(s),m.start()+4000)])
+          joined='\n'.join(context)
+          for guid in sorted(set(re.findall(r'(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',joined))):
+              print(guid)
+          for url in sorted(set(re.findall(r'https://[^"\'<>\s]+',joined))):
+              if 'analysis.windows.net' in url.lower() or 'powerbi.com' in url.lower():
+                  print('URL',url[:1500])
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
