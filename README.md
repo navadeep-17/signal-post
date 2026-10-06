@@ -128,31 +128,35 @@ See [`submission/V8_EVALUATOR_PATH.md`](submission/V8_EVALUATOR_PATH.md) and [`S
 
 ## Release integrity
 
-Current submitted V8 revision:
+Current Builderr-submitted revision remains:
 
-- release commit: `e7cbbcdd505596dbd5d819b5e8647602760a7aa3`;
-- release ref: `release/v8-final-2026-10-03`;
-- frozen V1 submission SHA: `60c5b0852f41ddd7d5ef51b2c68b4d7fe0f1e4aa`.
+- commit: `e7cbbcdd505596dbd5d819b5e8647602760a7aa3`;
+- ref: `release/v8-final-2026-10-03`.
 
-The certified V5 machine-readable lineage in `submission/manifest.json` is intentionally preserved. V8 is an evaluator-compatibility wrapper over the already-qualified evidence/product path, not a rewrite of the certified collector lineage.
+The newer production candidate at `main@200f056a5a60cad23610a3958b6bec62dfb624a5` passed Q8 fresh release qualification attempt #4 and is now **release-qualified pending documentation-only finalization, exact-head CI, release-ref freeze and explicit Builderr submission**.
+
+The qualification-only PR #124 was closed without merge. See [`docs/Q8_RELEASE_QUALIFICATION.md`](docs/Q8_RELEASE_QUALIFICATION.md).
+
+The certified V1/V5 lineage remains preserved; no qualification harness is part of production.
 
 ## Qualification evidence
 
-The underlying V7 production path has been exercised end to end on a reproducible 100-company release cohort with:
+Fresh Q8 attempt #4:
 
 - 100/100 terminal company outputs;
-- zero canonical validation errors;
-- zero synthesis validation errors;
-- decision briefs for 100/100 companies;
-- 1,364 / 2,000 observed conservative request charge;
-- 311.985 seconds wall runtime;
+- 4,600/4,600 claims with complete core evidence;
+- 4,600/4,600 with reopenable sources;
+- 164/164 identity-sensitive claims with visible identity proof and extraction method;
+- 42 official support claims across 12 companies;
+- 1,376 / 2,000 observed conservative request charge;
+- 629.722 seconds wall runtime;
 - $0.00 third-party API cost;
-- zero search-API requests;
-- successful generation of the evaluator-facing workspace.
+- 0 contract/canonical/synthesis/dangling-evidence/support-projection errors;
+- 20/20 evaluator-visible external publications manually audited;
+- 42/42 Støtteregisteret rows audited;
+- 0 wrong-company publications and 0 support anomalies.
 
-V8 additionally has regression coverage for arbitrary evaluator batch sizes and rejects explicit expected-count mismatches before research begins.
-
-These are repository engineering results, **not a claimed Builderr score**.
+These are repository engineering qualification results, **not a claimed Builderr score**.
 
 ## Output model
 
@@ -195,13 +199,14 @@ data/                       small committed reproducibility inputs
 
 Historical qualification material is retained for auditability but is not part of the production evaluator path unless the submission documentation says otherwise.
 
-## Current R&D boundary
+## Current release boundary
 
-Post-V8 score-expansion work is intentionally isolated from production. Website Discovery 2.0 remains an experiment until its provider credential/budget contract is evaluator-reproducible and fresh-cohort precision/coverage gates pass. The submitted V8 release is therefore stable while the next recall improvements are being qualified.
+The main track is frozen for release. New source experiments and fresh qualification cohorts are outside the critical path until the newly qualified revision is submitted. Experimental branches remain isolated and do not enter production without a new qualification decision.
 
 ## Key documentation
 
-- [`SUBMISSION.md`](SUBMISSION.md) — current evaluator/release guide
+- [`SUBMISSION.md`](SUBMISSION.md) — current submitted-vs-qualified evaluator/release guide
+- [`docs/Q8_RELEASE_QUALIFICATION.md`](docs/Q8_RELEASE_QUALIFICATION.md) — fresh Q8 release qualification record
 - [`docs/README.md`](docs/README.md) — documentation map: current vs qualification vs historical
 - [`OUTPUT_CONTRACT.md`](OUTPUT_CONTRACT.md) — output and evidence contract
 - [`submission/V8_EVALUATOR_PATH.md`](submission/V8_EVALUATOR_PATH.md) — V8 batch-adaptive wrapper
