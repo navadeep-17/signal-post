@@ -52,7 +52,7 @@ def main() -> int:
         "eligible_without_registry_website": sum(buckets.values()),
         "bucket_counts": dict(sorted(buckets.items())),
         "m2_behaviorally_affected_companies": int(buckets.get("m2_delta") or 0),
-        "strong_email_control_companies": int(buckets.get("strong_email_control") or 0),
+        "preserved_email_control_companies": int(buckets.get("preserved_email_control") or 0),
         "no_email_control_companies": int(buckets.get("no_email_control") or 0),
         "baseline_candidate_strength_counts": dict(sorted(baseline_strengths.items())),
         "challenger_candidate_strength_counts": dict(sorted(challenger_strengths.items())),
@@ -64,7 +64,7 @@ def main() -> int:
         "notes": [
             "The source population is the frozen consumed final-release 1000 manifest, not a fresh cohort.",
             "m2_delta means the V8 and V9 first email-domain candidate slot differs.",
-            "strong_email_control means both versions nominate the same strong email-domain candidate.",
+            "preserved_email_control means both versions nominate the same exact/acronym/multi/partial email-domain candidate.",
             "no_email_control means neither version uses an email-domain candidate.",
             "Only aggregate counts are retained by this census.",
         ],

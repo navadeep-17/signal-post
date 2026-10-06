@@ -67,7 +67,7 @@ def main() -> int:
     def bucket_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         return dict(sorted(Counter(str(row.get("m2_bucket") or "unknown") for row in rows).items()))
 
-    control_buckets = {"strong_email_control", "no_email_control"}
+    control_buckets = {"preserved_email_control", "no_email_control"}
     control_new = [row for row in new_rows if row.get("m2_bucket") in control_buckets]
     control_lost = [row for row in lost_rows if row.get("m2_bucket") in control_buckets]
 

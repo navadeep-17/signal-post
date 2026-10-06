@@ -26,22 +26,33 @@ def profile(org: str, name: str, email: str = "", website: str = "") -> dict:
     }
 
 
-def test_classify_weak_email_candidate_as_m2_delta() -> None:
+def test_classify_unrelated_email_candidate_as_m2_delta() -> None:
     item = classify_m2_candidate_slot(
         profile("111111111", "ACME NORD AS", "post@accountingpartner.no")
     )
     assert item["bucket"] == "m2_delta"
     assert item["baseline_candidate_domain"] == "accountingpartner.no"
+    assert item["baseline_candidate_strength"] == "none"
     assert item["challenger_candidate_domain"] is None
 
 
-def test_classify_strong_email_candidate_as_control() -> None:
+def test_classify_exact_email_candidate_as_preserved_control() -> None:
     item = classify_m2_candidate_slot(
         profile("111111111", "ACME NORD AS", "post@acmenord.no")
     )
-    assert item["bucket"] == "strong_email_control"
+    assert item["bucket"] == "preserved_email_control"
     assert item["baseline_candidate_domain"] == "acmenord.no"
     assert item["challenger_candidate_domain"] == "acmenord.no"
+
+
+def test_classify_partial_email_candidate_as_preserved_control() -> None:
+    item = classify_m2_candidate_slot(
+        profile("111111111", "KOKKERSVOLD AS", "kjell@kokkers.no")
+    )
+    assert item["bucket"] == "preserved_email_control"
+    assert item["baseline_candidate_strength"] == "partial"
+    assert item["challenger_candidate_domain"] == "kokkers.no"
+    assert item["challenger_candidate_strength"] == "partial"
 
 
 def test_registry_website_never_enters_target_population() -> None:
@@ -66,11 +77,11 @@ def test_targeting_includes_all_delta_before_controls() -> None:
     orgs, audit, report = build_targeted_m2_cohort(profiles, target_count=3)
     assert orgs[0] == "111111111"
     assert report["selected_bucket_counts"]["m2_delta"] == 1
-    assert report["selected_bucket_counts"]["strong_email_control"] == 1
+    assert report["selected_bucket_counts"]["preserved_email_control"] == 1
     assert report["selected_bucket_counts"]["no_email_control"] == 1
     assert [row["bucket"] for row in audit] == [
         "m2_delta",
-        "strong_email_control",
+        "preserved_email_control",
         "no_email_control",
     ]
 

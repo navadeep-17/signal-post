@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Any, Iterable
 
 from .domain_discovery import _domain_identity_strength, registry_email_domain_candidates
-from .v9_email_domain import select_strong_registry_email_domain_candidate
+from .v9_email_domain import select_registry_email_domain_candidate
 
 
 def classify_m2_candidate_slot(profile: dict[str, Any]) -> dict[str, Any]:
@@ -12,7 +12,7 @@ def classify_m2_candidate_slot(profile: dict[str, Any]) -> dict[str, Any]:
     plan = registry_email_domain_candidates(profile)
     candidates = plan.get("candidates") or []
     baseline = candidates[0] if plan.get("eligible") and candidates else None
-    challenger = select_strong_registry_email_domain_candidate(profile, plan=plan)
+    challenger = select_registry_email_domain_candidate(profile, plan=plan)
 
     baseline_domain = str((baseline or {}).get("domain") or "").casefold() or None
     challenger_domain = str((challenger or {}).get("domain") or "").casefold() or None
@@ -28,7 +28,7 @@ def classify_m2_candidate_slot(profile: dict[str, Any]) -> dict[str, Any]:
     if baseline_domain != challenger_domain:
         bucket = "m2_delta"
     elif baseline_domain:
-        bucket = "strong_email_control"
+        bucket = "preserved_email_control"
     else:
         bucket = "no_email_control"
 
@@ -53,7 +53,7 @@ def build_targeted_m2_cohort(
 
     Priority:
     1. every company whose V8 and V9 email-domain slot differs;
-    2. strong-email controls where V8 and V9 nominate the same domain;
+    2. preserved-email controls where V8 and V9 nominate the same domain;
     3. no-email controls, only to reach the requested cohort size.
 
     Companies with a registry website are excluded because M2 never owns their first site slot.
@@ -73,7 +73,7 @@ def build_targeted_m2_cohort(
 
     by_bucket: dict[str, list[dict[str, Any]]] = {
         "m2_delta": [],
-        "strong_email_control": [],
+        "preserved_email_control": [],
         "no_email_control": [],
     }
     for item in classifications:
@@ -90,7 +90,7 @@ def build_targeted_m2_cohort(
 
     selected = list(delta)
     remaining = target_count - len(selected)
-    selected.extend(by_bucket["strong_email_control"][:remaining])
+    selected.extend(by_bucket["preserved_email_control"][:remaining])
     remaining = target_count - len(selected)
     selected.extend(by_bucket["no_email_control"][:remaining])
 
@@ -121,7 +121,7 @@ def build_targeted_m2_cohort(
         "fresh_companies_used": 0,
         "selection_rule": [
             "include all consumed companies whose V8 and V9 email-domain slot differs",
-            "then same-domain strong-email controls",
+            "then same-domain preserved-email controls (exact/acronym/multi/partial)",
             "then deterministic no-email controls by organisation number",
         ],
     }

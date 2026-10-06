@@ -47,9 +47,9 @@ Implemented on the isolated V9 branch only:
    - dated first-party activity companies;
    - logical/conservative request charge;
    - terminal/error/cost summaries.
-2. A strong BRREG email-domain selector that permits only `exact`, `multi`, or `acronym` legal-name/domain morphology.
+2. The initial BRREG email-domain selector admitted `exact`, `multi`, or `acronym`; the M2 RETUNE now also preserves `partial` candidates because targeted consumed evidence showed that pre-fetch removal of partial domains can delete exact verified sites.
 3. The candidate remains nomination only. Independent fetch, existing exact-company verifier, wrong-org veto, registry-risk guard, and all publication evidence rules remain unchanged.
-4. Weak/non-generic-but-unrelated registry email domains no longer deserve the M2 candidate slot.
+4. The current retune substitutes only clearly unrelated (`none`) registry-email domains. `partial` remains candidate nomination only and still must pass the unchanged independent exact-company verifier.
 
 ## Safety boundary
 
@@ -145,3 +145,82 @@ four-logical-site-request ceiling, then re-run the same consumed 100-company bas
 gate on the exact challenger head. Promotion still requires zero website losses, positive
 net-new scored-family coverage, zero wrong-company publications, clean contract/canonical/
 synthesis/evidence validation, and the unchanged <=2,000 worst-case request theorem.
+
+
+## M2 RETUNE causal-exposure result
+
+A targeted consumed-only gate was added so M2 is measured on companies whose request allocation
+actually changes, rather than relying on a random consumed 100 with little causal exposure.
+
+Consumed-1000 causal census run `37484232499` (fresh companies used: **0**) found:
+
+- registry website already present: **116**;
+- eligible without registry website: **884**;
+- initial M2 behaviorally affected (`m2_delta`): **69**;
+- initial strong-email controls: **18**;
+- no-email controls: **797**;
+- baseline candidate strengths among email candidates: exact **15**, acronym **2**, multi **1**,
+  partial **15**, none **54**.
+
+The first targeted transfer run `37483662873` included all **69** affected companies, all
+**18** same-candidate controls, and **13** no-email controls. Control variance was **false**,
+so publication movement in that run is causally attributable to the M2 allocation change.
+
+Targeted result:
+
+- verified websites: **8 -> 7**; **+1 new / -2 lost**;
+- social: **5 -> 5**; **+1 / -1**;
+- external contact: **4 -> 4**; **+1 / -1**;
+- careers surface: **2 -> 3**; **+1 / -0**;
+- company-authored hiring intent: **0 -> 0**;
+- specific active jobs: **0 -> 0**;
+- dated first-party activity: **2 -> 1**; **+0 / -1**;
+- net-new family-company edges: **4**;
+- lost family-company edges: **5**;
+- new evaluator-family publications: **5**;
+- lost evaluator-family publications: **6**;
+- observed conservative request charge: **1602 -> 1358**;
+- theoretical ceiling: **2000 -> 2000**;
+- wall runtime: **702.497 s -> 639.446 s**;
+- external API cost: **$0**;
+- search API requests: **0**;
+- machine decision: **RETUNE_LOSS**.
+
+Manual audit of all five new publications is complete. All five belong to organisation
+`999096298`, **DEN GLADE GRIS AS**, and derive from the newly recovered exact site
+`https://www.dengladegris.no/`: official website, careers surface, Facebook, Instagram and
+same-domain contact email. The retained site identity is exact at **0.98**, matches all legal-name
+tokens, and records bounded same-domain secondary identity corroboration. Evidence is hashed and
+timestamped. Manual result: **5/5 reviewed, 0 wrong-company new publications**.
+
+The six lost publications are also real regressions, all inside the causal `m2_delta` bucket.
+Two lost verified sites explain the family losses:
+
+- `943378649`, **OPUS AS**, `https://opusas.no/`: BRREG registered email
+  `oad@opusas.no`; baseline website identity exact at **0.95**. Its email-domain morphology is
+  classified `partial`.
+- `965880437`, **KOKKERSVOLD AS**, `https://kokkers.no/`: BRREG registered email
+  `kjell@kokkers.no`; baseline website identity exact at **1.0** with explicit organisation
+  number `965880437`. Its email-domain morphology is also `partial`, and losing the site also
+  loses two strict dated same-site feed updates.
+
+This isolates the defect in M2 iteration 1: rejecting every `partial` candidate before fetching
+is too aggressive. Morphology is only a nomination heuristic; the unchanged exact-company verifier
+is what decides publication.
+
+### M2 RETUNE iteration 2
+
+The candidate-allocation policy is therefore narrowed:
+
+- preserve `exact`, `acronym`, `multi`, and `partial` registry-email candidates;
+- substitute only `none` candidates;
+- do not weaken or bypass any identity/evidence gate;
+- do not increase the four-logical-site-request ceiling;
+- do not use search or paid APIs;
+- re-run the consumed causal census and targeted consumed-100 transfer before any promotion.
+
+Expected causal exposure under the same census is approximately the **54** `none` candidates,
+rather than all 69 initial affected companies; the new census is authoritative once complete.
+
+Decision remains **RETUNE** until iteration 2 passes zero-loss, positive-family-lift and manual
+precision gates.
