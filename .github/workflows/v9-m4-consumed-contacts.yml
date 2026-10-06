@@ -38,7 +38,7 @@ jobs:
       - name: Checkout frozen M2/M3 baseline
         uses: actions/checkout@v4
         with:
-          ref: 04b6f2555d4e1a9b5da25ae325ead5a802967772
+          ref: 69c73fb38371ee14312fb75c8b91c76947fc3e5c
           path: baseline
           fetch-depth: 1
 
@@ -47,7 +47,7 @@ jobs:
           mkdir -p shared/out
           git -C baseline rev-parse HEAD | tee shared/out/baseline-sha.txt
           git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
-          test "$(cat shared/out/baseline-sha.txt)" = "04b6f2555d4e1a9b5da25ae325ead5a802967772"
+          test "$(cat shared/out/baseline-sha.txt)" = "69c73fb38371ee14312fb75c8b91c76947fc3e5c"
 
       - uses: actions/setup-python@v5
         with:
