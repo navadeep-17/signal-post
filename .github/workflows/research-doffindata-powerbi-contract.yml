@@ -1,0 +1,133 @@
+name: Research Doffindata PowerBI Contract Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-powerbi-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch public embed metadata and shell safely
+        run: |
+          mkdir -p out
+          BASE='https://api.doffin.no/webclient/api/v2/notices-api'
+          REPORT='1e4ba2c1-d15e-41c3-8cba-6166c3812f1a'
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            --header 'Accept: application/json' \
+            "${BASE}/getEmbedToken?reportId=${REPORT}" -o out/embed.json
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          data=json.loads(Path('out/embed.json').read_text(encoding='utf-8'))
+          urls=data.get('embedUrl') or []
+          if isinstance(urls,str):
+              urls=[urls]
+          if not urls:
+              raise SystemExit('no embed URL')
+          cp=subprocess.run([
+              'curl','--silent','--show-error','--location','--compressed',
+              '--user-agent','Signalpost-research-source-screen/1.0',
+              '--write-out','%{http_code}',urls[0],
+              '--output','out/shell.html'
+          ],capture_output=True,text=True,check=True)
+          print('shell-http=',cp.stdout.strip())
+          # Token remains only in local temp file; never print it.
+          PY
+
+      - name: Extract non-secret dataset and cluster metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re,html,json
+          s=Path('out/shell.html').read_text(encoding='utf-8',errors='replace')
+
+          def show(label,patterns):
+              found=[]
+              for pat in patterns:
+                  for m in re.finditer(pat,s,re.I):
+                      val=m.group(1) if m.groups() else m.group(0)
+                      if val not in found:
+                          found.append(val)
+              print(label,'count=',len(found))
+              for val in found[:20]:
+                  print(label,'=',html.unescape(val)[:1200])
+
+          show('datasetId',[
+              r'["\']datasetId["\']\s*[:=]\s*["\']([^"\']+)["\']',
+              r'datasetId%22%3A%22([^%]+)%22',
+          ])
+          show('resolvedCluster',[
+              r'["\']resolvedCluster["\']\s*[:=]\s*["\']([^"\']+)["\']',
+              r'resolvedCluster%22%3A%22([^%]+)%22',
+          ])
+          show('requestId',[
+              r'["\']requestId["\']\s*[:=]\s*["\']([^"\']+)["\']',
+          ])
+
+          print('\n=== API PATH TOKENS IN SHELL ===')
+          terms=['querydata','conceptualschema','metadata','models','explore','dataset','report']
+          literals=set(re.findall(r'["\']([^"\']{1,300})["\']',s))
+          for lit in sorted(literals):
+              low=lit.lower()
+              if any(term in low for term in terms):
+                  if lit.startswith('/') or 'analysis.windows.net' in low or 'powerbi.com' in low:
+                      print(lit[:1600])
+
+          print('\n=== SCRIPT SOURCES ===')
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',s,re.I):
+              print(src)
+          PY
+
+      - name: Download only PowerBI shell scripts and search request paths
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re,subprocess,hashlib
+
+          shell=Path('out/shell.html').read_text(encoding='utf-8',errors='replace')
+          refs=sorted(set(re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']',shell,re.I)))
+          print('script-count=',len(refs))
+          for ref in refs[:30]:
+              url=urljoin('https://app.powerbi.com/reportEmbed',ref)
+              dest=Path('out')/(hashlib.sha256(url.encode()).hexdigest()[:12]+'.js')
+              cp=subprocess.run([
+                  'curl','--silent','--show-error','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  '--connect-timeout','10','--max-time','40',
+                  '--write-out','%{http_code}',url,'--output',str(dest)
+              ],capture_output=True,text=True)
+              print('asset-http=',cp.stdout.strip(),'url=',url,'bytes=',dest.stat().st_size if dest.exists() else 0)
+              if cp.returncode or cp.stdout.strip()!='200':
+                  dest.unlink(missing_ok=True)
+
+          terms=['querydata','conceptualschema','explore/conceptualschema','metadata/cluster','models/']
+          for p in Path('out').glob('*.js'):
+              s=p.read_text(encoding='utf-8',errors='replace')
+              matched=[term for term in terms if term.lower() in s.lower()]
+              if not matched:
+                  continue
+              print('\nBUNDLE',p.name,'bytes=',len(s),'matched=',matched)
+              for term in matched:
+                  pos=[m.start() for m in re.finditer(re.escape(term),s,re.I)]
+                  print('TERM',term,'count=',len(pos))
+                  for idx in pos[:8]:
+                      print(s[max(0,idx-900):min(len(s),idx+2000)])
+                      print('---')
+          PY
+
+      - name: Cleanup secrets and payloads
+        if: always()
+        run: rm -rf out
