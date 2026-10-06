@@ -2,7 +2,7 @@
 
 Updated: 2026-10-06
 
-Status: **WP0/WP1 complete; WP2/WP3 merged into the V9 integration branch; Gate A is in RETUNE after measured 3/20 verifier-confirmed uplift.**
+Status: **WP0/WP1 complete; WP2/WP3 merged into the V9 integration branch; Gate A remains in RETUNE at a 4/20 verifier-confirmed ceiling after additional source screens.**
 
 This document is intentionally V9-specific. It does not rewrite V8 release history.
 
@@ -176,6 +176,44 @@ This calibration is not provider qualification evidence: the candidate source wa
 
 Full record: `docs/V9_GATE_A_RETUNE.md`.
 
+
+### Additional Gate-A source screens after fetch-relaxation closure
+
+Two further rights-safe, consumed-only nomination hypotheses were tested on the unchanged frozen Gate-A 20.
+
+**Registry-seeded sitemap screen**
+
+- branch: `experiment/v9-registry-seed-sitemap`
+- workflow: `37446354632` — **PASS**
+- head: `393b39bfc0a567552b5e6d12222ea025e166dd91`
+- final hardened nominations: **1**
+- new verified websites: **0**
+- logical requests: **26**
+- conservative request charge: **52**
+- runtime: **18.129 s**
+- third-party API cost: **$0**
+- decision: **SHELVE**
+
+The scorer was hardened before the final run to reject host-brand leakage, generic legal terms, contact-person-only paths, manager-brand noise, and location-only sitemap nominations.
+
+**BRREG subunit homepage screen**
+
+- branch: `experiment/v9-brreg-subunit-discovery`
+- workflow: `37447133224` — **PASS**
+- workflow head: `389c6269c66579e13997deecad8f46c0066dca1d`
+- parents with BRREG subunits: **17 / 20**
+- parents with usable subunit homepage fields: **0**
+- new verified websites: **0**
+- logical requests: **20**
+- conservative request charge: **40**
+- runtime: **14.278 s**
+- third-party API cost: **$0**
+- decision: **SHELVE**
+
+The parent→subunit relationship was explicitly forbidden from supplying parent-company identity proof; it could only nominate an independently fetched URL.
+
+Neither experiment changes the current Gate-A ceiling of **4 / 20**.
+
 ## Current decision
 
 **RETUNE.**
@@ -187,7 +225,8 @@ No fresh cohort has been consumed. No production provider has been enabled. No V
 ## Exact next actions
 
 1. Keep the exact frozen Gate-A 20; do not replace or cherry-pick the cohort.
-2. Retune Website Discovery 3.0 nomination/source coverage until at least two more candidates independently pass the unchanged exact-company verifier.
-3. Require the generic provider gate before any live search-provider experiment: evaluator reproducibility, permitted rights/use, evaluator-accessible credential path when needed, bounded calls, and declared cost.
-4. Do **not** proceed to the consumed 100-company Gate B until Gate A reaches at least **5/20**, with **0 wrong-company publications** and **0 evidence defects**.
-5. Do not consume a fresh cohort before Gate A, Gate B, request-theorem proof, and full V9 CI all pass.
+2. Continue Website Discovery 3.0 source retuning for **one** additional independently verifiable exact-company site; the current ceiling is 4/20 and the gate is 5/20.
+3. Prefer a rights-safe, evaluator-reproducible, organisation-number-anchored public source over another fetch relaxation. The next planned micro-screen is exact organisation-number OpenStreetMap/Overpass metadata used for URL nomination only, with one bounded cohort query and independent page verification.
+4. Require the generic provider gate before any conventional live search-provider experiment: evaluator reproducibility, permitted rights/use, evaluator-accessible credential path when needed, bounded calls, and declared cost.
+5. Do **not** proceed to the consumed 100-company Gate B until Gate A reaches at least **5/20**, with **0 wrong-company publications** and **0 evidence defects**.
+6. Do not consume a fresh cohort before Gate A, Gate B, request-theorem proof, and full V9 CI all pass.
