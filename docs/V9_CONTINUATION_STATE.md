@@ -148,29 +148,37 @@ Baseline CI `37517206468`: **PASS**.
 
 No production code, request class, external dependency, paid/search API, or fresh cohort was added.
 
+## M8 decision
+
+**SHELVE NAV extension / retain existing strict first-party JobPosting behavior.**
+
+The promoted base already satisfies the first-party specific-job contract. The prior NAV broad-feed
+screen remains below the promotion bar: 20 targets, 30,000 feed items, 54 logical requests, and
+zero exact main/subunit organisation-number matches.
+
+Docs-only M8 head: `39e4bb31f08206ae9e8f49cb9fce57d00ede441a`.
+Baseline CI `37517809343`: **PASS**.
+
+No production code, request class, paid/search API, or fresh cohort was added.
+
 ## Active milestone
 
-**M8 — specific hiring.**
+**M9 — optional organisation-number-first search.**
 
 Active branch:
-`experiment/v9-m8-specific-hiring`
+`experiment/v9-m9-optional-search`
 
-Code base:
-`dc5907b27fb8844b0f690a166937bf908f058a73` (promoted M5).
+Code behavior remains promoted M5.
 
-M8 must preserve the strict distinction between company-authored hiring intent and a specific
-current vacancy.
+M9 is conditional. Search output is nomination only and may never serve as evidence or exact
+identity proof. Search can be activated only if Builderr explicitly supplies a reproducible
+provider/key and confirms the environment variable and budget before revision freeze.
 
-The promoted base already contains first-party job publication requiring a specific role,
-currentness/deadline, target-employer match and exact first-party site context. Generic careers
-pages do not become jobs, expired roles abstain, and subsidiary roles are not inherited by a
-parent target.
+Current Builderr clarification means the official path must remain credential-free: no general
+model provider or web-search tool is injected by default and participant-owned API keys are not
+used.
 
-The remaining M8 question is NAV. Existing project evidence shows the broad Arbeidsplassen feed
-scan is not viable unchanged. NAV may advance only if an official entry/feed exposes exact employer
-organisation-number identity for the target (or an exact registered subunit relationship), and any
-published vacancy is re-fetched live/current before publication. Name matching alone is nomination
-only.
+PR #137 remains parked as a draft optional future fallback and must not be merged or enabled now.
 
 ## Builderr / budget rules
 
@@ -203,8 +211,6 @@ Do not:
 
 ## Exact next action
 
-Complete M8 by revalidating the existing first-party specific-job contract and the prior NAV
-measurement. Do not rerun the broad NAV feed strategy unchanged. If no materially new exact-org NAV
-retrieval primitive exists in the repository/project evidence, record M8 as **SHELVE NAV /
-retain existing first-party JobPosting behavior**, with no new production code, then move serially
-to M9.
+Resolve M9 as **SHELVE/PARK** under the current Builderr credential-free constraint. Do not activate
+PR #137, paid/model search, or any participant-owned key. After M9 is recorded, proceed serially to
+M10 consumed transfer gates on the promoted integrated V9 code line.
