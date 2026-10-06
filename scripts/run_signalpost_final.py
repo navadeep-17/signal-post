@@ -21,14 +21,12 @@ from norway_company_agent.batch import (  # noqa: E402
     validate_envelopes,
 )
 from norway_company_agent.company_site_contact import attach_company_site_contact_email_observations  # noqa: E402
-from norway_company_agent.company_site_phone import attach_company_site_contact_phone_observations  # noqa: E402
 from norway_company_agent.company_site_social import attach_company_site_social_observations  # noqa: E402
 from norway_company_agent.registry_workforce import attach_registry_workforce_observations  # noqa: E402
 from norway_company_agent.annual_report_workforce import attach_annual_report_workforce_batch  # noqa: E402
 from norway_company_agent.evidence import utc_now  # noqa: E402
 from norway_company_agent.external_contract import (  # noqa: E402
     project_contact_email_observations,
-    project_contact_phone_observations,
     project_profile_handle_observations,
 )
 from norway_company_agent.external_footprint import validate_observation  # noqa: E402
@@ -175,11 +173,10 @@ def _enrich_profile(
             f"{site_logical_requests}>{MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE}"
         )
 
-    # H2a/H2c/M4 contact recovery are zero-network projections over the already-qualified
-    # company-page snapshot. They never fetch a platform or change request accounting.
+    # H2a and H2c are zero-network projections over the already-qualified company-page
+    # snapshot. Neither fetches an external platform nor changes request accounting.
     attach_company_site_social_observations(profile)
     attach_company_site_contact_email_observations(profile)
-    attach_company_site_contact_phone_observations(profile)
     attach_registry_workforce_observations(profile)
 
     logical_requests = official_logical_requests + site_logical_requests
@@ -209,16 +206,10 @@ def _enrich_profile(
 
 def _external_observation_audit(
     profiles: list[dict[str, Any]],
-) -> tuple[
-    list[dict[str, str]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-]:
+) -> tuple[list[dict[str, str]], list[dict[str, Any]], list[dict[str, Any]]]:
     errors: list[dict[str, str]] = []
     handles: list[dict[str, Any]] = []
     contact_emails: list[dict[str, Any]] = []
-    contact_phones: list[dict[str, Any]] = []
     for profile in profiles:
         org = str(profile.get("organisation_number") or "")
         for observation in profile.get("external_observations") or []:
@@ -245,9 +236,7 @@ def _external_observation_audit(
                 handles.append(observation)
             elif observation.get("signal_type") == "company_profile" and observation.get("contact_email"):
                 contact_emails.append(observation)
-            elif observation.get("signal_type") == "company_profile" and observation.get("contact_phone"):
-                contact_phones.append(observation)
-    return errors, handles, contact_emails, contact_phones
+    return errors, handles, contact_emails
 
 
 def main() -> None:
@@ -387,12 +376,9 @@ def main() -> None:
         request_charge_multiplier=budget.request_charge_multiplier,
     )
     completed_at = utc_now()
-    (
-        external_observation_errors,
-        profile_handle_observations,
-        contact_email_observations,
-        contact_phone_observations,
-    ) = _external_observation_audit(ordered_profiles)
+    external_observation_errors, profile_handle_observations, contact_email_observations = _external_observation_audit(
+        ordered_profiles
+    )
     workforce_observations = [
         observation
         for profile in ordered_profiles
@@ -423,7 +409,6 @@ def main() -> None:
         )
         contract = project_profile_handle_observations(contract, envelope["profile"])
         contract = project_contact_email_observations(contract, envelope["profile"])
-        contract = project_contact_phone_observations(contract, envelope["profile"])
         projected.append(project_workforce_observations(contract, envelope["profile"]))
 
     contract_errors: list[dict[str, str]] = []
@@ -493,9 +478,6 @@ def main() -> None:
     companies_with_contact_emails = len(
         {str(item.get("organisation_number") or "") for item in contact_email_observations}
     )
-    companies_with_contact_phones = len(
-        {str(item.get("organisation_number") or "") for item in contact_phone_observations}
-    )
     companies_with_workforce = len(
         {str(item.get("organisation_number") or "") for item in workforce_observations}
     )
@@ -542,7 +524,6 @@ def main() -> None:
             "h1g_hyphenated_no_fallback_enabled": True,
             "company_page_social_handle_extraction_enabled": True,
             "company_page_contact_email_extraction_enabled": True,
-            "company_page_structured_contact_phone_extraction_enabled": True,
             "registry_workforce_snapshot_enabled": True,
             "registry_workforce_network_requests": 0,
             "annual_report_workforce_enabled": annual_workforce_logical_request_ceiling > 0,
@@ -550,7 +531,6 @@ def main() -> None:
             "annual_report_workforce_network_requests": int(annual_workforce_report.get("requests") or 0),
             "social_platform_requests": 0,
             "contact_email_network_requests": 0,
-            "contact_phone_network_requests": 0,
             "max_redirects_per_logical_request": 1,
         },
         "request_budget": {
@@ -606,9 +586,6 @@ def main() -> None:
             "contact_email_observations": len(contact_email_observations),
             "companies_with_contact_emails": companies_with_contact_emails,
             "contact_email_network_requests": 0,
-            "contact_phone_observations": len(contact_phone_observations),
-            "companies_with_contact_phones": companies_with_contact_phones,
-            "contact_phone_network_requests": 0,
             "workforce_observations": len(workforce_observations),
             "companies_with_workforce": companies_with_workforce,
             "annual_report_workforce_observations": len(annual_workforce_observations),
