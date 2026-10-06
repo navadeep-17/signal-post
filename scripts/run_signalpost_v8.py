@@ -22,6 +22,7 @@ from norway_company_agent.company_site_phone import attach_company_site_contact_
 from norway_company_agent.external_contract import project_contact_phone_observations  # noqa: E402
 from norway_company_agent.external_precision_guard import project_external_precision_guard  # noqa: E402
 from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates  # noqa: E402
+from norway_company_agent.hiring_intent_contract import project_company_authored_hiring_intent  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 from norway_company_agent.synthesis import (  # noqa: E402
     SYNTHESIS_SCHEMA_VERSION,
@@ -201,6 +202,8 @@ def _project_q4_feed_activity(
     feed_companies = 0
     contact_phone_claims = 0
     contact_phone_companies = 0
+    hiring_intent_claims = 0
+    hiring_intent_companies = 0
     precision_removed_claims = 0
     precision_removed_companies = 0
 
@@ -229,12 +232,31 @@ def _project_q4_feed_activity(
         contact_phone_claims += added_phone
         contact_phone_companies += int(added_phone > 0)
 
-        before = sum(
+        before_intent = sum(
             1
             for claim in with_phone.get("claims") or []
+            if isinstance(claim, dict)
+            and claim.get("field") == "external.hiring_intent"
+            and claim.get("availability") == "available"
+        )
+        with_intent = project_company_authored_hiring_intent(with_phone, profile)
+        after_intent = sum(
+            1
+            for claim in with_intent.get("claims") or []
+            if isinstance(claim, dict)
+            and claim.get("field") == "external.hiring_intent"
+            and claim.get("availability") == "available"
+        )
+        added_intent = max(0, after_intent - before_intent)
+        hiring_intent_claims += added_intent
+        hiring_intent_companies += int(added_intent > 0)
+
+        before = sum(
+            1
+            for claim in with_intent.get("claims") or []
             if isinstance(claim, dict) and claim.get("field") == "external.company_update"
         )
-        with_feed = project_first_party_feed_updates(with_phone, profile)
+        with_feed = project_first_party_feed_updates(with_intent, profile)
         guarded = project_external_precision_guard(with_feed)
         removed = max(0, len(with_feed.get("claims") or []) - len(guarded.get("claims") or []))
         precision_removed_claims += removed
@@ -298,6 +320,17 @@ def _project_q4_feed_activity(
             "telephone field; no additional fetch"
         ),
     }
+    canonical_report["company_authored_hiring_intent_projection"] = {
+        "claim_field": "external.hiring_intent",
+        "canonical_type": "hiring.company_authored_intent",
+        "published_claims_added": hiring_intent_claims,
+        "companies_with_new_published_claims": hiring_intent_companies,
+        "network_requests_added_by_projection": 0,
+        "source_boundary": (
+            "already-retained exact company-owned page -> explicit recruitment language; "
+            "generic careers text excluded; no specific vacancy asserted"
+        ),
+    }
     report["canonical_projection"] = canonical_report
 
     source_policy = report.setdefault("source_policy", {})
@@ -305,6 +338,8 @@ def _project_q4_feed_activity(
         {
             "company_page_structured_contact_phone_extraction_enabled": True,
             "contact_phone_network_requests": 0,
+            "company_authored_hiring_intent_enabled": True,
+            "hiring_semantics_network_requests": 0,
         }
     )
     external_signals = report.setdefault("external_signals", {})
@@ -313,6 +348,9 @@ def _project_q4_feed_activity(
             "structured_contact_phone_claims_added": contact_phone_claims,
             "companies_with_new_structured_contact_phones": contact_phone_companies,
             "contact_phone_network_requests": 0,
+            "company_authored_hiring_intent_claims_added": hiring_intent_claims,
+            "companies_with_new_company_authored_hiring_intent": hiring_intent_companies,
+            "hiring_semantics_network_requests": 0,
         }
     )
 
@@ -343,6 +381,7 @@ def _project_q4_feed_activity(
     checks = report.setdefault("checks", {})
     checks["q4_feed_projection_contract_valid"] = not contract_errors
     checks["structured_contact_phone_projection_zero_network"] = True
+    checks["company_authored_hiring_intent_projection_zero_network"] = True
     checks["canonical_projection_valid"] = not canonical_errors
     checks["synthesis_valid"] = not synthesis_errors
     checks["q4_workspace_rebuild_valid"] = workspace_returncode == 0

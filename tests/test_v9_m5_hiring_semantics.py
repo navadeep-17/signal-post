@@ -186,3 +186,13 @@ def test_workspace_copy_distinguishes_intent_from_specific_job() -> None:
     assert "Company-authored hiring intent is published" in source
     assert "no qualified specific job posting is published" in source
     assert "does not establish company-authored hiring intent or a specific active vacancy" in source
+
+
+def test_evaluator_wiring_uses_v8_wrapper_and_preserves_pinned_v2() -> None:
+    v8 = (ROOT / "scripts" / "run_signalpost_v8.py").read_text(encoding="utf-8")
+    v2 = (ROOT / "scripts" / "run_signalpost_v2.py").read_text(encoding="utf-8")
+    assert "from norway_company_agent.hiring_intent_contract import project_company_authored_hiring_intent" in v8
+    assert v8.count("project_company_authored_hiring_intent(with_phone, profile)") == 1
+    assert '"hiring_semantics_network_requests": 0' in v8
+    assert "hiring_intent_contract" not in v2
+    assert "project_company_authored_hiring_intent" not in v2

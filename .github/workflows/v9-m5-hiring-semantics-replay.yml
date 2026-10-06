@@ -13,7 +13,7 @@ on:
       - src/norway_company_agent/job_surface_signal.py
       - src/norway_company_agent/canonical_projection.py
       - src/norway_company_agent/synthesis.py
-      - scripts/run_signalpost_v2.py
+      - scripts/run_signalpost_v8.py
       - scripts/replay_v9_hiring_semantics.py
       - scripts/ui_v6/app_careers_signal.js
       - tests/test_v9_m5_hiring_semantics.py
