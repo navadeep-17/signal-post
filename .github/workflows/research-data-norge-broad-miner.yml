@@ -1,0 +1,77 @@
+name: Research Data.norge Broad Exact-Org Miner
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-data-norge-broad-miner.yml
+      - scripts/mine_data_norge_exact_org_sources.py
+      - tests/test_mine_data_norge_exact_org_sources.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run source-miner tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_mine_data_norge_exact_org_sources.py
+
+      - name: Sweep generic organisation-number catalogue metadata
+        run: |
+          mkdir -p out/data-norge-broad
+          uv run python scripts/mine_data_norge_exact_org_sources.py             --output-dir out/data-norge-broad             --broad-query organisasjonsnummer             --size 50             --pages 8
+          cat out/data-norge-broad/report.json
+
+      - name: Print only strong reusable bulk candidates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[
+              json.loads(line)
+              for line in Path("out/data-norge-broad/candidates.jsonl").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          strong=[
+              r for r in rows
+              if r.get("exact_org_metadata")
+              and r.get("license_metadata")
+              and (r.get("download_metadata") or r.get("access_metadata"))
+          ]
+          print("strong-candidate-count=",len(strong))
+          for row in strong[:80]:
+              safe={
+                  k:row.get(k)
+                  for k in (
+                      "dataset","dataset_uri","title","organization","selection_score",
+                      "semantic_categories","license_metadata","is_open_data",
+                      "formats","modified","download_metadata","access_metadata",
+                  )
+              }
+              print(json.dumps(safe,ensure_ascii=False,sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-data-norge-broad-miner
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/data-norge-broad/report.json
+            out/data-norge-broad/candidates.jsonl
