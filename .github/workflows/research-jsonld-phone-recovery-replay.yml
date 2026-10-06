@@ -1,0 +1,67 @@
+name: Research JSON-LD Phone Recovery Replay
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-jsonld-phone-recovery-replay.yml
+      - src/norway_company_agent/company_site_phone.py
+      - src/norway_company_agent/external_contract.py
+      - src/norway_company_agent/canonical_projection.py
+      - tests/test_company_site_phone.py
+      - tests/test_contact_phone_external_contract.py
+      - tests/test_replay_jsonld_phone_recovery.py
+      - scripts/replay_jsonld_phone_recovery.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run focused phone recovery regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_company_site_phone.py             tests/test_contact_phone_external_contract.py             tests/test_replay_jsonld_phone_recovery.py             tests/test_canonical_projection.py
+
+      - name: Download archived final-release retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Replay JSON-LD phone recovery with zero source requests
+        run: |
+          mkdir -p out/jsonld-phone
+          uv run python scripts/replay_jsonld_phone_recovery.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/jsonld-phone/report.json             --audit out/jsonld-phone/audit.jsonl
+          cat out/jsonld-phone/report.json
+          echo '=== privacy-minimized phone audit ==='
+          cat out/jsonld-phone/audit.jsonl
+
+      - name: Upload replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-jsonld-phone-recovery-replay
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/jsonld-phone/report.json
+            out/jsonld-phone/audit.jsonl
