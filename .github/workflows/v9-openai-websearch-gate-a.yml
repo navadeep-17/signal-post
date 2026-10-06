@@ -13,6 +13,11 @@ on:
         required: true
         type: boolean
         default: false
+      evaluator_supplied_credential:
+        description: Confirm OPENAI_API_KEY was supplied for scoring by Builderr/evaluator, not a personal account
+        required: true
+        type: boolean
+        default: false
       rights_status:
         description: Provider/use-rights state confirmed outside this workflow
         required: true
@@ -95,6 +100,7 @@ jobs:
                   rights_status="unknown",
                   challenge_cost_budget_usd=0.0,
                   project_third_party_budget_usd=0.0,
+                  evaluator_supplied_credential=False,
               ),
               company_count=20,
               api_key_available=False,
@@ -148,6 +154,7 @@ jobs:
         run: |
           test -n "${OPENAI_API_KEY:-}"
           test "${{ inputs.evaluator_reproducible }}" = "true"
+          test "${{ inputs.evaluator_supplied_credential }}" = "true"
           test "${{ inputs.rights_status }}" != "unknown"
           python - <<'PY'
           from decimal import Decimal
@@ -167,6 +174,7 @@ jobs:
             --report out/v9-openai-websearch-gate-a.json \
             --enable-live-provider true \
             --evaluator-reproducible "${{ inputs.evaluator_reproducible }}" \
+            --evaluator-supplied-credential "${{ inputs.evaluator_supplied_credential }}" \
             --rights-status "${{ inputs.rights_status }}" \
             --challenge-cost-budget-usd "${{ inputs.challenge_cost_budget_usd }}" \
             --project-third-party-budget-usd "${{ inputs.project_third_party_budget_usd }}" \
