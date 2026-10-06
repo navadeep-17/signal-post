@@ -77,3 +77,26 @@ Do not:
    - contract/canonical/synthesis/evidence checks remain clean;
    - conservative request theorem is unchanged or lower.
 6. Decision: PROMOTE / RETUNE / SHELVE / DROP.
+
+
+## M4 isolated implementation branch
+
+Branch: `experiment/v9-m4-zero-request-contacts`
+
+Base: exact M2/M3 experiment head `04b6f2555d4e1a9b5da25ae325ead5a802967772`.
+
+M4 is deliberately isolated from PR #142 while its consumed M2/M3 transfer run completes. The branch reimplements only the narrow zero-request contact behavior measured on the research archive:
+
+- schema.org Organization email recovery from the already-retained exact-site snapshot;
+- exact-node identity gate: exact target organisation number, or legal-name token match with no conflicting structured organisation number;
+- same-registered-domain requirement for structured email;
+- conservative Norwegian structured telephone normalization and recovery;
+- evaluator-visible `external.contact_phone` projection;
+- canonical `website.contact_phone` projection;
+- zero new network requests, search requests, request classes, or paid APIs.
+
+The existing footer/contact email path remains intact and takes precedence when the same address is also present in JSON-LD. Free-text JSON-LD contact strings are not scanned. A structured Organization node for a different legal entity is a hard abstention.
+
+M4 added a dedicated consumed-data contact audit and a PR workflow that compares the challenger against the frozen M2/M3 head on the already-consumed 100-company cohort. Promotion requires zero lost contact publications, complete evidence for every new contact, unchanged theoretical request ceiling, zero contact-network requests, and manual review of every new contact publication.
+
+No fresh cohort is authorized by M4.
