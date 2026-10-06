@@ -209,3 +209,62 @@ def test_other_domain_owner_statement_is_not_treated_as_current_site_identity():
 
     assert assessment["publishable"] is True
     assert assessment["observed_site_owners"] == []
+
+
+
+def test_plain_bil_car_company_is_not_misclassified_as_business_sports_club():
+    profile = _profile("935038308", "BRANDSRUD BIL AS")
+    website = _website(
+        "https://www.brandsrudbil.no/",
+        title="Brandsrud Bil AS",
+        identity_text="Brandsrud Bil AS, Myrveien 5, 1815 Askim.",
+        main_text="Bilverksted, service og reparasjon av biler. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is True
+    assert assessment["status"] == "exact"
+    assert "sports-club" not in " ".join(assessment["reasons"])
+
+
+def test_explicit_dotted_bil_abbreviation_keeps_sports_club_guard():
+    profile = _profile("999999999", "ACME B.I.L.")
+    website = _website(
+        "https://www.acme.no/",
+        title="ACME",
+        identity_text="ACME, Oslo.",
+        main_text="ACME driver virksomhet og arrangementer. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is False
+    assert assessment["status"] == "related_or_uncertain"
+    assert "sports-club" in " ".join(assessment["reasons"])
+
+
+def test_plain_bil_with_registry_idrett_context_keeps_sports_club_guard():
+    profile = _profile("999999998", "ACME BIL")
+    profile["evidence"] = {
+        "registry": {
+            "value": {
+                "aktivitet": "Bedriftsidrettslag for ansatte og familie.",
+                "vedtektsfestetFormaal": "Drive bedriftsidrett og sosiale aktiviteter.",
+            }
+        }
+    }
+    website = _website(
+        "https://www.acme.no/",
+        title="ACME",
+        identity_text="ACME, Oslo.",
+        main_text="ACME driver virksomhet og arrangementer. " * 8,
+    )
+
+    gated = apply_website_identity_gate(profile, website)
+    assessment = gated["assessment"]
+
+    assert assessment["publishable"] is False
+    assert "sports-club" in " ".join(assessment["reasons"])
