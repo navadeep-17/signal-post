@@ -252,6 +252,40 @@ A diagnostic-only branch checked whether the 17 exact BRREG subunits exposed dis
 
 The observed subunit names did not add usable labels beyond their parent legal names, so no candidate website requests were spent.
 
+
+### NAV and TED exact-identifier source screens
+
+Two more consumed-only, rights-safe sources were tested without altering the exact-company verifier.
+
+**NAV Arbeidsplassen job feed**
+
+- branch: `experiment/v9-nav-job-feed-discovery`
+- workflow: `37452513974` — **PASS**
+- head: `b71c3af0c53dd76e9bada9508780793ae38c90e7`
+- feed pages/items: **38 / 368,773**
+- complete scan: **yes**
+- exact legal-name header matches: **4**
+- homepage candidates: **0**
+- new verified websites: **0**
+- logical requests: **43**
+- third-party API cost: **$0**
+- decision: **SHELVE**
+
+**EU TED exact-org procurement metadata**
+
+- branch: `experiment/v9-ted-orgnr-discovery`
+- workflow: `37453267479` — **PASS**
+- head: `8afdd43ac4395a4abf4fe4c4023558b5c2836944`
+- exact-org searches: **20**
+- exact-identifier notices: **0**
+- homepage candidates: **0**
+- new verified websites: **0**
+- logical requests: **20**
+- third-party API cost: **$0**
+- decision: **SHELVE**
+
+These screens preserve the current Gate-A ceiling of **4 / 20**.
+
 ## Current decision
 
 **RETUNE.**
@@ -264,7 +298,7 @@ No fresh cohort has been consumed. No production provider has been enabled. No V
 
 1. Keep the exact frozen Gate-A 20; do not replace or cherry-pick the cohort.
 2. Continue Website Discovery 3.0 source retuning for **one** additional independently verifiable exact-company site; the current ceiling is 4/20 and the gate is 5/20.
-3. Prefer a rights-safe, evaluator-reproducible, organisation-number-anchored public source over another deterministic name-domain or fetch-relaxation variant. The next candidate source should add genuinely new URLs, not restate legal-name guesses already exhausted.
+3. Prefer a rights-safe, evaluator-reproducible, organisation-number-anchored public source over another deterministic name-domain or fetch-relaxation variant. The next planned micro-screen is the Norwegian Building Authority's Sentral Godkjenning register/API, which is open/free and keyed directly by organisation number; any web-page field must remain nomination-only and independently verified.
 4. Require the generic provider gate before any conventional live search-provider experiment: evaluator reproducibility, permitted rights/use, evaluator-accessible credential path when needed, bounded calls, and declared cost.
 5. Do **not** proceed to the consumed 100-company Gate B until Gate A reaches at least **5/20**, with **0 wrong-company publications** and **0 evidence defects**.
 6. Do not consume a fresh cohort before Gate A, Gate B, request-theorem proof, and full V9 CI all pass.
