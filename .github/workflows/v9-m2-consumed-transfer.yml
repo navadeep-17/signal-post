@@ -1,0 +1,224 @@
+name: V9 M2 Consumed Transfer
+
+on:
+  push:
+    branches:
+      - experiment/v9-email-domain-substitution
+    paths:
+      - .github/workflows/v9-m2-consumed-transfer.yml
+      - src/norway_company_agent/final_site_discovery.py
+      - src/norway_company_agent/v9_email_domain.py
+      - src/norway_company_agent/v9_measurement.py
+      - src/norway_company_agent/v9_site_unlock.py
+      - scripts/measure_v9_company_family_coverage.py
+      - scripts/audit_v9_new_site_unlock.py
+      - tests/test_v9_email_domain.py
+      - tests/test_v9_measurement.py
+      - tests/test_v9_site_unlock.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout V9 challenger
+        uses: actions/checkout@v4
+        with:
+          path: challenger
+          fetch-depth: 1
+
+      - name: Checkout frozen comparison baseline from current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: baseline
+          fetch-depth: 1
+
+      - name: Record exact SHAs
+        run: |
+          mkdir -p shared/out
+          git -C baseline rev-parse HEAD | tee shared/out/baseline-main-sha.txt
+          git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
+          test "$(cat shared/out/baseline-main-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Sync locked dependencies
+        run: |
+          (cd baseline && uv sync --locked)
+          (cd challenger && uv sync --locked)
+
+      - name: Recover already-consumed 100-company cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p shared/consumed
+          gh run download 37314396820 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name phase11-owner-veto-consumed-replay \
+            --dir shared/consumed
+          MANIFEST="$(find shared/consumed -type f -name 'phase11-fresh-100.jsonl' | head -n 1)"
+          test -n "$MANIFEST"
+          cp "$MANIFEST" shared/out/consumed-100.jsonl
+          test "$(wc -l < shared/out/consumed-100.jsonl)" -eq 100
+          echo '394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99  shared/out/consumed-100.jsonl' | sha256sum -c -
+
+      - name: Download one shared BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          sha256sum shared/brreg-enheter.csv | tee shared/out/brreg-enheter.sha256
+
+      - name: Replay current main baseline on consumed 100
+        run: |
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/out/consumed-100.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../shared/out/baseline-output.jsonl \
+            --report ../shared/out/baseline-report.json \
+            --product-output ../shared/out/baseline-product.html \
+            --work-dir ../shared/out/baseline-work \
+            --run-id v9-m2-consumed-baseline \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Replay V9 M2 challenger on same consumed 100
+        run: |
+          cd challenger
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/out/consumed-100.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../shared/out/challenger-output.jsonl \
+            --report ../shared/out/challenger-report.json \
+            --product-output ../shared/out/challenger-product.html \
+            --work-dir ../shared/out/challenger-work \
+            --run-id v9-m2-consumed-challenger \
+            --expected-count 100 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Measure M1 family transfer
+        run: |
+          cd challenger
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline ../shared/out/baseline-output.jsonl \
+            --challenger ../shared/out/challenger-output.jsonl \
+            --report ../shared/out/m1-family-transfer.json
+
+      - name: Audit M3 multi-family unlock from new sites
+        run: |
+          cd challenger
+          uv run python scripts/audit_v9_new_site_unlock.py \
+            --baseline ../shared/out/baseline-output.jsonl \
+            --challenger ../shared/out/challenger-output.jsonl \
+            --report ../shared/out/m3-site-unlock.json \
+            --manual-audit-jsonl ../shared/out/m3-manual-audit.jsonl
+          echo '--- M3 manual audit rows ---'
+          cat ../shared/out/m3-manual-audit.jsonl || true
+
+      - name: Enforce consumed structural gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          out = Path("shared/out")
+          baseline = json.loads((out / "baseline-report.json").read_text())
+          challenger = json.loads((out / "challenger-report.json").read_text())
+          family = json.loads((out / "m1-family-transfer.json").read_text())
+          unlock = json.loads((out / "m3-site-unlock.json").read_text())
+
+          assert baseline.get("passed") is True, baseline
+          assert challenger.get("passed") is True, challenger
+          assert family.get("same_company_set") is True
+          assert family.get("companies") == 100
+          assert unlock.get("companies") == 100
+          assert unlock.get("lost_verified_website_companies") == 0, unlock
+
+          policy = challenger.get("source_policy") or {}
+          assert float(policy.get("third_party_cost_usd") or 0.0) == 0.0
+          assert int(policy.get("search_api_requests") or 0) == 0
+
+          budget = challenger.get("request_budget") or {}
+          ceiling = int(budget.get("theoretical_challenge_request_charge_ceiling") or 0)
+          maximum = int(budget.get("max_challenge_requests") or 2000)
+          assert 0 < ceiling <= maximum <= 2000, budget
+
+          print("STRUCTURAL_GATES=PASS")
+          print("new_verified_website_companies=", unlock["new_verified_website_companies"])
+          print("net_new_company_family_edges=", unlock["net_new_company_family_edges_from_new_sites"])
+          print("challenger_conservative_request_charge=", family["challenger"]["conservative_request_charge"])
+          print("baseline_conservative_request_charge=", family["baseline"]["conservative_request_charge"])
+          PY
+
+      - name: Remove product HTML before archive
+        if: always()
+        run: |
+          rm -f shared/out/baseline-product.html shared/out/challenger-product.html
+
+      - name: Upload V9 consumed transfer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m2-consumed-transfer
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/out/baseline-main-sha.txt
+            shared/out/challenger-sha.txt
+            shared/out/consumed-100.jsonl
+            shared/out/brreg-enheter.sha256
+            shared/out/baseline-report.json
+            shared/out/challenger-report.json
+            shared/out/baseline-output.jsonl
+            shared/out/challenger-output.jsonl
+            shared/out/m1-family-transfer.json
+            shared/out/m3-site-unlock.json
+            shared/out/m3-manual-audit.jsonl
