@@ -243,3 +243,38 @@ def test_fetch_json_reports_retry_attempt_count(monkeypatch):
 def test_fetch_result_default_request_count_keeps_snapshot_compatibility():
     result = FetchResult("https://example.test", 200, 1, 2, {"ok": True})
     assert result.request_count == 1
+
+
+def test_v9_m6_homepage_retains_same_site_advertised_feed(monkeypatch) -> None:
+    import io
+
+    html = b"""<html><head>
+      <title>Example AS</title>
+      <link rel="alternate" type="application/atom+xml" href="/news/atom.xml">
+      <link rel="alternate" type="application/rss+xml" href="https://other.no/rss.xml">
+    </head><body>Example AS Organisasjonsnummer 999 999 999</body></html>"""
+
+    class Response:
+        headers = {"content-type": "text/html; charset=utf-8"}
+        def read(self, _limit):
+            return html
+        def geturl(self):
+            return "https://example.no/"
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(final_site, "_robots_allowed", lambda url, timeout: (True, 1))
+    monkeypatch.setattr(final_site.BOUNDED_SAFE_OPENER, "open", lambda request, timeout: Response())
+    monkeypatch.setattr(final_site, "assert_public_url", lambda url: None)
+
+    record, metrics = final_site.fetch_bounded_homepage(
+        "https://example.no/",
+        source_type="fixture",
+        timeout=1,
+    )
+    assert metrics["requests"] == 2
+    assert record["value"]["activity_feed_links"] == [
+        "https://example.no/news/atom.xml"
+    ]
