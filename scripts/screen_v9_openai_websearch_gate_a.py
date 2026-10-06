@@ -47,6 +47,7 @@ def main() -> None:
     parser.add_argument("--report", required=True)
     parser.add_argument("--enable-live-provider", default="false")
     parser.add_argument("--evaluator-reproducible", default="false")
+    parser.add_argument("--evaluator-supplied-credential", default="false")
     parser.add_argument("--rights-status", default="unknown")
     parser.add_argument("--challenge-cost-budget-usd", type=float, default=0.0)
     parser.add_argument("--project-third-party-budget-usd", type=float, default=0.0)
@@ -74,6 +75,7 @@ def main() -> None:
         rights_status=args.rights_status,
         challenge_cost_budget_usd=args.challenge_cost_budget_usd,
         project_third_party_budget_usd=args.project_third_party_budget_usd,
+        evaluator_supplied_credential=_bool(args.evaluator_supplied_credential),
     )
     api_key = str(os.environ.get("OPENAI_API_KEY") or "").strip()
     started = time.monotonic()
