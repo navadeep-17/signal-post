@@ -1,0 +1,177 @@
+name: Research Doffindata QueryData Contract Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-querydata-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract report-native supplier query contract
+        run: |
+          python - <<'PY'
+          import base64, json, uuid
+          from urllib.parse import urlparse, parse_qs
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+
+          REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL=(
+              "https://api.doffin.no/webclient/api/v2/notices-api/"
+              f"getEmbedToken?reportId={REPORT}"
+          )
+          UA="Signalpost-research-source-screen/1.0"
+
+          def req(url,headers=None,data=None,timeout=45):
+              h={"User-Agent":UA,"Accept":"application/json"}
+              if headers:h.update(headers)
+              raw_data=None
+              if data is not None:
+                  raw_data=json.dumps(data,separators=(",",":")).encode()
+                  h["Content-Type"]="application/json"
+              r=Request(url,data=raw_data,headers=h)
+              try:
+                  with urlopen(r,timeout=timeout) as x:
+                      raw=x.read(); status=x.status
+              except HTTPError as e:
+                  raw=e.read(); status=e.code
+              try: obj=json.loads(raw.decode()) if raw else {}
+              except Exception: obj={}
+              return status,obj,raw
+
+          st,embed,_=req(TOKEN_URL)
+          if st!=200: raise SystemExit("embed metadata unavailable")
+          token=embed.get("accessToken") or ""
+          embed_url=(embed.get("embedUrl") or [""])[0]
+          if not token or not embed_url: raise SystemExit("missing embed contract")
+          q=parse_qs(urlparse(embed_url).query)
+          cfg=q.get("config",[""])[0]
+          cfg += "="*((4-len(cfg)%4)%4)
+          config=json.loads(base64.b64decode(cfg).decode())
+          cluster=(config.get("clusterUrl") or "").rstrip("/")
+          if not cluster: raise SystemExit("missing clusterUrl")
+
+          def headers():
+              return {
+                  "Authorization":f"EmbedToken {token}",
+                  "ActivityId":str(uuid.uuid4()),
+                  "RequestId":str(uuid.uuid4()),
+                  "X-PowerBI-HostEnv":"Embed for Customers",
+                  "Origin":"https://app.powerbi.com",
+                  "Referer":"https://app.powerbi.com/",
+              }
+
+          model_url=(
+              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration"
+              "?preferReadOnlySession=true&skipQueryData=true"
+          )
+          st,model,raw=req(model_url,headers())
+          print("models-http=",st,"bytes=",len(raw))
+          if st!=200 or not isinstance(model,dict):
+              raise SystemExit("models unavailable")
+
+          exploration=model.get("exploration") or {}
+          report=exploration.get("report") or {}
+          print("report-display-name=",report.get("displayName"))
+          print("report-modelId=",report.get("modelId"))
+          print("report-model-keys=",sorted((report.get("model") or {}).keys())[:100])
+          print("models-count=",len(model.get("models") or []))
+          for i,m in enumerate((model.get("models") or [])[:10]):
+              safe={}
+              for k,v in m.items():
+                  if k.lower() in {
+                      "id","modelid","databaseid","objectid","name","displayname",
+                      "datasetid","datasetobjectid","dbid","dbName".lower()
+                  } and isinstance(v,(str,int,float,bool,type(None))):
+                      safe[k]=v
+              print("MODEL-META",i,json.dumps(safe,ensure_ascii=False,sort_keys=True))
+
+          candidates=[]
+          for si,section in enumerate(exploration.get("sections") or []):
+              for vi,visual in enumerate(section.get("visualContainers") or []):
+                  qraw=visual.get("query")
+                  if not qraw:
+                      continue
+                  if isinstance(qraw,str):
+                      try:qobj=json.loads(qraw)
+                      except Exception:continue
+                  else:qobj=qraw
+                  txt=json.dumps(qobj,ensure_ascii=False)
+                  score=sum(term in txt for term in [
+                      "winner_organization_technical_identifier",
+                      "winner_eeig_official_name_nor",
+                      "enriched_notice_lot_settled_contracts_with_winners_and_contract_values",
+                      "contract_conclusion_date",
+                      "winner_decision_date",
+                      "result_value_lot",
+                  ])
+                  if score:
+                      candidates.append((score,si,vi,visual,qobj,txt))
+
+          candidates.sort(key=lambda x:(-x[0],x[1],x[2]))
+          print("candidate-visual-count=",len(candidates))
+          for rank,(score,si,vi,visual,qobj,txt) in enumerate(candidates[:20],1):
+              config_raw=visual.get("config") or "{}"
+              try:vcfg=json.loads(config_raw) if isinstance(config_raw,str) else config_raw
+              except Exception:vcfg={}
+              sv=(vcfg or {}).get("singleVisual") or {}
+              print(
+                  "CANDIDATE",rank,
+                  "score=",score,
+                  "section=",si,
+                  "visual=",vi,
+                  "visualName=",(vcfg or {}).get("name"),
+                  "visualType=",sv.get("visualType"),
+                  "query-bytes=",len(txt)
+              )
+              for term in [
+                  "winner_organization_technical_identifier",
+                  "winner_eeig_official_name_nor",
+                  "contract_conclusion_date",
+                  "winner_decision_date",
+                  "result_value_lot",
+                  "doffin_identifier",
+              ]:
+                  if term in txt:
+                      print("  contains=",term)
+
+          if not candidates:
+              raise SystemExit("no supplier query candidates")
+
+          # Print the smallest/highest-scoring report-native semantic query.
+          chosen=sorted(candidates,key=lambda x:(-x[0],len(x[5])))[0]
+          score,si,vi,visual,qobj,txt=chosen
+          config_raw=visual.get("config") or "{}"
+          try:vcfg=json.loads(config_raw) if isinstance(config_raw,str) else config_raw
+          except Exception:vcfg={}
+          print("CHOSEN section=",si,"visual=",vi,"name=",(vcfg or {}).get("name"),"score=",score)
+          print("CHOSEN-QUERY-BEGIN")
+          print(json.dumps(qobj,ensure_ascii=False,indent=2)[:60000])
+          print("CHOSEN-QUERY-END")
+
+          # Also print a compact inventory of Select items from every candidate.
+          def selects(qobj):
+              out=[]
+              for cmd in qobj.get("Commands") or []:
+                  sq=cmd.get("SemanticQueryDataShapeCommand") or {}
+                  query=sq.get("Query") or {}
+                  for item in query.get("Select") or []:
+                      out.append(item)
+              return out
+          for rank,c in enumerate(candidates[:10],1):
+              sels=selects(c[4])
+              print("SELECT-INVENTORY",rank,"count=",len(sels))
+              for item in sels[:40]:
+                  print(json.dumps(item,ensure_ascii=False,sort_keys=True)[:1800])
+          PY
