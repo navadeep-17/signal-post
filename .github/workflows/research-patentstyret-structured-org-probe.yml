@@ -1,0 +1,63 @@
+name: Research Patentstyret Structured Org Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-structured-org-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe public structured searches for known org
+        run: |
+          mkdir -p out
+          for SPEC in \
+            'trademark|https://search.patentstyret.no/api/search/trademark/v2' \
+            'design|https://search.patentstyret.no/api/search/design/v2' \
+            'patent|https://search.patentstyret.no/api/search/v2'; do
+            NAME="${SPEC%%|*}"
+            URL="${SPEC#*|}"
+            printf '%s' '{"commonSearch":"912355683","from":0,"size":50}' > out/query.json
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' \
+              --header 'Content-Type: application/json' \
+              --connect-timeout 10 --max-time 30 \
+              --data-binary @out/query.json \
+              --write-out '%{http_code}' "$URL" -o "out/${NAME}.json" || true)"
+            echo "=== ${NAME} http=${CODE} ==="
+            python - "${NAME}" <<'PY'
+          import json, sys
+          from pathlib import Path
+          name=sys.argv[1]
+          p=Path(f'out/{name}.json')
+          text=p.read_text(encoding='utf-8',errors='replace') if p.exists() else ''
+          print('bytes=',len(text))
+          try:
+              data=json.loads(text)
+          except Exception:
+              print(text[:12000])
+              raise SystemExit
+          print('top-keys=',sorted(data) if isinstance(data,dict) else type(data).__name__)
+          if isinstance(data,dict):
+              print('totalHits=',data.get('totalHits'))
+              results=data.get('results') or []
+              print('result-count=',len(results))
+              for i,row in enumerate(results[:5]):
+                  print('RESULT',i,json.dumps(row,ensure_ascii=False,sort_keys=True)[:12000])
+          PY
+          done
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
