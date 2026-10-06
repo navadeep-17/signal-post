@@ -1,0 +1,63 @@
+name: Research BRREG Change Website Yield
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_brreg_change_website_yield.py
+      - tests/test_screen_brreg_change_website_yield.py
+      - .github/workflows/research-brreg-change-website-yield.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run bounded transfer tests
+        run: |
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q             tests/test_screen_brreg_change_website_yield.py             tests/test_identity_org_conflict.py
+
+      - name: Download frozen candidate and exact-registry evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/change archived/final-release
+          gh run download 37444445628             --repo "$GITHUB_REPOSITORY"             --name research-brreg-change-web-contact-net-new             --dir archived/change
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test -f archived/change/net-new-websites.jsonl
+          test "$(wc -l < archived/change/net-new-websites.jsonl)" -eq 5
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Verify five net-new BRREG website-change candidates
+        env:
+          PYTHONPATH: src
+        run: |
+          mkdir -p out
+          uv run python scripts/screen_brreg_change_website_yield.py             --profiles-dir archived/final-release             --candidates archived/change/net-new-websites.jsonl             --report out/report.json             --timeout 8
+          cat out/report.json
+
+      - name: Upload aggregate result only
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-change-website-yield
+          retention-days: 30
+          path: out/report.json
