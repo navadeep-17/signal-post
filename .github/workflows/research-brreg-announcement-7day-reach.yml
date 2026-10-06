@@ -1,13 +1,6 @@
 name: Research BRREG Announcement 7-Day Reach
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_brreg_announcements_reach.py
-      - tests/test_screen_brreg_announcements_reach.py
-      - .github/workflows/research-brreg-announcement-7day-reach.yml
   workflow_dispatch:
 
 permissions:
