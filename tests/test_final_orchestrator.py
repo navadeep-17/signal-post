@@ -186,7 +186,7 @@ def test_weak_email_candidate_is_skipped_before_h1c(monkeypatch):
         lambda row: {
             "eligible": True,
             "reason": "fixture",
-            "candidates": [{"domain": "mail-example.no", "url": "mail-example.no", "source": "fixture"}],
+            "candidates": [{"domain": "example.no", "url": "example.no", "source": "fixture"}],
         },
     )
     monkeypatch.setattr(
