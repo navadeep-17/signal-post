@@ -1,14 +1,6 @@
 name: Research BRREG Email-Domain Shadow Yield
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_brreg_email_domain_shadow_yield.py
-      - tests/test_screen_brreg_email_domain_shadow_yield.py
-      - src/norway_company_agent/identity.py
-      - .github/workflows/research-brreg-email-domain-shadow-yield.yml
   workflow_dispatch:
 
 permissions:
