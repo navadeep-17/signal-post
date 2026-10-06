@@ -1,0 +1,187 @@
+name: Research JSON-LD Contact Structural Audit
+
+on:
+  push:
+    branches:
+      - research/jsonld-contact-transfer-main-20261006
+    paths:
+      - .github/workflows/research-jsonld-contact-structural-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Restore frozen retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/jsonld-structural
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          find archived/final-release -name profiles.jsonl -print0             | sort -z             | xargs -0 cat > out/jsonld-structural/profiles.jsonl
+          test "$(wc -l < out/jsonld-structural/profiles.jsonl)" -eq 1000
+
+      - name: Audit new structured-contact nodes without retaining raw email
+        run: |
+          uv sync --locked
+          uv run python - <<'PY'
+          from __future__ import annotations
+          import gzip, hashlib, json
+          from pathlib import Path
+
+          import norway_company_agent.company_site_contact as contact
+
+          profiles=[
+              json.loads(x)
+              for x in Path("out/jsonld-structural/profiles.jsonl").read_text(encoding="utf-8").splitlines()
+              if x.strip()
+          ]
+          outputs={}
+          with gzip.open("submission/final-release-1000-output.jsonl.gz","rt",encoding="utf-8") as h:
+              for line in h:
+                  if line.strip():
+                      row=json.loads(line)
+                      outputs[str(row["organisation_number"])]=row
+
+          def baseline_values(row):
+              return {
+                  str(c.get("value") or "").strip().lower()
+                  for c in row.get("claims") or []
+                  if isinstance(c,dict)
+                  and c.get("field")=="external.contact_email"
+                  and c.get("availability")=="available"
+                  and str(c.get("value") or "").strip()
+              }
+
+          rows=[]
+          for profile in profiles:
+              org=str(profile.get("organisation_number") or "")
+              before=baseline_values(outputs[org])
+              observations=contact.company_site_contact_email_observations(profile)
+              jsonld=[
+                  x for x in observations
+                  if x.get("strategy")=="verified_company_jsonld_same_domain_email_v1"
+                  and str(x.get("contact_email") or "").strip().lower() not in before
+              ]
+              if not jsonld:
+                  continue
+
+              website=((profile.get("evidence") or {}).get("website") or {})
+              value=website.get("value") or {}
+              source_url=str(value.get("final_url") or website.get("source_url") or "")
+              nodes=[x for x in value.get("structured_organisations") or [] if isinstance(x,dict)]
+
+              node_stats=[]
+              same_domain_email_non_target=0
+              target_email_nodes=0
+              explicit_different_org_nodes=0
+              for i,node in enumerate(nodes):
+                  nums=sorted(contact._structured_identity_numbers(node))
+                  identity=contact._structured_node_identity(profile,node)
+                  emails=sorted(contact._structured_email_values(node))
+                  same_domain=[e for e in emails if contact._safe_same_domain_email(e,source_url)]
+                  if nums and org not in nums:
+                      explicit_different_org_nodes+=1
+                  if identity is not None and same_domain:
+                      target_email_nodes+=1
+                  if identity is None:
+                      same_domain_email_non_target += len(same_domain)
+                  node_stats.append({
+                      "node_index":i,
+                      "identity_method":None if identity is None else identity.get("method"),
+                      "explicit_org_numbers":nums,
+                      "name_count":len(contact._structured_names(node)),
+                      "email_field_count":len(emails),
+                      "same_domain_email_count":len(same_domain),
+                      "target_identity":identity is not None,
+                  })
+
+              for obs in jsonld:
+                  email=str(obs.get("contact_email") or "").strip().lower()
+                  gate=next(
+                      x for x in obs.get("identity_proof") or []
+                      if isinstance(x,dict) and x.get("type")=="structured_organization_identity_gate"
+                  )
+                  rows.append({
+                      "organisation_number":org,
+                      "legal_name":profile.get("name"),
+                      "source_url":source_url,
+                      "email_domain":email.split("@",1)[1] if email.count("@")==1 else "",
+                      "email_fingerprint":hashlib.sha256(email.encode()).hexdigest()[:12],
+                      "candidate_node_index":gate.get("node_index"),
+                      "candidate_identity_method":gate.get("method"),
+                      "structured_node_count":len(nodes),
+                      "target_email_node_count":target_email_nodes,
+                      "same_domain_email_count_on_non_target_nodes":same_domain_email_non_target,
+                      "explicit_different_org_node_count":explicit_different_org_nodes,
+                      "node_stats":node_stats,
+                      "raw_email_retained":False,
+                  })
+
+          risky=[
+              r for r in rows
+              if r["same_domain_email_count_on_non_target_nodes"]>0
+              or r["target_email_node_count"]>1
+          ]
+          report={
+              "screen_type":"jsonld_contact_structural_precision_audit",
+              "candidate_claims":len(rows),
+              "candidate_companies":len({r["organisation_number"] for r in rows}),
+              "candidates_with_competing_same_domain_non_target_email":sum(
+                  r["same_domain_email_count_on_non_target_nodes"]>0 for r in rows
+              ),
+              "candidates_with_multiple_target_email_nodes":sum(
+                  r["target_email_node_count"]>1 for r in rows
+              ),
+              "candidates_with_any_explicit_different_org_node":sum(
+                  r["explicit_different_org_node_count"]>0 for r in rows
+              ),
+              "structurally_ambiguous_candidates":len(risky),
+              "zero_network_provider_requests":True,
+              "raw_email_retained":False,
+              "structural_gate_passed":len(rows)>0 and not risky,
+          }
+          Path("out/jsonld-structural/report.json").write_text(
+              json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8"
+          )
+          Path("out/jsonld-structural/audit.jsonl").write_text(
+              "".join(json.dumps(r,ensure_ascii=False,sort_keys=True)+"\n" for r in rows),
+              encoding="utf-8"
+          )
+          print(json.dumps(report,indent=2,sort_keys=True))
+          for r in rows:
+              print(json.dumps(r,ensure_ascii=False,sort_keys=True))
+          if not report["structural_gate_passed"]:
+              raise SystemExit("structural ambiguity found; do not promote unchanged")
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf archived/final-release
+          rm -f out/jsonld-structural/profiles.jsonl
+
+      - name: Upload privacy-minimized audit
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-jsonld-contact-structural-audit
+          retention-days: 30
+          path: |
+            out/jsonld-structural/report.json
+            out/jsonld-structural/audit.jsonl
