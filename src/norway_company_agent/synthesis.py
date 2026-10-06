@@ -190,6 +190,7 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     locations = _facts_by_type(contract, "registered_location")
     workforce = _first(contract, "workforce_snapshot")
     website = _first(contract, "website")
+    hiring_intents = _facts_by_type(contract, "hiring_intent")
     jobs = _facts_by_type(contract, "job_posting")
     updates = _facts_by_type(contract, "company_update")
     social = _facts_by_type(contract, "social_profile")
@@ -264,6 +265,11 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     if website:
         external_bits.append(f"Verified company website: {website.get('value')}.")
         external_facts.append(website)
+    if hiring_intents:
+        external_bits.append(
+            f"Company-authored hiring intent published: {len(hiring_intents)}."
+        )
+        external_facts.extend(hiring_intents)
     if jobs:
         external_bits.append(f"Strict job postings published: {len(jobs)}.")
         external_facts.extend(jobs)
@@ -381,11 +387,20 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     size_text = "; ".join(size_parts).capitalize() + "." if size_parts else "No qualified size metric is published."
 
     leader_text = organisation_bits[0] if leader else "No qualified current leadership fact is published."
-    hiring_text = (
-        f"{len(jobs)} strict job posting(s) are published."
-        if jobs
-        else "No strict job posting is published for this run."
-    )
+    if jobs and hiring_intents:
+        hiring_text = (
+            f"{len(jobs)} strict job posting(s) are published; "
+            f"{len(hiring_intents)} separate company-authored hiring-intent signal(s) are also published."
+        )
+    elif jobs:
+        hiring_text = f"{len(jobs)} strict job posting(s) are published."
+    elif hiring_intents:
+        hiring_text = (
+            f"{len(hiring_intents)} company-authored hiring-intent signal(s) are published, "
+            "but no strict job posting is published for this run."
+        )
+    else:
+        hiring_text = "No company-authored hiring intent or strict job posting is published for this run."
     footprint_parts: list[str] = []
     if website:
         footprint_parts.append(f"verified website {website.get('value')}")
@@ -400,7 +415,12 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         "what_does_it_do": _decision_item("what_does_it_do", " ".join(identity_bits), identity_facts, evidence_by_id),
         "how_big_is_it": _decision_item("how_big_is_it", size_text, [fact for fact in [workforce, revenue, operating] if fact], evidence_by_id),
         "who_runs_it": _decision_item("who_runs_it", leader_text, [leader] if leader else [], evidence_by_id),
-        "hiring": _decision_item("hiring", hiring_text, jobs, evidence_by_id),
+        "hiring": _decision_item(
+            "hiring",
+            hiring_text,
+            [*hiring_intents, *jobs],
+            evidence_by_id,
+        ),
         "digital_footprint": _decision_item("digital_footprint", digital_text, [fact for fact in [website, *social, *updates] if fact], evidence_by_id),
         "what_changed": {
             "key": "what_changed",
