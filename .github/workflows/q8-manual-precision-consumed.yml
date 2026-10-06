@@ -1,0 +1,121 @@
+name: Q8 Manual Precision Consumed Replay
+
+on:
+  push:
+    branches:
+      - fix/q8-manual-precision-guards
+    paths:
+      - src/norway_company_agent/homepage_careers_signal.py
+      - src/norway_company_agent/homepage_news_signal.py
+      - src/norway_company_agent/first_party_activity.py
+      - src/norway_company_agent/first_party_feed.py
+      - src/norway_company_agent/first_party_feed_contract.py
+      - src/norway_company_agent/external_precision_guard.py
+      - scripts/run_signalpost_v8.py
+      - scripts/audit_q8_external_precision.py
+      - tests/test_q8_manual_precision_guards.py
+      - .github/workflows/q8-manual-precision-consumed.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay-consumed-q8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      Q8_ARTIFACT_ID: '11363693004'
+      Q8_ARTIFACT_SHA256: 'ff3fee8430a8ae46c4ea92bebd7c7ff855442502b9fa90e616fb53c74c4cd67f'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync and run focused precision regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_q8_manual_precision_guards.py \
+            tests/test_c12_dated_first_party_news.py \
+            tests/test_first_party_activity.py \
+            tests/test_q4_first_party_feed.py \
+            tests/test_q4_feed_projection_hardening.py
+
+      - name: Download frozen successful Q8 attempt-3 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/${Q8_ARTIFACT_ID}/zip" \
+            --output q8-attempt3.zip
+          test -s q8-attempt3.zip
+          echo "${Q8_ARTIFACT_SHA256}  q8-attempt3.zip" | sha256sum -c -
+          unzip -q q8-attempt3.zip 'out/q8-fresh-output.jsonl'
+          test -s out/q8-fresh-output.jsonl
+
+      - name: Replay final precision guard with zero network
+        run: |
+          uv run python scripts/audit_q8_external_precision.py \
+            --input out/q8-fresh-output.jsonl \
+            --output out/q8-attempt3-precision-reprojected.jsonl \
+            --report out/q8-attempt3-precision-report.json \
+            --expected-removed-claims 5
+
+      - name: Verify exact manual-audit closure
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('out/q8-attempt3-precision-report.json').read_text())
+          assert report['companies'] == 100, report
+          assert report['network_requests_added'] == 0, report
+          assert report['removed_claim_count'] == 5, report
+          assert report['removed_evidence_count'] == 5, report
+
+          observed = {
+              (item['organisation_number'], item['field'], item['url'])
+              for item in report['removed_claims']
+          }
+          expected = {
+              ('921230370', 'external.careers_page', 'https://listefrie.no/for-naering/'),
+              ('914456835', 'external.company_update', 'https://www.medinovo.no/2019/04/22/hello-world/'),
+              ('996533174', 'external.careers_page', 'https://hybel.no:443/profil/238397/kvinne-29-ar-soker-bolig-for-1-person-fra-01-01-2027/?siste=1'),
+              ('996533174', 'external.careers_page', 'https://hybel.no:443/profil/575477/mann-27-ar-soker-bolig-for-2-personer-fra-01-12-2026/?siste=1'),
+              ('996533174', 'external.company_update', 'https://hybel.no:443/profil/575477/mann-27-ar-soker-bolig-for-2-personer-fra-01-12-2026/'),
+          }
+          assert observed == expected, {'observed': sorted(observed), 'expected': sorted(expected)}
+
+          visibility = report['visibility']
+          assert visibility['available_claims'] == 4650, visibility
+          assert visibility['core_evidence_complete_claims'] == 4650, visibility
+          assert visibility['reopenable_source_claims'] == 4650, visibility
+          assert visibility['identity_sensitive_claims'] == 188, visibility
+          assert visibility['identity_proof_visible'] == 188, visibility
+          assert visibility['extraction_method_visible'] == 188, visibility
+          assert visibility['by_field']['official.support_award']['available_claims'] == 51, visibility
+          assert visibility['issues'] == [], visibility
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Upload consumed precision proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: q8-attempt3-manual-precision-consumed-replay
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            out/q8-attempt3-precision-report.json
+            out/q8-attempt3-precision-reprojected.jsonl
