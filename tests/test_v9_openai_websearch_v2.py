@@ -258,3 +258,53 @@ def test_provider_readiness_never_self_approves_rights_or_evaluator_key() -> Non
     assert allowed["allowed_for_live_v9_experiment"] is True
     assert allowed["allowed_for_production_candidate"] is False
     assert allowed["projected_provider_cost_usd"] == 0.2
+
+
+def test_exact_org_result_can_nominate_sverresplass_hosted_about_page() -> None:
+    payload = response(
+        [
+            {
+                "url": "https://vibbo.no/sverresplass/om",
+                "title": "SVERRESPLASS BORETTSLAG",
+                "snippet": "Organisasjonsnummer: 992 902 566",
+            }
+        ]
+    )
+    payload["output"][0]["action"]["queries"] = ['"992902566" "SVERRESPLASS BORETTSLAG"']
+
+    parsed = parse_response(
+        profile(
+            name="SVERRESPLASS BORETTSLAG",
+            org="992902566",
+            municipality="BERGEN",
+        ),
+        payload,
+    )
+
+    assert parsed["candidate_urls"] == ["https://vibbo.no/sverresplass/om"]
+    assert parsed["publication_authorized"] is False
+
+
+def test_exact_org_result_can_nominate_tre_for_en_brand_site() -> None:
+    payload = response(
+        [
+            {
+                "url": "https://hauglidhelse.no/",
+                "title": "Hauglid Helse",
+                "snippet": "Firmanavn Tre for En AS. Org.nr: 923 368 876. Risør.",
+            }
+        ]
+    )
+    payload["output"][0]["action"]["queries"] = ['"923368876" "TRE FOR EN AS"']
+
+    parsed = parse_response(
+        profile(
+            name="TRE FOR EN AS",
+            org="923368876",
+            municipality="RISØR",
+        ),
+        payload,
+    )
+
+    assert parsed["candidate_urls"] == ["https://hauglidhelse.no/"]
+    assert parsed["publication_authorized"] is False
