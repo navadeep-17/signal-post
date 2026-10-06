@@ -1,0 +1,70 @@
+name: Research R5 DSB-Only Artifact Union
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-r5-dsb-only-artifact-union.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run artifact-union tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_compare_bulk_exact_org_union.py
+
+      - name: Download frozen research artifacts only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/r5d/landbruk out/r5d/arbeid out/r5d/sgregister out/r5d/dsb
+          gh run download 37345868675 --repo "$GITHUB_REPOSITORY" --name research-landbruk-support-reach --dir out/r5d/landbruk
+          gh run download 37347436734 --repo "$GITHUB_REPOSITORY" --name research-arbeidstilsynet-registry-union --dir out/r5d/arbeid
+          gh run download 37347732285 --repo "$GITHUB_REPOSITORY" --name research-sgregister-bulk-reach --dir out/r5d/sgregister
+          gh run download 37402490263 --repo "$GITHUB_REPOSITORY" --name research-dsb-elvirksomhet-reach --dir out/r5d/dsb
+
+      - name: Compare DSB-only expanded union
+        run: |
+          uv run python scripts/compare_bulk_exact_org_union.py \
+            --source landbruk=out/r5d/landbruk/landbruk/matched-companies.jsonl \
+            --source arbeidstilsynet=out/r5d/arbeid/arbeidstilsynet/matched-companies-1000.jsonl \
+            --source sgregister=out/r5d/sgregister/sgregister/matched-companies-1000.jsonl \
+            --source dsb=out/r5d/dsb/dsb-1000/matched-companies.jsonl \
+            --source-report landbruk=out/r5d/landbruk/landbruk/report.json \
+            --source-report arbeidstilsynet=out/r5d/arbeid/arbeidstilsynet/report.json \
+            --source-report sgregister=out/r5d/sgregister/sgregister/report.json \
+            --source-report dsb=out/r5d/dsb/dsb-1000/report.json \
+            --original-requests landbruk=1 \
+            --original-requests arbeidstilsynet=2 \
+            --original-requests sgregister=1 \
+            --original-requests dsb=1 \
+            --cohort-size 1000 \
+            --consumed-100 out/r5d/sgregister/consumed-100.jsonl \
+            --output-dir out/r5d-union
+          cat out/r5d-union/report.json
+
+      - name: Upload frozen DSB-only union evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-r5-dsb-only-artifact-union
+          retention-days: 30
+          path: |
+            out/r5d-union/report.json
+            out/r5d-union/union-companies.jsonl
