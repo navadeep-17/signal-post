@@ -47,7 +47,7 @@ CANONICAL_FIELD_BY_TYPE = {
     "registered_location": "locations.registered_workplace",
     "website": "website.official",
     "company_description": "website.description",
-    "contact_email": "website.contact_email",
+    "contact_email": "website.contact_email",\n    "contact_phone": "website.contact_phone",
     "social_profile": "public.social_profile",
     "careers_page": "hiring.careers_page",
     "job_posting": "hiring.job_posting",
@@ -257,7 +257,7 @@ def project_canonical_profile(contract: dict[str, Any]) -> dict[str, Any]:
         "workforce_snapshot",
         "registry_change",
     }
-    website_keys = {"website", "company_description", "contact_email"}
+    website_keys = {"website", "company_description", "contact_email", "contact_phone"}
     activity_keys = {"social_profile", "company_update", "support_award"}
 
     canonical = {
