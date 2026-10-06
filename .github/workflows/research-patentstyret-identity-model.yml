@@ -1,0 +1,78 @@
+name: Research Patentstyret Identity Model Extraction
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-identity-model.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current main bundle
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://search.patentstyret.no/advanced/main.e56e868a50c47e49.js' -o out/main.js
+
+      - name: Print only identity model definitions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('out/main.js').read_text(encoding='utf-8',errors='replace')
+
+          needles=[
+            'matchApplicant',
+            'matchProprietor',
+            'matchInventor',
+            'matchDesigner',
+            'CombinedCustomerCardName',
+            'c.Applicant=new',
+            'c.Proprietors=new',
+            'recordIdentifier',
+            'nameInput',
+            'typeOfSearch',
+          ]
+
+          for needle in needles:
+              print(f'\n===== {needle} =====')
+              positions=[m.start() for m in re.finditer(re.escape(needle),s)]
+              print('count=',len(positions))
+              for i,idx in enumerate(positions[:12]):
+                  print(f'--- hit {i+1} at {idx} ---')
+                  print(s[max(0,idx-2200):min(len(s),idx+4200)])
+
+          # Extract small class constructors containing matchApplicant or nameInput.
+          print('\n===== CONSTRUCTOR WINDOWS =====')
+          for key in ['matchApplicant=!1','nameInput=""','recordIdentifier=']:
+              for m in list(re.finditer(re.escape(key),s))[:10]:
+                  left=max(s.rfind('class ',max(0,m.start()-2500),m.start()), m.start()-2500)
+                  right=min(s.find('}},',m.start())+3 if s.find('}},',m.start())!=-1 else m.start()+4500,len(s))
+                  print('\nKEY',key)
+                  print(s[left:right])
+
+          # Print descriptor assignments around Applicant/Proprietor/customer card.
+          print('\n===== DESCRIPTOR ASSIGNMENTS =====')
+          pats=[
+            r'[A-Za-z0-9_$]+\.Applicant=new [^;]{0,1400}',
+            r'[A-Za-z0-9_$]+\.Proprietors=new [^;]{0,1400}',
+            r'[A-Za-z0-9_$]+\.CombinedCustomerCardName=[^;]{0,1400}',
+          ]
+          for pat in pats:
+              for m in re.finditer(pat,s):
+                  print(m.group(0)[:3000])
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
