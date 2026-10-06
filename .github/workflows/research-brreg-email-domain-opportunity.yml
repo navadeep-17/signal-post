@@ -1,0 +1,45 @@
+name: Research BRREG Email-Domain Opportunity
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/audit_brreg_email_domain_opportunity.py
+      - tests/test_audit_brreg_email_domain_opportunity.py
+      - .github/workflows/research-brreg-email-domain-opportunity.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run zero-network audit tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_brreg_email_domain_opportunity.py
+
+      - name: Audit frozen consumed 1000
+        run: |
+          mkdir -p out/brreg-email-domain
+          uv run python scripts/audit_brreg_email_domain_opportunity.py             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/brreg-email-domain/report.json
+          cat out/brreg-email-domain/report.json
+
+      - name: Upload aggregate report
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-email-domain-opportunity
+          retention-days: 30
+          path: out/brreg-email-domain/report.json
