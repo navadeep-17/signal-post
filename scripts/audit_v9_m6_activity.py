@@ -13,6 +13,7 @@ ALLOWED_METHODS = {
     "verified_same_site_rss_atom_entry_v1",
     "jsonld_newsarticle_date_published",
     "jsonld_article_date_published",
+    "jsonld_blogposting_date_published",
     "meta_article_published_time",
     "meta_itemprop_date_published",
     "meta_name_pubdate",
@@ -20,7 +21,7 @@ ALLOWED_METHODS = {
     "time_datetime",
     "time_text",
     "date_labelled_element",
-    "unambiguous_page_text_date",
+    "unambiguous_page_text",
 }
 
 
