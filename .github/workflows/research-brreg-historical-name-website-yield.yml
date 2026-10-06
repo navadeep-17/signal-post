@@ -1,0 +1,58 @@
+name: Research BRREG Historical-Name Website Yield
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_brreg_historical_name_website_yield.py
+      - tests/test_screen_brreg_historical_name_website_yield.py
+      - .github/workflows/research-brreg-historical-name-website-yield.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Verify historical-name candidate selection
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_brreg_historical_name_website_yield.py
+
+      - name: Download frozen candidate cohort from prior consumed-only run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/prior
+          gh run download 37442619950             --repo "$GITHUB_REPOSITORY"             --name research-brreg-historical-name-candidate-reach             --dir out/prior
+          test -s out/prior/candidates.jsonl
+          echo "candidate-lines=$(wc -l < out/prior/candidates.jsonl)"
+
+      - name: Verify one most-recent historical-name candidate per company
+        env:
+          PYTHONPATH: src
+        run: |
+          uv run python scripts/screen_brreg_historical_name_website_yield.py             --candidate-orgs out/prior/candidates.jsonl             --output-dir out/yield             --workers 6             --entity-timeout 12             --site-timeout 8
+          cat out/yield/report.json
+
+      - name: Upload consumed-only verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-historical-name-website-yield
+          retention-days: 30
+          path: |
+            out/yield/report.json
+            out/yield/attempts.jsonl
