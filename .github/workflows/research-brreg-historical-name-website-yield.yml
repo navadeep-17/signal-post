@@ -1,13 +1,6 @@
 name: Research BRREG Historical-Name Website Yield
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_brreg_historical_name_website_yield.py
-      - tests/test_screen_brreg_historical_name_website_yield.py
-      - .github/workflows/research-brreg-historical-name-website-yield.yml
   workflow_dispatch:
 
 permissions:
