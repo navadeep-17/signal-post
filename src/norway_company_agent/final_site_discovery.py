@@ -255,7 +255,12 @@ def _secondary_identity_links(base_url: str, soup: BeautifulSoup) -> list[str]:
     return [url for _, url in ranked[:8]]
 
 
-def _page_date_candidates(soup: BeautifulSoup, *, limit: int = 8) -> list[dict[str, str]]:
+def _page_date_candidates(
+    soup: BeautifulSoup,
+    *,
+    structured: dict[str, Any] | None = None,
+    limit: int = 8,
+) -> list[dict[str, str]]:
     """Retain bounded explicit publication-date candidates from the fetched page DOM.
 
     These are raw page-local observations, not interpreted facts. The strict first-party
@@ -273,6 +278,33 @@ def _page_date_candidates(soup: BeautifulSoup, *, limit: int = 8) -> list[dict[s
             return
         seen.add(key)
         candidates.append({"raw": value, "method": method})
+
+    def walk_jsonld(node: Any) -> None:
+        if len(candidates) >= limit:
+            return
+        if isinstance(node, dict):
+            kind = node.get("@type")
+            kinds = {
+                str(value).casefold()
+                for value in (kind if isinstance(kind, list) else [kind])
+                if value is not None
+            }
+            if "newsarticle" in kinds:
+                add(node.get("datePublished"), "jsonld_newsarticle_date_published")
+            elif "blogposting" in kinds:
+                add(node.get("datePublished"), "jsonld_blogposting_date_published")
+            elif "article" in kinds:
+                add(node.get("datePublished"), "jsonld_article_date_published")
+            for child in node.values():
+                walk_jsonld(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk_jsonld(child)
+
+    if structured:
+        walk_jsonld(structured.get("json-ld", []))
+        if len(candidates) >= limit:
+            return candidates
 
     selectors = (
         ('meta[property="article:published_time"]', "content", "meta_article_published_time"),
@@ -355,7 +387,7 @@ def fetch_bounded_homepage(
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         description_tag = soup.select_one('meta[name="description"], meta[property="og:description"]')
         description = str(description_tag.get("content") or "").strip() if description_tag else ""
-        published_date_candidates = _page_date_candidates(soup)
+        published_date_candidates = _page_date_candidates(soup, structured=structured)
         active_hiring_signal = extract_homepage_hiring_signal(final_url=final_url, soup=soup)
         job_listing_candidates = extract_job_listing_candidates(
             final_url=final_url, soup=soup, structured=structured
