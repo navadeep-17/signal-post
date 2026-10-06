@@ -1,0 +1,59 @@
+name: Research Structured Contact Bundle Gate
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-structured-contact-bundle.yml
+      - scripts/gate_zero_network_contact_bundle.py
+      - src/norway_company_agent/company_site_contact.py
+      - src/norway_company_agent/company_site_phone.py
+      - src/norway_company_agent/external_contract.py
+      - src/norway_company_agent/canonical_projection.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run focused structured-contact tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_company_site_contact.py             tests/test_company_site_phone.py             tests/test_h2c_external_contract.py             tests/test_contact_phone_external_contract.py             tests/test_canonical_projection.py
+
+      - name: Download archived exact-site profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Gate combined structured email and phone recovery
+        run: |
+          mkdir -p out/contact-bundle
+          uv run python scripts/gate_zero_network_contact_bundle.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/contact-bundle/report.json
+          cat out/contact-bundle/report.json
+
+      - name: Upload aggregate gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-structured-contact-bundle
+          retention-days: 30
+          if-no-files-found: warn
+          path: out/contact-bundle/report.json
