@@ -1,0 +1,282 @@
+name: Research JSON-LD Contact Transfer Gate
+
+on:
+  push:
+    branches:
+      - research/jsonld-contact-transfer-main-20261006
+    paths:
+      - src/norway_company_agent/company_site_contact.py
+      - tests/test_jsonld_contact_recovery_transfer.py
+      - .github/workflows/research-jsonld-contact-transfer-main.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run current-main contact and precision regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_company_site_contact.py             tests/test_jsonld_contact_recovery_transfer.py             tests/test_canonical_projection.py             tests/test_q8_manual_precision_guards.py             tests/test_q8_social_declaration_identity_guard.py
+
+      - name: Restore frozen final-release retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/jsonld-transfer
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+          find archived/final-release -name profiles.jsonl -print0             | sort -z             | xargs -0 cat > out/jsonld-transfer/profiles.jsonl
+          test "$(wc -l < out/jsonld-transfer/profiles.jsonl)" -eq 1000
+
+      - name: Reproject contact recovery against frozen 1000
+        run: |
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import copy
+          import gzip
+          import hashlib
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          from norway_company_agent.canonical_projection import (
+              project_canonical_profile,
+              validate_canonical_projection,
+          )
+          from norway_company_agent.company_site_contact import (
+              attach_company_site_contact_email_observations,
+          )
+          from norway_company_agent.external_contract import project_contact_email_observations
+          from norway_company_agent.external_footprint import validate_observation
+          from norway_company_agent.output_contract import validate_contract_object
+          from norway_company_agent.synthesis import (
+              build_company_synthesis,
+              validate_company_synthesis,
+          )
+
+          JSONLD_STRATEGY="verified_company_jsonld_same_domain_email_v1"
+          MANAGED={"external.contact_email"}
+
+          def rows(path):
+              return [
+                  json.loads(x)
+                  for x in Path(path).read_text(encoding="utf-8").splitlines()
+                  if x.strip()
+              ]
+
+          profiles=rows("out/jsonld-transfer/profiles.jsonl")
+          pindex={str(p.get("organisation_number") or ""):p for p in profiles}
+          assert len(pindex)==1000
+
+          contracts=[]
+          with gzip.open("submission/final-release-1000-output.jsonl.gz","rt",encoding="utf-8") as h:
+              contracts=[json.loads(x) for x in h if x.strip()]
+          assert len(contracts)==1000
+          assert {str(x["organisation_number"]) for x in contracts}==set(pindex)
+
+          def contact_values(contract):
+              return {
+                  str(c.get("value") or "").strip().lower()
+                  for c in contract.get("claims") or []
+                  if isinstance(c,dict)
+                  and c.get("field")=="external.contact_email"
+                  and c.get("availability")=="available"
+                  and str(c.get("value") or "").strip()
+              }
+
+          def claim_sig(c):
+              return json.dumps(c,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+
+          baseline_companies=set()
+          challenger_companies=set()
+          new_company_orgs=set()
+          baseline_claims=0
+          challenger_claims=0
+          new_claims=0
+          strategy_counts=Counter()
+          identity_method_counts=Counter()
+          new_candidate_audit=[]
+          lost_existing=[]
+          non_contact_mutations=[]
+          observation_errors=[]
+          contract_errors=[]
+          canonical_errors=[]
+          synthesis_errors=[]
+
+          for contract in contracts:
+              org=str(contract["organisation_number"])
+              profile=copy.deepcopy(pindex[org])
+              before=contact_values(contract)
+              baseline_claims += len(before)
+              if before:
+                  baseline_companies.add(org)
+
+              attach_company_site_contact_email_observations(profile)
+              jsonld=[
+                  x for x in profile.get("external_observations") or []
+                  if isinstance(x,dict)
+                  and x.get("strategy")==JSONLD_STRATEGY
+                  and x.get("signal_type")=="company_profile"
+                  and x.get("contact_email")
+              ]
+
+              projected=project_contact_email_observations(copy.deepcopy(contract),profile)
+              after=contact_values(projected)
+              challenger_claims += len(after)
+              if after:
+                  challenger_companies.add(org)
+
+              if not before.issubset(after):
+                  lost_existing.append(org)
+
+              before_non=sorted(
+                  claim_sig(c) for c in contract.get("claims") or []
+                  if isinstance(c,dict) and c.get("field") not in MANAGED
+              )
+              after_non=sorted(
+                  claim_sig(c) for c in projected.get("claims") or []
+                  if isinstance(c,dict) and c.get("field") not in MANAGED
+              )
+              if before_non != after_non:
+                  non_contact_mutations.append(org)
+
+              delta=after-before
+              if delta:
+                  new_company_orgs.add(org)
+                  new_claims += len(delta)
+
+              for obs in jsonld:
+                  email=str(obs.get("contact_email") or "").strip().lower()
+                  if email not in delta:
+                      continue
+                  for err in validate_observation(obs):
+                      observation_errors.append({"org":org,"error":err})
+                  strategy_counts[str(obs.get("strategy") or "unknown")]+=1
+                  gate=next(
+                      (
+                          x for x in obs.get("identity_proof") or []
+                          if isinstance(x,dict)
+                          and x.get("type")=="structured_organization_identity_gate"
+                      ),
+                      {},
+                  )
+                  identity_method_counts[str(gate.get("method") or "unknown")]+=1
+                  new_candidate_audit.append({
+                      "organisation_number":org,
+                      "legal_name":profile.get("name"),
+                      "source_url":obs.get("source_url"),
+                      "email_domain":email.split("@",1)[1] if email.count("@")==1 else "",
+                      "email_fingerprint":hashlib.sha256(email.encode()).hexdigest()[:12],
+                      "structured_identity_method":gate.get("method"),
+                      "structured_observed_organisation_numbers":list(
+                          gate.get("observed_organisation_numbers") or []
+                      ),
+                      "structured_matched_name":gate.get("matched_name"),
+                      "raw_email_retained":False,
+                  })
+
+              canonical=project_canonical_profile(projected)
+              canonical["synthesis"]=build_company_synthesis(canonical)
+              for err in validate_contract_object(canonical):
+                  contract_errors.append({"org":org,"error":err})
+              for err in validate_canonical_projection(canonical):
+                  canonical_errors.append({"org":org,"error":err})
+              for err in validate_company_synthesis(canonical):
+                  synthesis_errors.append({"org":org,"error":err})
+
+          report={
+              "screen_type":"jsonld_contact_transfer_current_main_frozen1000",
+              "companies":1000,
+              "baseline_contact_email_companies":len(baseline_companies),
+              "challenger_contact_email_companies":len(challenger_companies),
+              "net_new_contact_email_companies":len(new_company_orgs),
+              "net_new_contact_company_reach_pct":round(100*len(new_company_orgs)/1000,3),
+              "baseline_contact_email_claims":baseline_claims,
+              "challenger_contact_email_claims":challenger_claims,
+              "net_new_contact_email_claims":new_claims,
+              "lost_existing_contact_companies":len(lost_existing),
+              "non_contact_claim_mutations":len(non_contact_mutations),
+              "new_strategy_counts":dict(sorted(strategy_counts.items())),
+              "structured_identity_method_counts":dict(sorted(identity_method_counts.items())),
+              "observation_errors":len(observation_errors),
+              "contract_errors":len(contract_errors),
+              "canonical_errors":len(canonical_errors),
+              "synthesis_errors":len(synthesis_errors),
+              "logical_requests_added":0,
+              "conservative_request_charge_added":0,
+              "third_party_api_cost_usd":0.0,
+              "promotion_gate_passed":(
+                  len(new_company_orgs)>0
+                  and not lost_existing
+                  and not non_contact_mutations
+                  and not observation_errors
+                  and not contract_errors
+                  and not canonical_errors
+                  and not synthesis_errors
+                  and len(new_candidate_audit)==new_claims
+              ),
+              "claim_boundary":(
+                  "Exact verified company website; email only from an explicit schema.org "
+                  "Organization email field; the individual Organization node must identify "
+                  "the target by exact org number or full legal-name tokens without a conflicting "
+                  "structured org number; email registered domain must equal verified website domain."
+              ),
+              "privacy_boundary":{
+                  "raw_email_in_report":False,
+                  "raw_email_in_audit":False,
+                  "audit_email_fingerprint_only":True,
+              },
+          }
+          Path("out/jsonld-transfer/report.json").write_text(
+              json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+"\n",
+              encoding="utf-8",
+          )
+          Path("out/jsonld-transfer/audit.jsonl").write_text(
+              "".join(
+                  json.dumps(x,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n"
+                  for x in new_candidate_audit
+              ),
+              encoding="utf-8",
+          )
+          print(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True))
+          print("=== privacy-minimized candidate audit ===")
+          for row in new_candidate_audit:
+              print(json.dumps(row,ensure_ascii=False,sort_keys=True))
+          if not report["promotion_gate_passed"]:
+              raise SystemExit("JSON-LD contact transfer gate failed")
+          PY
+
+      - name: Remove archived profiles
+        if: always()
+        run: |
+          rm -rf archived/final-release
+          rm -f out/jsonld-transfer/profiles.jsonl
+
+      - name: Upload transfer evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-jsonld-contact-transfer-main
+          retention-days: 30
+          path: |
+            out/jsonld-transfer/report.json
+            out/jsonld-transfer/audit.jsonl
