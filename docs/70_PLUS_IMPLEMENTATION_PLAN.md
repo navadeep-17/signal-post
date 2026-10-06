@@ -1,6 +1,6 @@
 # Signalpost 70+ Implementation Master Plan
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 This document is the canonical engineering roadmap toward a Builderr 70+ result. `docs/CONTINUATION_STATE.md` owns exact live branch/PR/run state; `docs/IMPLEMENTATION_LOG.md` owns historical experiments and decisions. GitHub and live Builderr rules outrank stale documentation.
 
@@ -95,11 +95,11 @@ Phase-4 production merge: `07f01734ba9bb5ed850a5a494c6c38f7cdaf66a3`.
 - **Phase 8 — NAV exact-org vacancy screen:** **DROP**.
 - **Phase 9 — BRREG bulk/request optimization:** later and freshness-gated.
 - **Phase 10 — Adaptive request scheduler:** after a new high-yield surface exists.
-- **Phase 11 — Fresh validation/release candidate:** **ACTIVE / RETUNE** — seed `20261104` passed machine gates but failed manual exact-company audit; PR #99 owner-veto precision fix is in merge qualification before a new fresh cohort.
+- **Phase 11 — Fresh validation/release candidate:** **CLOSED / RELEASE-QUALIFIED** — Q8 attempt #4 on seed `20261107` passed machine and manual precision gates against current production `main@200f056a5a60cad23610a3958b6bec62dfb624a5`.
 
 Immediate path:
 
-> finish PR #99 owner-veto merge gate -> exclude 8,523 touched companies -> new fresh Phase 11 cohort -> actual V8 machine + manual precision qualification -> artifact freeze -> Builderr release decision.
+> documentation-only finalization -> exact-head Baseline CI -> post-merge CI -> freeze release ref -> submit the qualified revision to Builderr.
 
 ## 5. Phase 1 — collected-vs-emitted recovery
 
@@ -351,7 +351,8 @@ Always distinguish **IMPLEMENTED**, **TESTED**, **QUALIFIED**, **MERGED**, and *
 
 ## 23. NEXT
 
-**Phase 11 seed `20261104` is permanently consumed and failed manual precision audit despite green machine gates. Finish PR #99 exact-site-owner precision hardening through final clean-head CI, merge and post-merge CI; then construct an 8,523-company all-touched exclusion and run a genuinely new fresh cohort (planned seed `20261105`). Require both machine and manual precision gates before any Builderr release decision.**
+**The main engineering/qualification track is complete. Q8 attempt #4 is release-qualified. Do not consume another fresh cohort or start another connector before submission. Finish documentation-only finalization, require exact-head and post-merge Baseline CI, freeze a release ref for the final production SHA, and submit that exact revision to Builderr.**
+
 
 ---
 
@@ -400,3 +401,18 @@ Seed `20261104` was genuinely fresh against 8,423 previously touched companies a
 The retune is generic: explicit current-site ownership by a different named legal entity is now a hard identity veto. No blacklist was added. Full Baseline CI passed, and consumed-only replay of the failed cohort is monotonic: exactly the four contaminated Interiørkupp records disappear, zero new external records are added, every other prior published external value is unchanged, and the target candidate is retained only as quarantined evidence with `publishable=false`.
 
 Roadmap consequence: Phase 11 remains active but is not release-qualified. Merge the precision fix only after a final clean durable diff + exact-head Baseline CI and post-merge CI. Then permanently include the failed 100 in the touched set (8,523 total exclusions) and spend a new fresh cohort. The failed seed must never be reused as qualification evidence.
+
+
+---
+
+## 2026-10-06 Q8 attempt #4 release qualification closure
+
+Status: **PHASE 11 / Q8 CLOSED — RELEASE-QUALIFIED**
+
+Current production `main@200f056a5a60cad23610a3958b6bec62dfb624a5` passed post-merge Baseline CI `37403437730`. Fresh attempt #4 then excluded 8,723 previously touched companies and selected 100 untouched companies with seed `20261107` and zero overlap.
+
+Workflow `37403982422` succeeded. Artifact `11386579108` (ZIP SHA-256 `74401ccf2e1c11832bc91563ce02c8cb4ff040491542c563052049205a1b995e`) recorded 100/100 terminal outputs, 4,600/4,600 core evidence completeness, 4,600/4,600 reopenable sources, 164/164 identity-proof/extraction visibility, 42 official support claims across 12 companies, 1,376/2,000 observed conservative requests, 629.722 s wall runtime, $0 third-party API cost and zero contract/canonical/synthesis/dangling-evidence/support-projection failures.
+
+Manual audit reviewed all 20 evaluator-visible external publications and all 42 support rows. Wrong-company publications were 0 and support anomalies were 0.
+
+Decision: **GO / RELEASE-QUALIFIED**. Qualification PR #124 is intentionally closed without merge. The next action is release finalization and Builderr submission, not another source experiment.
