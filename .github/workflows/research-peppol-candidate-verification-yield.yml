@@ -1,0 +1,73 @@
+name: Research Peppol Candidate Verification Yield
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-peppol-candidate-verification-yield.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run transient candidate-selection tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_peppol_candidate_verification_yield.py
+
+      - name: Download one Peppol export without retry
+        run: |
+          mkdir -p out/peppol-verify
+          set +e
+          HTTP=$(curl --location --retry 0 --silent --show-error             --header 'Accept-Encoding: gzip'             --user-agent 'Signalpost-research-source-screen/1.0'             --output out/peppol-verify/businesscards.csv.gz             --write-out '%{http_code}'             'https://directory.peppol.eu/export/businesscards-csv')
+          RC=$?
+          set -e
+          echo "peppol-export-http=$HTTP"
+          if [ "$RC" -ne 0 ]; then exit "$RC"; fi
+          if [ "$HTTP" = "429" ]; then
+            echo "Official export rate limit active; stop without retry."
+            exit 75
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "Unexpected export HTTP status: $HTTP"
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("out/peppol-verify/businesscards.csv.gz")
+          assert p.read_bytes()[:2] == b"\x1f\x8b"
+          print("compressed-bytes=",p.stat().st_size)
+          PY
+
+      - name: Measure existing identity-gate yield on net-new candidates
+        run: |
+          uv run python scripts/screen_peppol_candidate_verification_yield.py             --export-gz out/peppol-verify/businesscards.csv.gz             --companies submission/final-release-1000.jsonl             --production-output-gz submission/final-release-1000-output.jsonl.gz             --report out/peppol-verify/report.json             --workers 8             --timeout 6
+          cat out/peppol-verify/report.json
+
+      - name: Remove source material
+        if: always()
+        run: rm -f out/peppol-verify/businesscards.csv.gz
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-peppol-candidate-verification-yield
+          retention-days: 30
+          path: out/peppol-verify/report.json
