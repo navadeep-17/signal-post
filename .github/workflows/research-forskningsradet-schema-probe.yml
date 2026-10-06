@@ -1,0 +1,95 @@
+name: Research Forskningsradet Open Data Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-forskningsradet-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download official open-data CSV once
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed \
+            --header 'Accept: text/csv,*/*' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://raw.githubusercontent.com/Forskningsradet/open-data/main/datasets/soknader2/dataset.csv' \
+            --output out/forskningsradet.csv
+          test -s out/forskningsradet.csv
+          wc -c out/forskningsradet.csv
+          sha256sum out/forskningsradet.csv
+
+      - name: Inspect bounded schema and org/date/project fields
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv, io, re
+
+          raw = Path('out/forskningsradet.csv').read_bytes()
+          print('bytes:', len(raw))
+          print('bom-prefix:', raw[:4])
+          decoded = None
+          used = None
+          for enc in ('utf-8-sig','utf-8','latin-1'):
+              try:
+                  decoded = raw.decode(enc)
+                  used = enc
+                  break
+              except UnicodeDecodeError:
+                  pass
+          if decoded is None:
+              raise SystemExit('could not decode CSV')
+          print('encoding:', used)
+
+          sample = decoded[:250000]
+          try:
+              dialect = csv.Sniffer().sniff(sample, delimiters=';,\t|')
+              delimiter = dialect.delimiter
+          except csv.Error:
+              delimiter = ';'
+          print('delimiter:', repr(delimiter))
+
+          reader = csv.DictReader(io.StringIO(decoded), delimiter=delimiter)
+          print('header-count:', len(reader.fieldnames or []))
+          print('headers:', reader.fieldnames)
+
+          rows = []
+          nine_digit_by_field = {}
+          for i, row in enumerate(reader):
+              if i < 6:
+                  rows.append(row)
+              for key, value in row.items():
+                  value = str(value or '').strip()
+                  if re.fullmatch(r'\d{9}', re.sub(r'\D', '', value)):
+                      nine_digit_by_field.setdefault(str(key), set()).add(value)
+              if i >= 5000:
+                  break
+
+          print('9-digit-fields:')
+          for key in sorted(nine_digit_by_field):
+              values = sorted(nine_digit_by_field[key])
+              print(key, 'count=', len(values), 'examples=', values[:12])
+
+          print('interesting-fields:')
+          for key in reader.fieldnames or []:
+              if re.search(r'org|foretak|bedrift|prosjekt|project|start|slutt|dato|date|beløp|belop|støtte|stotte|status|fase|tittel|title|sektor|rolle', key, flags=re.I):
+                  print(key)
+
+          for idx, row in enumerate(rows, 1):
+              print('ROW', idx, {k:v for k,v in row.items() if v not in (None,'')})
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/forskningsradet.csv
