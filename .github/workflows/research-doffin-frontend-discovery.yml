@@ -1,0 +1,103 @@
+name: Research Doffin Public Frontend Discovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-frontend-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch live Doffin shells
+        run: |
+          mkdir -p out/js
+          for SPEC in \
+            'home|https://www.doffin.no/' \
+            'data|https://www.doffin.no/data' \
+            'contracts|https://www.doffin.no/notices/2026-114260'; do
+            NAME="${SPEC%%|*}"
+            URL="${SPEC#*|}"
+            curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+              "$URL" -o "out/${NAME}.html"
+            echo "=== ${NAME} bytes=$(wc -c < out/${NAME}.html) ==="
+          done
+
+      - name: Download frontend JavaScript assets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess, hashlib
+
+          refs=set()
+          for p in Path('out').glob('*.html'):
+              s=p.read_text(encoding='utf-8',errors='replace')
+              refs.update(re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']',s,re.I))
+          print('script-count=',len(refs))
+          for ref in sorted(refs):
+              url=urljoin('https://www.doffin.no/',ref)
+              name=hashlib.sha256(url.encode()).hexdigest()[:12]+'.js'
+              dest=Path('out/js')/name
+              code=subprocess.run([
+                'curl','--silent','--show-error','--location','--compressed',
+                '--user-agent','Signalpost-research-source-screen/1.0',
+                '--write-out','%{http_code}',url,'--output',str(dest)
+              ],capture_output=True,text=True)
+              print('asset-http=',code.stdout.strip(),'url=',url,'file=',name)
+              if code.returncode or code.stdout.strip()!='200':
+                  dest.unlink(missing_ok=True)
+          PY
+
+      - name: Extract API and search contract clues
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          files=[*Path('out').glob('*.html'),*Path('out/js').glob('*.js')]
+          needles=[
+            'api.doffin.no',
+            '/public/v2',
+            '/v2/search',
+            'searchParams',
+            'supplier',
+            'winner',
+            'organizationNumber',
+            'organisationNumber',
+            'registrationNumber',
+            'contractAward',
+            'noticeType',
+            'award',
+            'doffindata',
+          ]
+          urls=set()
+          for p in files:
+              s=p.read_text(encoding='utf-8',errors='replace')
+              low=s.lower()
+              matched=[n for n in needles if n.lower() in low]
+              if not matched: continue
+              print('\n===',p,'bytes=',p.stat().st_size,'matched=',matched,'===')
+              for needle in needles:
+                  positions=[m.start() for m in re.finditer(re.escape(needle),s,re.I)]
+                  for idx in positions[:12]:
+                      print('\n---',needle,'---')
+                      print(s[max(0,idx-1200):min(len(s),idx+3000)])
+              urls.update(re.findall(r'https?://[^"\'<>\\s]+',s))
+          print('\n=== URLS ===')
+          for u in sorted(urls):
+              if 'doffin' in u.lower() or 'api' in u.lower() or 'blob.core' in u.lower():
+                  print(u[:1800])
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
