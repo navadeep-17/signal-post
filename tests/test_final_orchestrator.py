@@ -172,7 +172,7 @@ def test_registry_failure_plus_h1c_failure_is_bounded_to_four_logical_requests(m
     assert row["evidence"]["website"]["status"] == "source_error"
 
 
-def test_email_candidate_plus_h1c_candidate_is_bounded_to_four_logical_requests(monkeypatch):
+def test_weak_email_candidate_is_skipped_before_h1c(monkeypatch):
     calls = []
 
     def fake_fetch(url, *, source_type, timeout=6.0, max_bytes=750_000):
@@ -199,10 +199,10 @@ def test_email_candidate_plus_h1c_candidate_is_bounded_to_four_logical_requests(
         },
     )
     row, metrics = final_site.discover_final_website(profile(website=""))
-    assert metrics["requests"] == 4
-    assert metrics["email_attempted"] is True
+    assert metrics["requests"] == 2
+    assert metrics["email_attempted"] is False
     assert metrics["h1c_attempted"] is True
-    assert len(calls) == 2
+    assert calls == [("https://example.no/", "deterministic_legal_name_domain_guess")]
     assert row["evidence"]["website"]["status"] == "not_found"
 
 
