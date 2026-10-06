@@ -1,0 +1,97 @@
+name: Research BRREG Announcement Binned Economics
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-announcement-binned-economics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frozen 30-day announcement artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/frozen
+          gh run download 37425714146             --repo "$GITHUB_REPOSITORY"             --name research-brreg-announcement-30day-reach             --dir out/frozen
+          find out/frozen -type f -maxdepth 3 -print
+
+      - name: Simulate fifteen two-day requests with zero provider traffic
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          import json
+          from collections import defaultdict
+          from pathlib import Path
+
+          path=next(Path("out/frozen").rglob("matched-companies.jsonl"))
+          rows=[
+              json.loads(line)
+              for line in path.read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          start=dt.date(2026,9,5)
+          bins=[]
+          union=set()
+          seen=set()
+          for i in range(15):
+              a=start+dt.timedelta(days=2*i)
+              b=a+dt.timedelta(days=1)
+              labels={a.strftime("%d.%m.%Y"),b.strftime("%d.%m.%Y")}
+              orgs={
+                  str(row["organisation_number"])
+                  for row in rows
+                  if labels & set(row.get("dates") or [])
+              }
+              new=orgs-seen
+              seen |= orgs
+              union |= orgs
+              bins.append({
+                  "request_index":i+1,
+                  "from":a.isoformat(),
+                  "to":b.isoformat(),
+                  "target_companies":len(orgs),
+                  "net_new_companies_at_step":len(new),
+                  "cumulative_unique_companies":len(seen),
+              })
+
+          report={
+              "screen_type":"brreg_announcement_30day_two_day_bin_economics",
+              "source_requests_if_two_day_binned":15,
+              "unique_target_companies":len(union),
+              "unique_companies_per_request":round(len(union)/15,3),
+              "max_target_companies_in_one_request":max(x["target_companies"] for x in bins),
+              "min_target_companies_in_one_request":min(x["target_companies"] for x in bins),
+              "requests_with_zero_target_hits":sum(x["target_companies"]==0 for x in bins),
+              "bins":bins,
+              "network_requests_added_by_comparator":0,
+              "notes":[
+                  "Derived only from the frozen 30 single-day research artifact.",
+                  "The separate live range-limit probe proved three-day search exceeds BRREG's 5000-result ceiling in the tested high-volume window.",
+                  "Two-day request count is therefore the conservative shared-query economics for this 30-day interval.",
+              ],
+          }
+          Path("out/report.json").write_text(
+              json.dumps(report,indent=2,sort_keys=True)+"\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload economics report
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-announcement-binned-economics
+          retention-days: 30
+          path: out/report.json
