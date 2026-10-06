@@ -1,11 +1,6 @@
 name: Research BRREG Historical-Name Bulk Probe
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-historical-name-bulk-probe.yml
   workflow_dispatch:
 
 permissions:
