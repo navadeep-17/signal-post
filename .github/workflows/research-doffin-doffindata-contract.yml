@@ -1,0 +1,107 @@
+name: Research Doffin Doffindata Contract Extraction
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-doffindata-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current Doffin frontend bundle
+        run: |
+          mkdir -p out/js
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://www.doffin.no/' -o out/index.html
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import hashlib,re,subprocess
+          html=Path('out/index.html').read_text(encoding='utf-8',errors='replace')
+          refs=sorted(set(re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']',html,re.I)))
+          for ref in refs:
+              url=urljoin('https://www.doffin.no/',ref)
+              dest=Path('out/js')/(hashlib.sha256(url.encode()).hexdigest()[:12]+'.js')
+              cp=subprocess.run([
+                  'curl','--silent','--show-error','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  '--write-out','%{http_code}',url,'--output',str(dest)
+              ],capture_output=True,text=True)
+              print('asset',cp.stdout.strip(),url)
+              if cp.returncode or cp.stdout.strip()!='200':
+                  dest.unlink(missing_ok=True)
+          PY
+
+      - name: Isolate Doffindata report loading code
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          report_ids=[
+              '1e4ba2c1-d15e-41c3-8cba-6166c3812f1a',
+              'fd2970cc-0f4e-4a1a-ab02-61f573763e1d',
+              'ab1f946b-82e6-494c-85b7-63eb994fbc78',
+          ]
+          needles=[
+              *report_ids,
+              'PowerBI',
+              'powerbi',
+              'embedUrl',
+              'embedToken',
+              'accessToken',
+              'reportId',
+              'reportContent',
+              'doffindata',
+              'contracts per supplier',
+              'kontrakter per leverand',
+          ]
+
+          for p in Path('out/js').glob('*.js'):
+              s=p.read_text(encoding='utf-8',errors='replace')
+              if not any(n.lower() in s.lower() for n in report_ids):
+                  continue
+              print('BUNDLE',p,'bytes=',len(s))
+              for needle in needles:
+                  positions=[m.start() for m in re.finditer(re.escape(needle),s,re.I)]
+                  if not positions:
+                      continue
+                  print('\n===',needle,'count=',len(positions),'===')
+                  for idx in positions[:16]:
+                      # Redact obvious token-shaped values before output.
+                      chunk=s[max(0,idx-3500):min(len(s),idx+7000)]
+                      chunk=re.sub(r'(?i)(accessToken|embedToken)(.{0,40}?)[=:]\s*["\'][^"\']+["\']',r'\1\2="[REDACTED]"',chunk)
+                      print(chunk)
+                      print('\n---')
+
+              print('\n=== REPORT-RELATED URL LITERALS ===')
+              literals=set(re.findall(r'["\']([^"\']{1,500})["\']',s))
+              for lit in sorted(literals):
+                  low=lit.lower()
+                  if any(k in low for k in ['powerbi','doffindata','embed','report','statistics','statistikk']):
+                      if 'token' not in low:
+                          print(lit[:1200])
+
+              print('\n=== NETWORK CALL WINDOWS NEAR reportId ===')
+              for m in list(re.finditer('reportId',s,re.I))[:30]:
+                  idx=m.start()
+                  chunk=s[max(0,idx-5000):min(len(s),idx+9000)]
+                  if any(x in chunk for x in ['.get(','.post(','fetch(','axios','baseURL']):
+                      chunk=re.sub(r'(?i)(accessToken|embedToken)(.{0,40}?)[=:]\s*["\'][^"\']+["\']',r'\1\2="[REDACTED]"',chunk)
+                      print(chunk)
+                      print('---')
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
