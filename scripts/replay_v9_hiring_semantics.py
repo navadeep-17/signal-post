@@ -89,7 +89,9 @@ def _audit_new_intent(row: dict[str, Any], baseline: dict[str, Any]) -> list[dic
             and len(str(item.get("content_sha256") or "")) == 64
             and bool(str(item.get("claim_span") or ""))
             and bool(item.get("identity_proof"))
-            and str(item.get("extraction_method") or "") == "explicit_homepage_vacancy_count"
+            and str(item.get("extraction_method") or "").startswith(
+                "explicit_company_authored_recruitment_language:"
+            )
             for item in linked
         )
         audit.append(
@@ -207,7 +209,7 @@ def replay(
         "fresh_companies_used": 0,
         "semantic_boundary": {
             "careers_surface": "presence only",
-            "hiring_intent": "explicit positive company-authored vacancy count; no specific vacancy asserted",
+            "hiring_intent": "explicit company-authored recruitment language; generic careers text excluded; no specific vacancy asserted",
             "specific_job": "existing strict external.job_posting semantics unchanged",
         },
     }
