@@ -1,0 +1,115 @@
+name: V9 M4 Structured Contact Replay
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/v9-m4-structured-contact-replay.yml
+      - src/norway_company_agent/company_site_contact.py
+      - src/norway_company_agent/company_site_phone.py
+      - src/norway_company_agent/external_contract.py
+      - src/norway_company_agent/canonical_projection.py
+      - scripts/run_signalpost_final.py
+      - scripts/replay_v9_structured_contacts.py
+      - tests/test_company_site_contact.py
+      - tests/test_company_site_phone.py
+      - tests/test_contact_phone_external_contract.py
+      - tests/test_replay_v9_structured_contacts.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused M4 tests
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_company_site_contact.py \
+            tests/test_company_site_phone.py \
+            tests/test_contact_phone_external_contract.py \
+            tests/test_replay_v9_structured_contacts.py
+
+      - name: Download already-consumed frozen 1000 retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'final-release-chunk-*' \
+            --dir archived/final-release
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Replay structured contacts without network
+        run: |
+          mkdir -p out/v9-m4
+          uv run python scripts/replay_v9_structured_contacts.py \
+            --profiles-dir archived/final-release \
+            --baseline-output submission/final-release-1000-output.jsonl.gz \
+            --challenger-output out/v9-m4/challenger-output.jsonl.gz \
+            --report out/v9-m4/report.json \
+            --manual-audit out/v9-m4/manual-audit.jsonl
+
+      - name: Enforce zero-request structural gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("out/v9-m4/report.json").read_text())
+          assert report["companies"] == 1000
+          assert report["network_requests_added"] == 0
+          assert float(report["third_party_cost_usd"]) == 0.0
+          assert report["existing_contact_publications_lost"] == 0
+          assert report["non_contact_claims_changed"] == 0
+          assert report["contract_canonical_synthesis_errors"] == 0
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - name: Print manual audit rows
+        run: |
+          echo '--- V9 M4 net-new publications requiring manual review ---'
+          cat out/v9-m4/manual-audit.jsonl || true
+
+      - name: Hash replay outputs
+        run: |
+          sha256sum \
+            submission/final-release-1000-output.jsonl.gz \
+            out/v9-m4/challenger-output.jsonl.gz \
+            out/v9-m4/report.json \
+            out/v9-m4/manual-audit.jsonl \
+            | tee out/v9-m4/sha256.txt
+
+      - name: Upload M4 replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m4-structured-contact-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-m4/report.json
+            out/v9-m4/manual-audit.jsonl
+            out/v9-m4/challenger-output.jsonl.gz
+            out/v9-m4/sha256.txt
