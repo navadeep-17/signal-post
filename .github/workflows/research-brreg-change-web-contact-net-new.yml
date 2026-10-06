@@ -1,0 +1,208 @@
+name: Research BRREG Change Web/Contact Net-New
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-change-web-contact-net-new.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compare discarded change values with current production output
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          from __future__ import annotations
+          import concurrent.futures
+          import datetime as dt
+          import gzip
+          import json
+          import re
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          ENDPOINT='https://data.brreg.no/enhetsregisteret/api/oppdateringer/enheter'
+          ACCEPT='application/vnd.brreg.enhetsregisteret.oppdatering.enhet.v1+json'
+          UA='Signalpost-research-source-screen/1.0'
+          TODAY=dt.datetime(2026,10,6,tzinfo=dt.timezone.utc)
+          CUTOFF=TODAY-dt.timedelta(days=365)
+          BATCH=100
+
+          inputs=[
+              json.loads(line)
+              for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
+          orgs=[str(x['organisation_number']) for x in inputs]
+          targets=set(orgs)
+          assert len(targets)==1000
+
+          verified_web=set()
+          registered_email=set()
+          registered_phone=set()
+          registered_mobile=set()
+          with gzip.open('submission/final-release-1000-output.jsonl.gz','rt',encoding='utf-8') as h:
+              seen=set()
+              for line in h:
+                  if not line.strip(): continue
+                  row=json.loads(line); org=str(row.get('organisation_number') or '')
+                  if org not in targets: continue
+                  seen.add(org)
+                  for claim in row.get('claims') or []:
+                      if not isinstance(claim,dict) or claim.get('availability')!='available':
+                          continue
+                      field=claim.get('field')
+                      if field=='official_website' and claim.get('value'): verified_web.add(org)
+                      elif field=='registered_contact_email' and claim.get('value'): registered_email.add(org)
+                      elif field=='registered_phone' and claim.get('value'): registered_phone.add(org)
+                      elif field=='registered_mobile' and claim.get('value'): registered_mobile.add(org)
+              assert seen==targets
+
+          def fetch(chunk):
+              query=urllib.parse.urlencode({
+                  'organisasjonsnummer':','.join(chunk),
+                  'includeChanges':'true','size':'10000','sort':'id,DESC',
+              })
+              req=urllib.request.Request(f'{ENDPOINT}?{query}',headers={
+                  'User-Agent':UA,'Accept':ACCEPT,'Accept-Encoding':'identity'
+              })
+              try:
+                  with urllib.request.urlopen(req,timeout=45) as resp:
+                      raw=resp.read(25_000_001); status=resp.status
+                  if len(raw)>25_000_000: return status,[],len(raw),'too_large'
+                  payload=json.loads(raw.decode('utf-8'))
+                  embedded=payload.get('_embedded') if isinstance(payload,dict) else {}
+                  events=(embedded or {}).get('oppdaterteEnheter') if isinstance(embedded,dict) else []
+                  return status,events if isinstance(events,list) else [],len(raw),None
+              except urllib.error.HTTPError as exc:
+                  return exc.code,[],0,f'HTTP {exc.code}'
+              except Exception as exc:
+                  return 0,[],0,f'{type(exc).__name__}:{str(exc)[:120]}'
+
+          def parse_time(v):
+              try:
+                  x=dt.datetime.fromisoformat(str(v).replace('Z','+00:00'))
+                  if x.tzinfo is None: x=x.replace(tzinfo=dt.timezone.utc)
+                  return x.astimezone(dt.timezone.utc)
+              except Exception: return None
+
+          chunks=[orgs[i:i+BATCH] for i in range(0,len(orgs),BATCH)]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+              responses=list(pool.map(fetch,chunks))
+
+          http=Counter(str(x[0]) for x in responses)
+          errors=[x[3] for x in responses if x[3]]
+          bytes_total=sum(x[2] for x in responses)
+
+          # Latest recent non-remove value per org/path, so stale superseded values are not promoted.
+          latest={}
+          for (status,events,_,_),chunk in zip(responses,chunks):
+              requested=set(chunk)
+              for event in events:
+                  if not isinstance(event,dict): continue
+                  org=str(event.get('organisasjonsnummer') or '')
+                  if org not in requested: continue
+                  ts=parse_time(event.get('dato'))
+                  if not ts or not (CUTOFF<=ts<=TODAY+dt.timedelta(days=1)): continue
+                  event_id=str(event.get('oppdateringsid') or '')
+                  for change in event.get('endringer') or []:
+                      if not isinstance(change,dict): continue
+                      path=str(change.get('path') or '')
+                      if path not in {'/hjemmeside','/epostadresse','/telefon','/mobil'}: continue
+                      op=str(change.get('op') or '').casefold()
+                      value=' '.join(str(change.get('value') or '').split()) if op!='remove' else ''
+                      key=(org,path)
+                      sort_key=(ts,event_id)
+                      current=latest.get(key)
+                      if current is None or sort_key>current['sort_key']:
+                          latest[key]={'sort_key':sort_key,'op':op,'value':value}
+
+          by_path=defaultdict(set)
+          with_nonempty=defaultdict(set)
+          for (org,path),entry in latest.items():
+              by_path[path].add(org)
+              if entry['op'] in {'add','replace'} and entry['value']:
+                  with_nonempty[path].add(org)
+
+          baseline={
+              '/hjemmeside':verified_web,
+              '/epostadresse':registered_email,
+              '/telefon':registered_phone,
+              '/mobil':registered_mobile,
+          }
+
+          per_path={}
+          net_new_values={}
+          for path in ['/hjemmeside','/epostadresse','/telefon','/mobil']:
+              values=with_nonempty[path]
+              base=baseline[path]
+              net=values-base
+              per_path[path]={
+                  'companies_with_recent_latest_change':len(by_path[path]),
+                  'companies_with_recent_nonempty_latest_value':len(values),
+                  'overlap_current_available_claim':len(values & base),
+                  'net_new_vs_current_available_claim':len(net),
+              }
+              # Preserve candidate values only for net-new website rows, needed for next exact-site gate.
+              if path=='/hjemmeside':
+                  for org in sorted(net):
+                      value=latest[(org,path)]['value']
+                      net_new_values[org]=value
+
+          report={
+              'screen_type':'brreg_change_feed_web_contact_net_new_vs_frozen_output',
+              'cohort_companies':1000,
+              'external_requests':len(chunks),
+              'incremental_production_source_requests':0,
+              'http_status_counts':dict(sorted(http.items())),
+              'errors':errors,
+              'response_bytes':bytes_total,
+              'current_verified_website_companies':len(verified_web),
+              'current_registered_email_companies':len(registered_email),
+              'current_registered_phone_companies':len(registered_phone),
+              'current_registered_mobile_companies':len(registered_mobile),
+              'per_path':per_path,
+              'net_new_website_candidate_companies':len(net_new_values),
+              'search_api_requests':0,
+              'third_party_cost_usd':0.0,
+              'reuse_rights_status':'NLOD_2_0',
+              'production_publication_enabled':False,
+              'notes':[
+                  'Only the latest <=365-day exact-org change per field is considered.',
+                  'Remove operations and blank values cannot nominate a site/contact.',
+                  'Website change values are candidates only and require the existing exact-site verifier.',
+                  'Production already pays the BRREG change-feed request family; source-request increment would be zero.',
+              ],
+          }
+          Path('out/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          Path('out/net-new-websites.jsonl').write_text(
+              ''.join(json.dumps({'organisation_number':org,'candidate':value},ensure_ascii=False,sort_keys=True)+'\n' for org,value in sorted(net_new_values.items())),
+              encoding='utf-8',
+          )
+          print(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload bounded net-new evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-change-web-contact-net-new
+          retention-days: 30
+          path: |
+            out/report.json
+            out/net-new-websites.jsonl
