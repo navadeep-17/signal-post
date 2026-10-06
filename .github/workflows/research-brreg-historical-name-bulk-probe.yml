@@ -1,0 +1,141 @@
+name: Research BRREG Historical-Name Bulk Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-historical-name-bulk-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download current BRREG bulk CSV once
+        run: |
+          mkdir -p out
+          URL='https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'
+          HTTP="$(curl --silent --show-error --location --retry 0             --user-agent 'Signalpost-research-source-screen/1.0'             --connect-timeout 15 --max-time 600             --write-out '%{http_code}'             "$URL" -o out/enheter.csv.gz || true)"
+          echo "brreg-bulk-http=$HTTP"
+          test "$HTTP" = "200"
+          test -s out/enheter.csv.gz
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p=Path('out/enheter.csv.gz')
+          print('compressed-bytes=',p.stat().st_size)
+          print('snapshot-sha256=',hashlib.sha256(p.read_bytes()).hexdigest())
+          assert p.read_bytes()[:2] == b'\x1f\x8b', 'expected gzip BRREG CSV'
+          PY
+
+      - name: Inspect historical-name schema and consumed-1000 reach
+        run: |
+          python - <<'PY'
+          import csv, gzip, json, re
+          from pathlib import Path
+
+          targets={
+              str(json.loads(line)['organisation_number'])
+              for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          }
+          assert len(targets)==1000
+
+          with gzip.open('out/enheter.csv.gz','rt',encoding='utf-8-sig',newline='') as h:
+              sample=h.read(32768)
+              h.seek(0)
+              dialect=csv.Sniffer().sniff(sample,delimiters=';,\t')
+              reader=csv.DictReader(h,dialect=dialect)
+              headers=list(reader.fieldnames or [])
+              print('delimiter=',repr(dialect.delimiter))
+              print('header-count=',len(headers))
+              historical_headers=[x for x in headers if 'histor' in x.casefold() or 'tidligere' in x.casefold()]
+              internet_headers=[
+                  x for x in headers
+                  if any(k in x.casefold() for k in ('hjemmeside','internett','website','webside','url'))
+              ]
+              print('historical-headers=',json.dumps(historical_headers,ensure_ascii=False))
+              print('internet-headers=',json.dumps(internet_headers,ensure_ascii=False))
+
+              org_headers=[x for x in headers if x.casefold() in {'organisasjonsnummer','organisasjonsnr'}]
+              if not org_headers:
+                  org_headers=[x for x in headers if 'organisasjonsnummer' in x.casefold()]
+              if not org_headers:
+                  raise SystemExit('organisation-number column unavailable')
+              org_key=org_headers[0]
+
+              matched=0
+              matched_with_historical=0
+              matched_with_any_internet=0
+              rows_scanned=0
+              historical_nonempty_cells=0
+              historical_examples=[]
+              internet_nonempty_cells=0
+              for row in reader:
+                  rows_scanned+=1
+                  org=re.sub(r'\D','',str(row.get(org_key) or ''))
+                  if org not in targets:
+                      continue
+                  matched+=1
+                  hvals={k:str(row.get(k) or '').strip() for k in historical_headers if str(row.get(k) or '').strip()}
+                  ivals={k:str(row.get(k) or '').strip() for k in internet_headers if str(row.get(k) or '').strip()}
+                  if hvals:
+                      matched_with_historical+=1
+                      historical_nonempty_cells+=len(hvals)
+                      if len(historical_examples)<5:
+                          # Log shape only: header names, lengths and delimiter-ish markers, never target org/name/value.
+                          historical_examples.append({
+                              k:{
+                                  'chars':len(v),
+                                  'looks_json':v[:1] in '[{',
+                                  'contains_pipe':'|' in v,
+                                  'contains_semicolon':';' in v,
+                                  'contains_newline':'\n' in v,
+                              }
+                              for k,v in hvals.items()
+                          })
+                  if ivals:
+                      matched_with_any_internet+=1
+                      internet_nonempty_cells+=len(ivals)
+
+          report={
+              'screen_type':'brreg_bulk_historical_name_schema_consumed1000',
+              'cohort_companies':1000,
+              'rows_scanned':rows_scanned,
+              'matched_target_rows':matched,
+              'historical_headers':historical_headers,
+              'internet_headers':internet_headers,
+              'companies_with_historical_name_bulk_cells':matched_with_historical,
+              'companies_with_any_internet_bulk_cells':matched_with_any_internet,
+              'historical_nonempty_cells':historical_nonempty_cells,
+              'internet_nonempty_cells':internet_nonempty_cells,
+              'historical_value_shape_examples':historical_examples,
+              'external_requests':1,
+              'production_publication_enabled':False,
+              'raw_historical_names_retained':False,
+              'raw_internet_values_retained':False,
+              'matched_org_lists_retained':False,
+              'reuse_rights_status':'NLOD_2_0',
+          }
+          Path('out/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True))
+          PY
+
+      - name: Remove BRREG bulk payload
+        if: always()
+        run: rm -f out/enheter.csv.gz
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-historical-name-bulk-probe
+          retention-days: 30
+          path: out/report.json
