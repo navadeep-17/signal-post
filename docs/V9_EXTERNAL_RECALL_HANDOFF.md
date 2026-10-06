@@ -214,6 +214,26 @@ The parent→subunit relationship was explicitly forbidden from supplying parent
 
 Neither experiment changes the current Gate-A ceiling of **4 / 20**.
 
+
+### Exact-org OpenStreetMap/Overpass source screen
+
+A further consumed-only experiment queried exact OpenStreetMap organisation-number references for the frozen Gate-A parents plus their exact BRREG subunits.
+
+- branch: `experiment/v9-osm-orgnr-discovery`
+- workflow: `37449173244` — **PASS**
+- head: `bd65ed37b7a0ad4af946c76f5cac9eed1956a349`
+- artifact ID: `11405280045`
+- exact references queried: **37** (20 parents + 17 subunits)
+- OSM elements returned: **1**
+- website candidates nominated: **0**
+- new verified websites: **0**
+- logical requests: **21**
+- conservative request charge: **42**
+- third-party API cost: **$0**
+- decision: **SHELVE**
+
+The single exact-reference OSM element exposed only an email field for a PREG-related subunit and no website field. The experiment therefore does not change the Gate-A ceiling of **4 / 20**.
+
 ## Current decision
 
 **RETUNE.**
@@ -226,7 +246,7 @@ No fresh cohort has been consumed. No production provider has been enabled. No V
 
 1. Keep the exact frozen Gate-A 20; do not replace or cherry-pick the cohort.
 2. Continue Website Discovery 3.0 source retuning for **one** additional independently verifiable exact-company site; the current ceiling is 4/20 and the gate is 5/20.
-3. Prefer a rights-safe, evaluator-reproducible, organisation-number-anchored public source over another fetch relaxation. The next planned micro-screen is exact organisation-number OpenStreetMap/Overpass metadata used for URL nomination only, with one bounded cohort query and independent page verification.
+3. Prefer a rights-safe, evaluator-reproducible, organisation-number-anchored public source over another fetch relaxation. The next micro-screen should first inspect exact BRREG subunit names for trade/brand aliases, then test a bounded subunit-alias domain nomination path only if the aliases provide genuinely new candidate labels.
 4. Require the generic provider gate before any conventional live search-provider experiment: evaluator reproducibility, permitted rights/use, evaluator-accessible credential path when needed, bounded calls, and declared cost.
 5. Do **not** proceed to the consumed 100-company Gate B until Gate A reaches at least **5/20**, with **0 wrong-company publications** and **0 evidence defects**.
 6. Do not consume a fresh cohort before Gate A, Gate B, request-theorem proof, and full V9 CI all pass.
