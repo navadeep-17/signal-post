@@ -6,6 +6,8 @@ on:
       - research/bulk-exact-org-recall
     paths:
       - .github/workflows/research-etatsbasen-archive-website-screen.yml
+      - scripts/screen_etatsbasen_archive_website_reach.py
+      - tests/test_screen_etatsbasen_archive_website_reach.py
   workflow_dispatch:
 
 permissions:
