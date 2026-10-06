@@ -340,6 +340,8 @@ def _project_q4_feed_activity(
             "contact_phone_network_requests": 0,
             "company_authored_hiring_intent_enabled": True,
             "hiring_semantics_network_requests": 0,
+            "structured_article_date_extraction_enabled": True,
+            "structured_article_date_extraction_network_requests": 0,
         }
     )
     external_signals = report.setdefault("external_signals", {})
@@ -382,6 +384,7 @@ def _project_q4_feed_activity(
     checks["q4_feed_projection_contract_valid"] = not contract_errors
     checks["structured_contact_phone_projection_zero_network"] = True
     checks["company_authored_hiring_intent_projection_zero_network"] = True
+    checks["structured_article_date_extraction_zero_network"] = True
     checks["canonical_projection_valid"] = not canonical_errors
     checks["synthesis_valid"] = not synthesis_errors
     checks["q4_workspace_rebuild_valid"] = workspace_returncode == 0

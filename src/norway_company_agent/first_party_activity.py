@@ -110,6 +110,7 @@ DATE_PATTERNS = (
 )
 DATE_METHOD_PRIORITY = {
     "jsonld_newsarticle_date_published": 0,
+    "jsonld_blogposting_date_published": 0,
     "jsonld_article_date_published": 0,
     "meta_article_published_time": 0,
     "meta_itemprop_date_published": 1,
