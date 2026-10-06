@@ -1,0 +1,49 @@
+name: Research Offline Data.norge Candidate Triage
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-data-norge-candidate-triage.yml
+      - scripts/triage_data_norge_exact_org_candidates.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download frozen broad-catalogue artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/data-norge-broad
+          gh run download 37418587359 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-data-norge-broad-miner \
+            --dir archived/data-norge-broad
+          test -s archived/data-norge-broad/candidates.jsonl
+
+      - name: Rank candidate metadata offline
+        run: |
+          mkdir -p out/data-norge-triage
+          python scripts/triage_data_norge_exact_org_candidates.py \
+            --candidates archived/data-norge-broad/candidates.jsonl \
+            --report out/data-norge-triage/report.json
+          cat out/data-norge-triage/report.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: research-data-norge-candidate-triage
+          retention-days: 30
+          path: out/data-norge-triage/report.json
