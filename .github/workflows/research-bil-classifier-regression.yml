@@ -1,0 +1,72 @@
+name: Research BIL Classifier Regression
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - src/norway_company_agent/identity.py
+      - tests/test_identity_org_conflict.py
+      - scripts/audit_bil_sports_club_classifier.py
+      - tests/test_audit_bil_sports_club_classifier.py
+      - .github/workflows/research-bil-classifier-regression.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused website identity tests
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_identity_org_conflict.py \
+            tests/test_domain_discovery.py \
+            tests/test_screen_brreg_email_domain_shadow.py \
+            tests/test_audit_bil_sports_club_classifier.py
+
+      - name: Download frozen consumed profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'final-release-chunk-*' \
+            --dir archived/final-release
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Audit old versus corrected BIL classifier
+        run: |
+          mkdir -p out/bil-classifier
+          uv run python scripts/audit_bil_sports_club_classifier.py \
+            --profiles-dir archived/final-release \
+            --report out/bil-classifier/report.json
+          cat out/bil-classifier/report.json
+
+      - name: Run full pytest regression
+        run: uv run --with pytest pytest -q
+
+      - name: Upload aggregate impact report
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-bil-classifier-impact
+          retention-days: 30
+          path: out/bil-classifier/report.json
