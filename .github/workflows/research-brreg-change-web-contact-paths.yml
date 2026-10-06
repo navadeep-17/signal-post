@@ -1,0 +1,225 @@
+name: Research BRREG Change-Feed Web/Contact Paths
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-change-web-contact-paths.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Screen discarded website/contact change paths
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          from __future__ import annotations
+          import concurrent.futures
+          import datetime as dt
+          import hashlib
+          import json
+          import re
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          ENDPOINT='https://data.brreg.no/enhetsregisteret/api/oppdateringer/enheter'
+          ACCEPT='application/vnd.brreg.enhetsregisteret.oppdatering.enhet.v1+json'
+          UA='Signalpost-research-source-screen/1.0'
+          TODAY=dt.datetime(2026,10,6,tzinfo=dt.timezone.utc)
+          CUTOFF=TODAY-dt.timedelta(days=365)
+          BATCH=100
+
+          rows=[
+              json.loads(line)
+              for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
+          orgs=[str(row['organisation_number']) for row in rows]
+          assert len(orgs)==1000 and len(set(orgs))==1000
+          targets=set(orgs)
+
+          interesting_exact={
+              '/hjemmeside':'website',
+              '/epostadresse':'email',
+              '/telefon':'phone',
+              '/mobil':'mobile',
+          }
+          interesting_prefixes=(
+              ('/hjemmeside/','website'),
+              ('/epostadresse/','email'),
+              ('/telefon/','phone'),
+              ('/mobil/','mobile'),
+          )
+
+          def kind(path):
+              if path in interesting_exact:
+                  return interesting_exact[path]
+              for prefix,label in interesting_prefixes:
+                  if path.startswith(prefix):
+                      return label
+              return None
+
+          def parse_time(value):
+              try:
+                  x=dt.datetime.fromisoformat(str(value).replace('Z','+00:00'))
+                  if x.tzinfo is None: x=x.replace(tzinfo=dt.timezone.utc)
+                  return x.astimezone(dt.timezone.utc)
+              except Exception:
+                  return None
+
+          def fetch(chunk):
+              query=urllib.parse.urlencode({
+                  'organisasjonsnummer':','.join(chunk),
+                  'includeChanges':'true',
+                  'size':'10000',
+                  'sort':'id,DESC',
+              })
+              url=f'{ENDPOINT}?{query}'
+              req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':ACCEPT,'Accept-Encoding':'identity'})
+              try:
+                  with urllib.request.urlopen(req,timeout=45) as resp:
+                      raw=resp.read(25_000_001)
+                      status=resp.status
+                  if len(raw)>25_000_000:
+                      return {'status':status,'error':'too_large','events':[],'bytes':len(raw)}
+                  payload=json.loads(raw.decode('utf-8'))
+                  embedded=payload.get('_embedded') if isinstance(payload,dict) else {}
+                  events=(embedded or {}).get('oppdaterteEnheter') if isinstance(embedded,dict) else []
+                  page=payload.get('page') if isinstance(payload,dict) else {}
+                  return {
+                      'status':status,
+                      'error':None,
+                      'events':events if isinstance(events,list) else [],
+                      'bytes':len(raw),
+                      'sha256':hashlib.sha256(raw).hexdigest(),
+                      'total_elements':int((page or {}).get('totalElements') or len(events)) if isinstance(page,dict) else len(events),
+                  }
+              except urllib.error.HTTPError as exc:
+                  return {'status':exc.code,'error':f'HTTP {exc.code}','events':[],'bytes':0}
+              except Exception as exc:
+                  return {'status':0,'error':f'{type(exc).__name__}:{str(exc)[:160]}','events':[],'bytes':0}
+
+          chunks=[orgs[i:i+BATCH] for i in range(0,len(orgs),BATCH)]
+          results=[]
+          # Keep concurrency low; these are official exact-org batches.
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+              results=list(pool.map(fetch,chunks))
+
+          http=Counter(str(r['status']) for r in results)
+          errors=[r['error'] for r in results if r.get('error')]
+          bytes_total=sum(int(r.get('bytes') or 0) for r in results)
+          truncated=sum(int(r.get('total_elements') or 0)>len(r.get('events') or []) for r in results)
+
+          path_counts=Counter()
+          recent_path_counts=Counter()
+          companies_by_kind=defaultdict(set)
+          recent_companies_by_kind=defaultdict(set)
+          candidate_value_shape=defaultdict(Counter)
+          events_seen=0
+          unexpected=set()
+          web_contact_events=0
+          recent_web_contact_events=0
+
+          for batch_result,chunk in zip(results,chunks):
+              requested=set(chunk)
+              for event in batch_result.get('events') or []:
+                  if not isinstance(event,dict): continue
+                  events_seen+=1
+                  org=str(event.get('organisasjonsnummer') or '')
+                  if org not in requested:
+                      unexpected.add(org); continue
+                  ts=parse_time(event.get('dato'))
+                  is_recent=bool(ts and CUTOFF<=ts<=TODAY+dt.timedelta(days=1))
+                  changes=event.get('endringer') or []
+                  if not isinstance(changes,list): continue
+                  event_interesting=False
+                  for change in changes:
+                      if not isinstance(change,dict): continue
+                      path=str(change.get('path') or '').strip()
+                      path_counts[path]+=1
+                      label=kind(path)
+                      if not label: continue
+                      event_interesting=True
+                      companies_by_kind[label].add(org)
+                      if is_recent:
+                          recent_companies_by_kind[label].add(org)
+                          recent_path_counts[path]+=1
+                      if str(change.get('op') or '').casefold() in {'add','replace'}:
+                          value=change.get('value')
+                          text=' '.join(str(value or '').split())
+                          if text:
+                              if label=='website':
+                                  if '://' in text: candidate_value_shape[label]['url_with_scheme']+=1
+                                  elif '.' in text: candidate_value_shape[label]['domainish']+=1
+                                  else: candidate_value_shape[label]['other']+=1
+                              elif label=='email':
+                                  candidate_value_shape[label]['has_at' if '@' in text else 'other']+=1
+                              else:
+                                  digits=re.sub(r'\D','',text)
+                                  candidate_value_shape[label]['phoneish' if len(digits)>=8 else 'other']+=1
+                  if event_interesting:
+                      web_contact_events+=1
+                      if is_recent: recent_web_contact_events+=1
+
+          all_any=set().union(*companies_by_kind.values()) if companies_by_kind else set()
+          recent_any=set().union(*recent_companies_by_kind.values()) if recent_companies_by_kind else set()
+          report={
+              'screen_type':'brreg_change_feed_discarded_web_contact_path_reach',
+              'cohort_companies':1000,
+              'batch_size':BATCH,
+              'external_requests':len(chunks),
+              'http_status_counts':dict(sorted(http.items())),
+              'errors':errors,
+              'response_bytes':bytes_total,
+              'truncated_batches':truncated,
+              'events_seen':events_seen,
+              'unexpected_organisation_numbers':len(unexpected),
+              'web_contact_events':web_contact_events,
+              'recent_web_contact_events':recent_web_contact_events,
+              'companies_with_any_web_contact_change':len(all_any),
+              'recent_companies_with_any_web_contact_change':len(recent_any),
+              'companies_by_kind':{k:len(v) for k,v in sorted(companies_by_kind.items())},
+              'recent_companies_by_kind':{k:len(v) for k,v in sorted(recent_companies_by_kind.items())},
+              'top_all_change_paths':dict(path_counts.most_common(40)),
+              'web_contact_path_counts':{
+                  path:count for path,count in sorted(path_counts.items())
+                  if kind(path)
+              },
+              'recent_web_contact_path_counts':dict(sorted(recent_path_counts.items())),
+              'candidate_value_shape_counts':{
+                  k:dict(v) for k,v in sorted(candidate_value_shape.items())
+              },
+              'incremental_production_source_requests':0,
+              'reason':'production already reserves/fetches one exact-org BRREG change-feed batch per 100 companies',
+              'third_party_cost_usd':0.0,
+              'search_api_requests':0,
+              'reuse_rights_status':'NLOD_2_0',
+              'production_publication_enabled':False,
+              'raw_values_retained':False,
+              'matched_org_lists_retained':False,
+          }
+          Path('out/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload aggregate path report
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-change-web-contact-paths
+          retention-days: 30
+          path: out/report.json
