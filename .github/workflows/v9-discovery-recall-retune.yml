@@ -1,0 +1,38 @@
+name: V9 Discovery Recall Retune
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-discovery-recall-retune
+    paths:
+      - src/norway_company_agent/v9_discovery.py
+      - tests/test_v9_discovery.py
+      - .github/workflows/v9-discovery-recall-retune.yml
+
+permissions:
+  contents: read
+
+jobs:
+  nomination-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync locked environment
+        run: uv sync --locked
+      - name: Run broadened nomination and unchanged verifier regressions
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v9_discovery.py \
+            tests/test_search_discovery.py \
+            tests/test_identity_org_conflict.py \
+            tests/test_zero_cost_discovery.py
