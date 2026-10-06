@@ -387,6 +387,38 @@ The only exact-reference OSM object was a BRREG subunit already associated with 
 Decision: **SHELVE as a primary Gate-A website source.** The source was precise but too sparse. Do not turn OSM organisation tags or BRREG parent→subunit relations into identity proof, and do not depend on the public Overpass endpoint for production without a separate reliability/rights review.
 
 
+## Source screen 9 — BRREG subunit alias diagnostic
+
+Before spending page-verification requests on subunit-derived trade-name guesses, a consumed-only diagnostic inspected the exact BRREG subunit names for the same frozen Gate-A parents.
+
+Isolated branch:
+
+`experiment/v9-subunit-alias-domains`
+
+Diagnostic:
+
+- workflow: `37450061895` — **PASS**
+- head: `65553450df888a1d6026d4df03d7a80af224a2cf`
+- artifact ID: `11406306039`
+- artifact digest: `sha256:b6cdc6129edacaec0c3d6c4945d8b99776939142b5c63cdf48d267700931e8cd`
+- exact BRREG subunits observed: **17**
+- parents with distinct alias-domain candidates: **0**
+- candidate URLs nominated: **0**
+- registry requests: **20**
+- logical requests: **20**
+- conservative request charge: **40**
+- bytes: **23,529**
+- runtime: **12.912 s**
+- third-party API cost: **$0**
+- site verification requests: **0**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+All observed subunit names collapsed to the parent legal name after removing legal-form/branch/location tokens. There was therefore no genuinely new trade-name label worth independently fetching.
+
+Decision: **DROP the full subunit-alias website screen.** The diagnostic prevented wasting up to forty guessed-domain fetches without weakening identity or consuming fresh data.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
