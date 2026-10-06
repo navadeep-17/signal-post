@@ -1,0 +1,80 @@
+name: Research Retained Profile Field Inventory
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-retained-profile-field-inventory.yml
+      - scripts/audit_retained_profile_field_inventory.py
+      - tests/test_audit_retained_profile_field_inventory.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test privacy-minimized inventory
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_retained_profile_field_inventory.py
+
+      - name: Download archived final-release retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Inventory retained paths with zero network requests
+        run: |
+          mkdir -p out/retained-field-inventory
+          uv run python scripts/audit_retained_profile_field_inventory.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --min-companies 20             --report out/retained-field-inventory/report.json
+
+      - name: Print only high-coverage potentially useful paths
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report=json.loads(Path("out/retained-field-inventory/report.json").read_text())
+          useful_terms=(
+              "website","email","phone","mobile","social","employee","workforce",
+              "role","address","industry","activity","purpose","description",
+              "annual","account","capital","vat","sector","foundation","article",
+              "registration","structured","page","title","status"
+          )
+          selected=[]
+          for row in report["retained_paths"]:
+              p=row["path"].lower()
+              if any(term in p for term in useful_terms):
+                  selected.append(row)
+          print("candidate-path-count=",len(selected))
+          for row in selected[:250]:
+              print(json.dumps(row,ensure_ascii=False,sort_keys=True))
+          print("claim-field-coverage=",json.dumps(report["current_available_claim_field_coverage"],sort_keys=True))
+          print("canonical-fact-coverage=",json.dumps(report["current_available_canonical_fact_coverage"],sort_keys=True))
+          PY
+
+      - name: Upload aggregate path inventory only
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-retained-profile-field-inventory
+          retention-days: 30
+          path: out/retained-field-inventory/report.json
