@@ -1,0 +1,93 @@
+name: Research Doffin Winner Identity Crosscheck
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-winner-identity-crosscheck.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  crosscheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross-check Doffin winner names against exact BRREG identity and historical names
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import unicodedata
+          from urllib.request import Request,urlopen
+          from urllib.error import HTTPError
+
+          # Exact org/name pairs observed in the consumed-only Doffindata detail screen.
+          pairs={
+              "835761762":"Johansen Monumenthuggeri AS",
+              "923456317":"Iteam AS",
+              "943378649":"OPUS AS",
+              "960186516":"Riksheim Consulting AS",
+              "980152634":"Trucktech AS",
+              "986674373":"Larssen Maskin AS",
+              "987100648":"UNIFON AS",
+              "987210001":"Oneco Networks AS",
+              "995141450":"Clemens Eiendom AS",
+              "996043428":"Bogstrand AS",
+              "998354137":"Castor Autogen Mekaniske AS",
+              "999326536":"Ulstein. AS",
+          }
+
+          def norm(s):
+              s=unicodedata.normalize("NFKD",str(s or ""))
+              s="".join(ch for ch in s if not unicodedata.combining(ch))
+              s=s.casefold()
+              s=re.sub(r"[^a-z0-9]+"," ",s)
+              return " ".join(s.split())
+
+          exact_current=0
+          exact_historical=0
+          unresolved=[]
+          for org,winner in pairs.items():
+              url=f"https://data.brreg.no/enhetsregisteret/api/enheter/{org}"
+              req=Request(url,headers={
+                  "Accept":"application/vnd.brreg.enhetsregisteret.enhet.v2+json",
+                  "User-Agent":"Signalpost-research-source-screen/1.0",
+              })
+              try:
+                  with urlopen(req,timeout=20) as r:
+                      data=json.loads(r.read().decode("utf-8"))
+                      status=r.status
+              except HTTPError as e:
+                  print("BRREG",org,"http=",e.code)
+                  unresolved.append(org)
+                  continue
+              current=str(data.get("navn") or "")
+              history=data.get("historiskeNavn") or []
+              historical=[str(x.get("navn") or "") for x in history if isinstance(x,dict)]
+              current_match=norm(winner)==norm(current)
+              historical_match=any(norm(winner)==norm(x) for x in historical)
+              if current_match: exact_current+=1
+              elif historical_match: exact_historical+=1
+              else: unresolved.append(org)
+              print(
+                  "IDENTITY",
+                  org,
+                  "winner=",repr(winner),
+                  "current=",repr(current),
+                  "current_match=",current_match,
+                  "historical_match=",historical_match,
+                  "historical_names=",json.dumps(historical,ensure_ascii=False),
+              )
+          print("exact-current-name=",exact_current)
+          print("exact-historical-name=",exact_historical)
+          print("unresolved-name-pairs=",len(unresolved))
+          print("unresolved-orgs=",unresolved)
+          print("VIABILITY exact-org-count=",len(pairs))
+          print("VIABILITY identity-name-supported=",len(pairs)-len(unresolved))
+          PY
