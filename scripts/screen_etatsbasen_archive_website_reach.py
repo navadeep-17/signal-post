@@ -91,7 +91,13 @@ def scan(
     target_org_rows = 0
 
     with organisations_csv.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
+        sample = handle.read(65536)
+        handle.seek(0)
+        try:
+            delimiter = csv.Sniffer().sniff(sample, delimiters=";,\\t").delimiter
+        except csv.Error:
+            delimiter = ";"
+        reader = csv.DictReader(handle, delimiter=delimiter)
         required = {"tailid", "orgid"}
         if not required.issubset(set(reader.fieldnames or [])):
             raise ValueError(f"organisation CSV missing {sorted(required)}")
@@ -116,7 +122,13 @@ def scan(
     matched_url_rows = 0
     website_hits: set[str] = set()
     with urls_csv.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
+        sample = handle.read(65536)
+        handle.seek(0)
+        try:
+            delimiter = csv.Sniffer().sniff(sample, delimiters=";,\\t").delimiter
+        except csv.Error:
+            delimiter = ";"
+        reader = csv.DictReader(handle, delimiter=delimiter)
         required = {"tailid", "url"}
         if not required.issubset(set(reader.fieldnames or [])):
             raise ValueError(f"URL CSV missing {sorted(required)}")
