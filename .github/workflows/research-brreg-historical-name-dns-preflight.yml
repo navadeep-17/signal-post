@@ -1,0 +1,109 @@
+name: Research BRREG Historical-Name DNS Preflight
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-historical-name-dns-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --locked
+
+      - name: Download frozen 50-domain candidate set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/prior
+          gh run download 37442619950             --repo "$GITHUB_REPOSITORY"             --name research-brreg-historical-name-candidate-reach             --dir out/prior
+          test -s out/prior/candidates.jsonl
+
+      - name: Resolve all historical-name candidates through Signalpost public-host guard
+        env:
+          PYTHONPATH: src
+        run: |
+          uv run python - <<'PY'
+          import concurrent.futures
+          import json
+          from collections import Counter
+          from pathlib import Path
+          from norway_company_agent.website import assert_public_url
+
+          pairs=[]
+          for line in Path('out/prior/candidates.jsonl').read_text(encoding='utf-8').splitlines():
+              if not line.strip(): continue
+              row=json.loads(line)
+              org=str(row.get('organisation_number') or '')
+              for domain in row.get('candidate_domains') or []:
+                  pairs.append((org,str(domain)))
+
+          def check(item):
+              org,domain=item
+              url=f'https://{domain}/'
+              try:
+                  assert_public_url(url)
+                  return {'organisation_number':org,'domain':domain,'safe_public_host':True,'reason':'resolved_public'}
+              except Exception as exc:
+                  return {
+                      'organisation_number':org,
+                      'domain':domain,
+                      'safe_public_host':False,
+                      'reason':f'{type(exc).__name__}:{str(exc)[:160]}',
+                  }
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+              rows=list(pool.map(check,pairs))
+
+          resolved=[r for r in rows if r['safe_public_host']]
+          resolved_orgs={r['organisation_number'] for r in resolved}
+          reason_types=Counter(r['reason'].split(':',1)[0] for r in rows if not r['safe_public_host'])
+          report={
+              'screen_type':'brreg_historical_name_all_candidates_dns_public_host_preflight',
+              'candidate_companies':len({org for org,_ in pairs}),
+              'candidate_domains':len(pairs),
+              'safe_public_host_domains':len(resolved),
+              'safe_public_host_companies':len(resolved_orgs),
+              'blocked_or_unresolved_domains':len(rows)-len(resolved),
+              'failure_type_counts':dict(sorted(reason_types.items())),
+              'http_requests':0,
+              'production_publication_enabled':False,
+              'notes':[
+                  'DNS/public-host preflight only; no candidate HTTP page is fetched.',
+                  'Resolved status is not website identity proof.',
+                  'Only safe public hosts may proceed to exact-site verification.',
+              ],
+          }
+          Path('out/report.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          Path('out/resolved.jsonl').write_text(
+              ''.join(json.dumps(r,sort_keys=True)+'\n' for r in resolved),
+              encoding='utf-8',
+          )
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload bounded preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-historical-name-dns-preflight
+          retention-days: 30
+          path: |
+            out/report.json
+            out/resolved.jsonl
