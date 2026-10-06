@@ -87,3 +87,24 @@ def test_canonical_hit_id_is_deterministic_without_explicit_id() -> None:
     b = {"nested": {"x": 1}, "title": "A"}
     assert module.canonical_hit_id(a) == module.canonical_hit_id(b)
     assert module.canonical_hit_id(a).startswith("sha256:")
+
+
+
+def test_broad_query_pagination_argument_bounds() -> None:
+    # The broad sweep reuses the same deterministic hit merger; page duplicates
+    # must collapse to one candidate rather than inflating source counts.
+    hit = {
+        "id": "dataset-broad",
+        "title": {"nb": "Register med organisasjonsnummer"},
+        "license": "https://data.norge.no/nlod/no/2.0",
+        "distribution": {"downloadURL": "https://example.test/register.csv"},
+    }
+    rows = module.mine_payloads(
+        [
+            ("organisasjonsnummer", {"hits": [hit]}),
+            ("organisasjonsnummer", {"hits": [dict(hit)]}),
+        ]
+    )
+    assert len(rows) == 1
+    assert rows[0]["dataset"] == "dataset-broad"
+    assert rows[0]["matched_queries"] == ["organisasjonsnummer"]
