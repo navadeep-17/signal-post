@@ -152,6 +152,44 @@ The secondary path correctly remained conservative:
 Decision: **SHELVE / NO-GO for integration.** The mechanism preserved precision but added **0** verified Gate-A companies while increasing request use. Keep the experiment and artifact as engineering evidence; do not merge its runtime code into the V9 integration branch.
 
 
+
+## Source screen 4 — expanded manual reconnaissance ceiling
+
+The same consumed-only verifier calibration was extended with additional externally discovered candidate URLs. This is a **ceiling / verifier-capability screen**, not provider qualification evidence.
+
+Final green expanded screen:
+
+- branch: `experiment/v9-recon-verifier-screen`
+- workflow: `37439876507` — PASS
+- head: `f716890697b6ab6004cbdcd5f5420d02c859d6e9`
+- artifact ID: `11400163382`
+- artifact digest: `sha256:9ef071c95140d38bb0cfbb14c6ad9ce56ec1013f774171f71e0aef215e541e32`
+- candidate URLs tested: **12**
+- machine-verified organisations: **4 / 20**
+- logical site requests: **23**
+- conservative request charge: **46**
+- third-party API cost recorded by the verifier screen: **$0**
+- production publications: **0**
+- fresh qualification credit: **none**
+- provider qualification credit: **none**
+
+The fourth exact organisation is:
+
+| Organisation | Company | Verified candidate | Exact-page result |
+|---|---|---|---|
+| 923368876 | TRE FOR EN AS | `https://hauglidhelse.no/` | accepted, score 1.0 |
+
+The fetched Hauglid Helse page explicitly labelled the exact target organisation number, so the unchanged search-discovered page identity guard accepted it without any verifier weakening.
+
+Additional useful negative/availability evidence:
+
+- `https://vibbo.no/sverresplass/om` is externally known to expose the exact SVERRESPLASS BORETTSLAG organisation number, but the bounded evaluator-style HTTP fetch returned `source_error`; it is therefore **not counted**.
+- `https://uba.no/`, linked to STIFTELSEN UTLEIEBOLIGER I ALTA through public company/email-domain discovery, was blocked by the bounded fetch path and is **not counted**.
+- `https://yd-maskin.no/`, surfaced as a candidate for YD MASKIN AS, returned `source_error` in the bounded fetch path and is **not counted**.
+
+This raises the observed manual/external reconnaissance ceiling from **3 / 20 to 4 / 20**, while preserving the conservative rule that inaccessible or non-independently-verifiable pages do not receive credit.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
@@ -166,7 +204,7 @@ Current measured machine-verifiable uplift is:
 
 ```text
 baseline exact websites:       0 / 20
-recon-verifiable candidates:  +3 / 20
+recon-verifiable candidates:  +4 / 20
 Gate-A continuation minimum:  +5 / 20
 ```
 
@@ -187,6 +225,6 @@ Do not:
 
 ## Exact next action
 
-Continue Website Discovery 3.0 source/provider retuning against this same frozen Gate-A 20. The next source must be able to nominate at least two additional candidates that independently pass the unchanged exact-company verifier, while remaining evaluator-reproducible and rights/cost compliant.
+Continue Website Discovery 3.0 source/provider retuning against this same frozen Gate-A 20. The next source must be able to nominate at least one additional candidate that independently passes the unchanged exact-company verifier, while remaining evaluator-reproducible and rights/cost compliant.
 
 Only after the frozen Gate-A result reaches at least **5 / 20** with **0 wrong-company publications** and **0 evidence defects** should V9 proceed to the consumed/dev 100-company transfer gate.
