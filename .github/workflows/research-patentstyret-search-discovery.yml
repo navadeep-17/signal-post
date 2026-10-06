@@ -1,0 +1,103 @@
+name: Research Patentstyret Public Search Discovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-search-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Patentstyret public search shell
+        run: |
+          mkdir -p out/js
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://search.patentstyret.no/' \
+            --output out/index.html
+          wc -c out/index.html
+
+      - name: Download current JavaScript assets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess
+
+          html = Path('out/index.html').read_text(encoding='utf-8', errors='replace')
+          refs = sorted(set(re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, flags=re.I)))
+          print('script-count:', len(refs))
+          for i, ref in enumerate(refs):
+              url = urljoin('https://search.patentstyret.no/', ref)
+              dest = Path('out/js') / f'{i:03d}.js'
+              code = subprocess.run([
+                  'curl','--silent','--show-error','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  '--write-out','%{http_code}',
+                  url,'--output',str(dest)
+              ], capture_output=True, text=True)
+              print('asset', i, 'http=', code.stdout.strip(), 'url=', url)
+              if code.returncode != 0 or code.stdout.strip() != '200':
+                  dest.unlink(missing_ok=True)
+          PY
+
+      - name: Search app assets for exact-org and search APIs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          files = [Path('out/index.html'), *Path('out/js').glob('*.js')]
+          needles = [
+              '/api/Search',
+              'api/Search',
+              'partyIdentifier',
+              'organisationNumber',
+              'organizationNumber',
+              'orgNumber',
+              'orgnr',
+              'applicant',
+              'holder',
+              'owner',
+              'searchTerm',
+              'searchQuery',
+          ]
+          urls = set()
+          for path in files:
+              text = path.read_text(encoding='utf-8', errors='replace')
+              low = text.lower()
+              matched = [n for n in needles if n.lower() in low]
+              if not matched:
+                  continue
+              print('\n===', path, 'bytes=', path.stat().st_size, 'matched=', matched, '===')
+              for needle in needles:
+                  start = 0
+                  shown = 0
+                  while shown < 15:
+                      idx = low.find(needle.lower(), start)
+                      if idx < 0:
+                          break
+                      print('\n---', needle, '---')
+                      print(text[max(0, idx-1000):min(len(text), idx+2600)])
+                      shown += 1
+                      start = idx + len(needle)
+              urls.update(re.findall(r'https?://[^"\'<>\\s]+', text))
+          print('\n=== candidate urls ===')
+          for url in sorted(urls):
+              if 'patentstyret' in url.lower() or '/api/' in url.lower():
+                  print(url[:1200])
+          PY
+
+      - name: Remove search payloads
+        if: always()
+        run: rm -rf out
