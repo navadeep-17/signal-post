@@ -682,3 +682,95 @@ a materially more efficient query surface.
 8. Do not reopen Nkom unchanged, OSM exact-org website discovery, the current Finanstilsynet pagination strategy, Patentstyret broad per-company lookup, Peppol website nomination, eInnsyn broad per-company lookup, or BRREG announcements unchanged.
 9. Keep SGregister/DSB and any source with unresolved persistent-reuse rights out of production proposals regardless of raw coverage.
 10. Keep this entire track isolated from production and fresh evaluator cohorts until a candidate demonstrates materially better consumed-cohort value than the already-measured paths.
+
+
+## R12 — BRREG historical-name deterministic .no discovery
+
+Status: **MEASURED / DROP**.
+
+Why tested:
+
+- BRREG open-data v2 added `historiskeNavn` to live entity/search responses in June 2026;
+- production already performs one exact live BRREG entity request per company, so retaining this field would add **0 incremental BRREG requests**;
+- former legal names can plausibly survive in legacy company domains after a rename.
+
+Official source semantics:
+
+- exact organisation number remains the legal-entity anchor;
+- historical name is candidate-generation evidence only;
+- BRREG open data is NLOD 2.0;
+- the existing Signalpost website identity gate and registry-risk guard remain unchanged.
+
+### R12.1 bulk-field probe
+
+Workflow run: **37442303037**  
+Artifact: **11402290813**
+
+Current BRREG bulk CSV:
+
+- compressed bytes: **154,858,476**;
+- rows scanned: **1,176,746**;
+- consumed-1000 target rows present: **998**;
+- header count: **90**;
+- historical-name columns: **0**;
+- internet-like columns: only **`hjemmeside`**;
+- target companies with non-empty internet field: **116**.
+
+Conclusion: `historiskeNavn` is available in the live/search API but not in the current bulk CSV, and there is no second hidden bulk internet-address field to recover.
+
+### R12.2 live exact-org candidate reach
+
+Workflow run: **37442619950**  
+Artifact: **11401443977**
+
+Deterministic consumed 100:
+
+- baseline verified websites: **13/100**;
+- unresolved websites: **87/100**;
+- live BRREG entity calls: **100/100 HTTP 200**;
+- unresolved companies with historical names: **25/87**;
+- unresolved companies with distinct historical-name `.no` candidates: **23/87 = 26.4%**;
+- distinct candidate domains: **50**;
+- latest historical-name end within 1 year: **1 company**;
+- within 3 years: **6 companies**;
+- within 5 years: **12 companies**;
+- within 10 years: **16 companies**;
+- incremental production BRREG requests if the field were retained from the already-paid live entity response: **0**.
+
+This candidate availability was high enough to justify one bounded transfer test.
+
+### R12.3 transfer / DNS gate
+
+Most-recent compact candidate transfer run: **37443128589**, artifact **11401818668**.
+
+- candidate companies: **23**;
+- live entity responses: **23/23 HTTP 200**;
+- site logical requests: **0**;
+- all **23/23** most-recent compact candidates failed the safe public-host/DNS preflight and were marked blocked before HTTP;
+- identity publications: **0**.
+
+All-candidate DNS/public-host preflight: **37443309574**, artifact **11402590304**.
+
+- candidate domains: **50**;
+- safe public-host domains: **1**;
+- safe public-host companies: **1**;
+- unresolved/blocked domains: **49**;
+- HTTP requests: **0**.
+
+Final sole-survivor verification: **37443436371**, artifact **11402800206**.
+
+- survivor candidates: **1**;
+- BRREG entity HTTP: **200**;
+- site logical requests: **2**;
+- site status: **blocked**;
+- current-entity identity publishable: **false**;
+- registry-guard publishable: **false**;
+- verified websites: **0**.
+
+Decision: **DROP historical-name deterministic `.no` website discovery**. The official name-history signal is exact and free, but almost every derived legacy domain fails even DNS/public-host viability, and the sole survivor failed page verification. Do not add this path to production or spend additional candidate slots on it unchanged.
+
+All R12 live workflows are frozen to manual-only after the result.
+
+## Next direction after R12
+
+Website discovery remains the root external-recall bottleneck, but another guessed-domain family is not justified. The next screens should prioritize **collected-but-not-emitted fields from source responses already paid for in production**. Highest priority: inspect the current Støtteregisteret recipient/support payload for website/domain/contact fields that are currently discarded. If such fields exist, measure exact-org candidate reach and net-new website overlap before any page fetch. This preserves the zero-additional-source-request strategy.
