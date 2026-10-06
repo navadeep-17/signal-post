@@ -30,8 +30,8 @@ def test_homepage_advertised_feed_links_are_rss_atom_and_same_site_only() -> Non
         """,
         "lxml",
     )
-    assert advertised_feed_links("https://www.example.no/", soup) == [
-        "https://www.example.no/updates.atom",
+    assert advertised_feed_links("https://example.no/", soup) == [
+        "https://example.no/updates.atom",
         "https://news.example.no/rss",
     ]
 
