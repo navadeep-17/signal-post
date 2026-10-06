@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Screen the Peppol Directory BusinessCard export for exact Norwegian org numbers.
+"""Aggregate exact-org Peppol Directory coverage for Norwegian companies.
 
 Research-only source qualification. No Signalpost production claims are emitted.
 
-The official Peppol Directory CSV exporter uses ISO-8859-1 with a semicolon
-separator and stable columns including Participant ID, Names (per-row),
-Websites, Contact email and Registration date. Norwegian organisations are
-accepted only when the participant identifier uses ISO 6523 scheme 0192 and
-contains one exact 9-digit value.
+Privacy/data-minimisation boundary:
+- exact Norwegian participant scheme 0192 is the only identity join;
+- contact fields are never read into the result model;
+- raw names and raw website URLs are not persisted;
+- the retained report contains only aggregate coverage counts;
+- the source export is deleted by the workflow after screening.
+
+This is deliberately a source-selection screen, not a production connector.
 """
 
 from __future__ import annotations
@@ -28,11 +31,7 @@ PARTICIPANT_RE = re.compile(
 )
 EXPECTED_COLUMNS = {
     "Participant ID",
-    "Names (per-row)",
-    "Country code",
     "Websites",
-    "Contact email",
-    "Registration date",
 }
 
 
@@ -73,10 +72,10 @@ def participant_org(value: str) -> str | None:
     return match.group(1) if match else None
 
 
-def split_multivalue(value: str | None) -> list[str]:
+def has_value(value: str | None) -> bool:
     if value is None:
-        return []
-    return sorted({part.strip() for part in str(value).splitlines() if part.strip()})
+        return False
+    return any(part.strip() for part in str(value).splitlines())
 
 
 def sha256_file(path: Path) -> str:
@@ -95,7 +94,11 @@ def iter_business_rows(path: Path) -> Iterable[dict[str, str]]:
         if missing:
             raise ValueError(f"Peppol CSV missing expected columns: {sorted(missing)}")
         for row in reader:
-            yield {str(k): str(v or "") for k, v in row.items()}
+            # Deliberately expose only fields needed for aggregate source selection.
+            yield {
+                "Participant ID": str(row.get("Participant ID") or ""),
+                "Websites": str(row.get("Websites") or ""),
+            }
 
 
 def scan(path: Path, cohorts: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
@@ -103,24 +106,14 @@ def scan(path: Path, cohorts: dict[str, dict[str, dict[str, Any]]]) -> dict[str,
     for companies in cohorts.values():
         all_targets.update(companies)
 
-    matches: dict[str, dict[str, Any]] = {
-        org: {
-            "organisation_number": org,
-            "rows": 0,
-            "participant_ids": set(),
-            "names": set(),
-            "websites": set(),
-            "emails": set(),
-            "registration_dates": set(),
-            "country_codes": set(),
-        }
-        for org in all_targets
-    }
+    participant_hits: set[str] = set()
+    website_hits: set[str] = set()
 
     source_rows = 0
     norwegian_0192_rows = 0
     malformed_0192_rows = 0
     target_rows = 0
+
     for row in iter_business_rows(path):
         source_rows += 1
         pid_raw = row.get("Participant ID", "")
@@ -135,41 +128,21 @@ def scan(path: Path, cohorts: dict[str, dict[str, dict[str, Any]]]) -> dict[str,
         if org not in all_targets:
             continue
         target_rows += 1
-        hit = matches[org]
-        hit["rows"] += 1
-        hit["participant_ids"].add(decoded)
-        hit["names"].update(split_multivalue(row.get("Names (per-row)")))
-        hit["websites"].update(split_multivalue(row.get("Websites")))
-        hit["emails"].update(split_multivalue(row.get("Contact email")))
-        hit["registration_dates"].update(split_multivalue(row.get("Registration date")))
-        hit["country_codes"].update(split_multivalue(row.get("Country code")))
-
-    serial: dict[str, dict[str, Any]] = {}
-    for org, row in matches.items():
-        serial[org] = {
-            **row,
-            "participant_ids": sorted(row["participant_ids"]),
-            "names": sorted(row["names"]),
-            "websites": sorted(row["websites"]),
-            "emails": sorted(row["emails"]),
-            "registration_dates": sorted(row["registration_dates"]),
-            "country_codes": sorted(row["country_codes"]),
-        }
+        participant_hits.add(org)
+        if has_value(row.get("Websites")):
+            website_hits.add(org)
 
     cohort_reports: dict[str, Any] = {}
     for cohort_name, companies in cohorts.items():
-        rows = [serial[org] for org in companies]
-        participant_hits = [r for r in rows if r["rows"] > 0]
-        website_hits = [r for r in rows if r["websites"]]
-        email_hits = [r for r in rows if r["emails"]]
+        orgs = set(companies)
+        p = orgs & participant_hits
+        w = orgs & website_hits
         cohort_reports[cohort_name] = {
-            "companies": len(rows),
-            "participant_hits": len(participant_hits),
-            "participant_reach": round(len(participant_hits) / len(rows), 6),
-            "website_candidate_companies": len(website_hits),
-            "website_candidate_reach": round(len(website_hits) / len(rows), 6),
-            "email_candidate_companies": len(email_hits),
-            "email_candidate_reach": round(len(email_hits) / len(rows), 6),
+            "companies": len(orgs),
+            "participant_hits": len(p),
+            "participant_reach": round(len(p) / len(orgs), 6),
+            "website_candidate_companies": len(w),
+            "website_candidate_reach": round(len(w) / len(orgs), 6),
         }
 
     return {
@@ -177,7 +150,6 @@ def scan(path: Path, cohorts: dict[str, dict[str, dict[str, Any]]]) -> dict[str,
         "norwegian_0192_rows": norwegian_0192_rows,
         "malformed_0192_rows": malformed_0192_rows,
         "target_rows": target_rows,
-        "matches": serial,
         "cohorts": cohort_reports,
     }
 
@@ -201,16 +173,9 @@ def main() -> int:
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=True)
 
-    matches_path = output / "matched-companies.jsonl"
-    with matches_path.open("w", encoding="utf-8") as handle:
-        for org in sorted(result["matches"]):
-            row = result["matches"][org]
-            if row["rows"]:
-                handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-
     report = {
         "source": "Peppol Directory BusinessCard CSV export",
-        "screen_type": "exact_no_org_participant_0192",
+        "screen_type": "aggregate_exact_no_org_participant_0192",
         "export_bytes": args.export_gz.stat().st_size,
         "export_sha256": sha256_file(args.export_gz),
         "source_rows": result["source_rows"],
@@ -221,10 +186,19 @@ def main() -> int:
         "external_requests": 1,
         "production_publication_enabled": False,
         "reuse_rights_status": "UNRESOLVED_FOR_DIRECTORY_DATA",
+        "privacy_boundary": {
+            "contact_fields_retained": False,
+            "raw_names_retained": False,
+            "raw_websites_retained": False,
+            "matched_org_lists_retained": False,
+            "aggregate_counts_only": True,
+        },
         "notes": [
             "Only participant scheme 0192 with one exact 9-digit value establishes a target match.",
-            "Website and email values are source candidates only, not Signalpost publication proof.",
+            "Website presence is counted only as an aggregate candidate signal; raw URLs are not retained.",
+            "Contact email/name/phone fields are not collected by this screen.",
             "No production promotion is allowed until directory-data reuse rights are explicitly cleared.",
+            "Any later website candidate must independently pass Signalpost exact-company website verification.",
         ],
     }
     (output / "report.json").write_text(
