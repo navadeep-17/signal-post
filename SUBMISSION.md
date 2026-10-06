@@ -187,7 +187,36 @@ The generated workspace includes:
 
 Signalpost does not rank companies or invent a winner.
 
-## 10. Publication boundaries
+
+## 10. Preserved compatibility baseline
+
+The current top-level evaluator is V8, but the certified compatibility lineage remains explicit beneath it:
+
+- V8 delegates through `scripts/run_signalpost_v7.py`;
+- the certified data/evidence wrapper remains `scripts/run_signalpost_v2.py`;
+- the historical V2 canonical projection contains **19,951** canonical facts with zero canonical validation errors;
+- the same compatibility corpus contains **3,932** current individual role facts.
+
+Historical strict-activity diagnostics are deliberately preserved:
+
+| Compatibility diagnostic | Result |
+|---|---:|
+| Strict job-posting facts | **0** |
+| Strict dated company-update facts | **0** |
+
+Those zeroes are abstentions, not claims that the companies had no jobs or updates.
+
+A strict job posting requires the same verified company-owned site, a role/job **detail URL**, a specific title, a job-detail marker, and an **explicit apply/application action**.
+
+A strict dated company update requires the same verified company-owned site, a specific article/update **detail URL**, a non-generic title, and an **explicit publication date**.
+
+A **generic careers** page or section index is not an active-job fact. A company-declared social profile means only that the exact verified company page declared that URL; no platform **follower** count is inferred or fetched. A retained contact email does not establish **mailbox deliverability**.
+
+Server-side secrets required: **none**.
+
+The four Builderr score dimensions are weighted components of the **65/100** overall qualification rule; they are **not separate qualification thresholds**.
+
+## 11. Publication boundaries
 
 - a careers page is not an active vacancy;
 - a generic news/blog index is not a dated activity fact;
@@ -198,7 +227,7 @@ Signalpost does not rank companies or invent a winner.
 - a contact email must be present in retained first-party evidence and satisfy the verified-site domain rule;
 - official support remains typed official support and is never relabelled as company-authored activity.
 
-## 11. Verification
+## 12. Verification
 
 Repository baseline:
 
@@ -210,7 +239,7 @@ uv run python scripts/verify_submission_bundle.py
 
 The immutable V1/V5 historical release artifacts remain preserved for compatibility and auditability. They are not the current fresh qualification record.
 
-## 12. Builderr status
+## 13. Builderr status
 
 The repository release is **ready for the next Builderr revision submission**.
 
