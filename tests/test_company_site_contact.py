@@ -16,6 +16,7 @@ from norway_company_agent.external_footprint import validate_observation  # noqa
 def _profile(identity_text: str, *, website: str = "https://example.no/") -> dict:
     return {
         "organisation_number": "123456789",
+        "name": "Example AS",
         "external_observations": [],
         "evidence": {
             "website": {
@@ -110,3 +111,113 @@ def test_attachment_is_idempotent_and_preserves_other_observations() -> None:
     ids = [item["id"] for item in profile["external_observations"]]
     assert ids.count("existing-h2a") == 1
     assert len([value for value in ids if value.startswith("company-site-email-")]) == 1
+
+
+
+def test_recovers_same_domain_email_from_exact_named_jsonld_organization() -> None:
+    profile = _profile("Example AS · Org.nr 123 456 789")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Example AS",
+            "email": "Info@Example.no",
+        }
+    ]
+    observations = company_site_contact_email_observations(profile)
+    assert len(observations) == 1
+    item = observations[0]
+    assert item["contact_email"] == "info@example.no"
+    assert item["strategy"] == "verified_company_jsonld_same_domain_email_v1"
+    proof = {row["type"]: row for row in item["identity_proof"]}
+    assert proof["structured_organization_identity_gate"]["method"] == "structured_legal_name_token_match"
+    assert validate_observation(item) == []
+
+
+def test_recovers_jsonld_contactpoint_email_from_exact_org_identifier() -> None:
+    profile = _profile("")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Public brand",
+            "identifier": {
+                "@type": "PropertyValue",
+                "propertyID": "NO:ORG",
+                "value": "123 456 789",
+            },
+            "contactPoint": {
+                "@type": "ContactPoint",
+                "email": "sales@example.no",
+            },
+        }
+    ]
+    observations = company_site_contact_email_observations(profile)
+    assert len(observations) == 1
+    item = observations[0]
+    assert item["contact_email"] == "sales@example.no"
+    assert item["strategy"] == "verified_company_jsonld_same_domain_email_v1"
+    proof = {row["type"]: row for row in item["identity_proof"]}
+    gate = proof["structured_organization_identity_gate"]
+    assert gate["method"] == "structured_exact_organisation_number"
+    assert gate["observed_organisation_numbers"] == ["123456789"]
+
+
+def test_jsonld_explicit_wrong_org_vetoes_matching_name() -> None:
+    profile = _profile("")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Example AS",
+            "taxID": "987654321",
+            "email": "info@example.no",
+        }
+    ]
+    assert company_site_contact_email_observations(profile) == []
+
+
+def test_jsonld_other_organization_same_domain_abstains() -> None:
+    profile = _profile("")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Parent Holdings AS",
+            "email": "info@example.no",
+        }
+    ]
+    assert company_site_contact_email_observations(profile) == []
+
+
+def test_jsonld_cross_domain_email_abstains_after_exact_node_identity() -> None:
+    profile = _profile("")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Example AS",
+            "email": "info@parent-company.com",
+        }
+    ]
+    assert company_site_contact_email_observations(profile) == []
+
+
+def test_jsonld_free_text_email_is_not_scanned() -> None:
+    profile = _profile("")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Example AS",
+            "description": "Contact info@example.no for questions.",
+        }
+    ]
+    assert company_site_contact_email_observations(profile) == []
+
+
+def test_jsonld_telephone_number_does_not_become_org_identity() -> None:
+    profile = _profile("")
+    profile["evidence"]["website"]["value"]["structured_organisations"] = [
+        {
+            "@type": "Organization",
+            "name": "Other Company AS",
+            "telephone": "123456789",
+            "email": "info@example.no",
+        }
+    ]
+    assert company_site_contact_email_observations(profile) == []
