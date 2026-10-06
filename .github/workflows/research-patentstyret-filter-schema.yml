@@ -1,0 +1,101 @@
+name: Research Patentstyret Filter Schema Extraction
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-filter-schema.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current search bundle
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://search.patentstyret.no/' -o out/index.html
+          MAIN="$(python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('out/index.html').read_text(encoding='utf-8',errors='replace')
+          refs=re.findall(r'<script[^>]+src=["\']([^"\']*main\.[^"\']+\.js)["\']',s,re.I)
+          print(refs[0] if refs else '')
+          PY
+          )"
+          test -n "$MAIN"
+          case "$MAIN" in
+            http*) URL="$MAIN" ;;
+            /*) URL="https://search.patentstyret.no$MAIN" ;;
+            *) URL="https://search.patentstyret.no/advanced/$MAIN" ;;
+          esac
+          echo "bundle=$URL"
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' "$URL" -o out/main.js
+
+      - name: Extract identity and filter schema clues
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          s=Path('out/main.js').read_text(encoding='utf-8',errors='replace')
+          print('bundle-bytes=',len(s))
+
+          needles=[
+            'nameSearch',
+            'nameInput',
+            'applicants',
+            'proprietors',
+            'masterCustomer',
+            'customer',
+            'organisation',
+            'organization',
+            'orgnr',
+            'identifier',
+            'party',
+            'fieldName',
+            'filters',
+            'searchField',
+            'exactPhrase',
+          ]
+          for needle in needles:
+              positions=[m.start() for m in re.finditer(re.escape(needle),s,re.I)]
+              print(f'\n=== {needle} occurrences={len(positions)} ===')
+              for idx in positions[:24]:
+                  print(s[max(0,idx-1300):min(len(s),idx+3200)])
+                  print('\n---')
+
+          print('\n=== likely search-field descriptors ===')
+          descriptor_patterns=[
+              r'new [A-Za-z0-9_$]+\.km\([^)]{0,700}\)',
+              r'new [A-Za-z0-9_$]+\([^)]{0,500}(?:applicant|proprietor|customer|name|org)[^)]{0,500}\)',
+          ]
+          seen=set()
+          for pat in descriptor_patterns:
+              for m in re.finditer(pat,s,re.I):
+                  text=m.group(0)
+                  if text in seen:
+                      continue
+                  seen.add(text)
+                  if any(k in text.lower() for k in ['applicant','proprietor','customer','name','org','party']):
+                      print(text[:2500])
+
+          print('\n=== dotted string literals related to identity ===')
+          literals=set(re.findall(r'["\']([^"\']{1,180})["\']',s))
+          for lit in sorted(literals):
+              low=lit.lower()
+              if any(k in low for k in ['applicant','proprietor','customer','organisation','organization','orgnr','party','identifier']):
+                  print(lit)
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
