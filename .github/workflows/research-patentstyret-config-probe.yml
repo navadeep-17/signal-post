@@ -1,0 +1,47 @@
+name: Research Patentstyret Config Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-config-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch public APIM portal config
+        run: |
+          mkdir -p out
+          for NAME in config config-apim; do
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --write-out '%{http_code}' \
+              "https://developer.patentstyret.no/${NAME}.json" \
+              --output "out/${NAME}.json")"
+            echo "${NAME}-http=${CODE}"
+            if [ -s "out/${NAME}.json" ]; then
+              python - "${NAME}" <<'PY'
+          import json, sys
+          from pathlib import Path
+          name=sys.argv[1]
+          text=Path(f'out/{name}.json').read_text(encoding='utf-8', errors='replace')
+          print(name, 'prefix=', text[:12000])
+          try:
+              data=json.loads(text)
+              print(name, 'keys=', sorted(data) if isinstance(data, dict) else type(data).__name__)
+          except Exception as exc:
+              print(name, 'json-error=', type(exc).__name__)
+          PY
+            fi
+          done
+      - name: Remove config payloads
+        if: always()
+        run: rm -f out/config.json out/config-apim.json
