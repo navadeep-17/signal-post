@@ -1,0 +1,98 @@
+name: Research Peppol Aggregate Exact-Org Coverage
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-peppol-aggregate-coverage.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Verify privacy-minimized parser
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_peppol_exact_org_reach.py
+
+      - name: Build deterministic consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows=[
+              json.loads(line)
+              for line in Path("submission/final-release-1000.jsonl").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          assert len(rows)==1000
+          seed="bulk-exact-org-r1-v1|"
+          rows.sort(key=lambda row: hashlib.sha256((seed+str(row["organisation_number"])).encode()).hexdigest())
+          selected=rows[:100]
+          assert len({str(row["organisation_number"]) for row in selected})==100
+          Path("out/consumed-100.jsonl").write_text(
+              "".join(json.dumps(row,ensure_ascii=False,separators=(",",":"))+"\n" for row in selected),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Download one current Peppol BusinessCard export
+        run: |
+          set +e
+          HTTP=$(curl --location --retry 0 --silent --show-error             --header 'Accept-Encoding: gzip'             --user-agent 'Signalpost-research-source-screen/1.0'             --output out/businesscards.csv.gz             --write-out '%{http_code}'             'https://directory.peppol.eu/export/businesscards-csv')
+          RC=$?
+          set -e
+          echo "peppol-export-http=$HTTP"
+          if [ "$RC" -ne 0 ]; then
+            exit "$RC"
+          fi
+          if [ "$HTTP" = "429" ]; then
+            echo "Official export rate limit active; stop without retry."
+            exit 75
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "Unexpected export HTTP status: $HTTP"
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("out/businesscards.csv.gz")
+          assert p.read_bytes()[:2]==b"\x1f\x8b", "expected gzip Peppol export"
+          print("compressed-bytes=",p.stat().st_size)
+          PY
+
+      - name: Screen aggregate exact 0192 reach
+        run: |
+          uv run python scripts/screen_peppol_exact_org_reach.py             --export-gz out/businesscards.csv.gz             --companies-100 out/consumed-100.jsonl             --companies-1000 submission/final-release-1000.jsonl             --output-dir out/peppol
+          cat out/peppol/report.json
+
+      - name: Remove source and cohort material
+        if: always()
+        run: |
+          rm -f out/businesscards.csv.gz out/consumed-100.jsonl
+          find out/peppol -type f ! -name report.json -delete 2>/dev/null || true
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-peppol-aggregate-coverage
+          retention-days: 30
+          path: out/peppol/report.json
