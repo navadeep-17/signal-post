@@ -1,0 +1,37 @@
+name: Research Patentstyret Search Config Exact Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-search-config-exact-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact Angular runtime config
+        run: |
+          mkdir -p out
+          for URL in \
+            'https://search.patentstyret.no/advanced/config.json' \
+            'https://search.patentstyret.no/advanced/./config.json'; do
+            echo "=== $URL ==="
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --connect-timeout 10 --max-time 20 \
+              --write-out '%{http_code}' "$URL" -o out/body || true)"
+            echo "http=$CODE bytes=$(wc -c < out/body 2>/dev/null || echo 0)"
+            head -c 20000 out/body || true
+            echo
+          done
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
