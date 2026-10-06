@@ -90,9 +90,9 @@ def main() -> int:
     parser.add_argument("--consumed-fresh", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--report", required=True)
-    parser.add_argument("--expected-prior", type=int, default=8723)
+    parser.add_argument("--expected-prior", type=int, default=8623)
     parser.add_argument("--expected-consumed", type=int, default=100)
-    parser.add_argument("--expected-union", type=int, default=8623)
+    parser.add_argument("--expected-union", type=int, default=8723)
     args = parser.parse_args()
 
     report = build_exclusion(
