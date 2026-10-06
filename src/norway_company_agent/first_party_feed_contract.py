@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 import hashlib
 import re
 from typing import Any
@@ -46,6 +46,38 @@ def _valid_iso_date(value: str) -> bool:
     return parsed.isoformat() == value
 
 
+
+
+
+def _retrieval_date(value: str) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).date()
+
+
+
+
+
+def _retrieval_date(value: str) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).date()
+
+
 def _qualified_feed_entries(profile: dict[str, Any]) -> list[dict[str, Any]]:
     evidence_map = profile.get("evidence") or {}
     website = evidence_map.get("website") or {}
@@ -64,14 +96,18 @@ def _qualified_feed_entries(profile: dict[str, Any]) -> list[dict[str, Any]]:
     feed_url = str(feed.get("source_url") or "").strip()
     feed_hash = str(feed.get("content_sha256") or "").strip().casefold()
     retrieved_at = str(feed.get("retrieved_at") or "").strip()
+    observed_on = _retrieval_date(retrieved_at)
     if (
         not feed_url.startswith(("http://", "https://"))
         or not re.fullmatch(r"[0-9a-f]{64}", feed_hash)
-        or not retrieved_at
+        or observed_on is None
     ):
         return []
 
     verified_url = str(website_value.get("final_url") or website.get("source_url") or "").strip()
+    observed_on = _retrieval_date(retrieved_at)
+    if observed_on is None:
+        return []
     retained_verified_url = str(feed_value.get("verified_website_url") or "").strip()
     if (
         not verified_url
@@ -93,6 +129,7 @@ def _qualified_feed_entries(profile: dict[str, Any]) -> list[dict[str, Any]]:
         if (
             not _same_verified_site(article_url, verified_url)
             or not _valid_iso_date(published_date)
+            or date.fromisoformat(published_date) > observed_on
             or not evidence_span
         ):
             continue
