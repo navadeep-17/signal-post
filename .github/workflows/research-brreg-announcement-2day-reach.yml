@@ -1,11 +1,6 @@
 name: Research BRREG Announcement 2-Day Reach
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-announcement-2day-reach.yml
   workflow_dispatch:
 
 permissions:
