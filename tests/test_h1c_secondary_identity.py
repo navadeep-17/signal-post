@@ -377,13 +377,13 @@ def test_weak_email_candidate_does_not_consume_h1c_secondary_budget(monkeypatch)
         lambda row: {
             "eligible": True,
             "reason": "fixture",
-            "candidates": [{"domain": "mail.invalid", "url": "https://mail.invalid/", "source": "fixture"}],
+            "candidates": [{"domain": "oslomikrosement.no", "url": "https://oslomikrosement.no/", "source": "fixture"}],
         },
     )
     monkeypatch.setattr(final_site, "deterministic_domain_candidates", _h1c_plan)
     monkeypatch.setattr(final_site, "fetch_bounded_homepage", fake_fetch)
 
-    row, metrics = final_site.discover_final_website(_profile(email="post@mail.invalid"))
+    row, metrics = final_site.discover_final_website(_profile(email="post@oslomikrosement.no"))
 
     assert metrics["requests"] == final_site.MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE == 4
     assert calls == ["https://oslomikrosement.no/", "https://oslomikrosement.no/kontakt/"]
