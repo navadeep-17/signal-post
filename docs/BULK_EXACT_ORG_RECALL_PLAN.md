@@ -489,6 +489,58 @@ Decision: **do not download or productionize the stale Stavanger ledger**. Revis
 payments only if a current openly licensed bulk source or a reproducible multi-municipality
 export becomes available.
 
+## R9 — eInnsyn exact-org recent public-record screen
+
+Status: **DROP FOR BROAD PRODUCTION RECALL / EXACTNESS GOOD, ECONOMICS POOR**.
+
+The official eInnsyn API specification and frontend were inspected first. Although the
+OpenAPI service declares API-key authentication globally, the production frontend also has a
+public no-credential API client and anonymous `GET /search` works in practice.
+
+Research contract probes established:
+
+- exact quoted 9-digit organisation-number searches can return public `Journalpost` rows;
+- returned rows expose `publisertDato`, `journaldato`, `dokumentetsDato` and public titles;
+- in the qualified example, the exact organisation number was literally present in
+  `offentligTittel`;
+- `publisertDatoFrom` correctly restricts to the recent window;
+- a naive two-org `OR` query did not batch, so the useful route is effectively per-company;
+- production data-reuse rights remain unresolved, so publication stayed disabled.
+
+Implementation:
+
+- `scripts/screen_einnsyn_exact_org_reach.py`;
+- `tests/test_screen_einnsyn_exact_org_reach.py`;
+- `.github/workflows/research-einnsyn-exact-org-reach.yml` (now manual-only).
+
+Successful consumed-100 run: **37423413569**.
+
+Frozen aggregate artifact:
+
+- artifact ID: **11394310022**;
+- ZIP SHA-256: `cf2ea9bdf24083dc3eab5ebf0c0354ae4a0a36f1e1e5936d55929e985f1e7adf`.
+
+Strict identity rule:
+
+> a hit counts only when the request is the exact quoted target org number and the returned
+> public `offentligTittel` itself contains that exact 9-digit value with digit boundaries.
+
+Measured deterministic consumed-100 result:
+
+- requests: **100**;
+- HTTP/source errors: **0**;
+- empty results: **93**;
+- query results with a public date: **7**;
+- query hits whose public title did not contain the exact org number: **5**;
+- **exact recent public-record companies: 2/100 = 2%**;
+- exact hits/request: **0.02**.
+
+Decision: **DROP for broad production use**. The identity evidence is unusually strong for the
+two accepted companies, but 100 per-company requests for two recent exact hits is far below the
+yield needed to displace existing request paths under Signalpost's full request theorem.
+Reconsider only for targeted/on-demand official-record research or if eInnsyn exposes a
+batch/bulk exact-org retrieval mechanism later.
+
 ## Current direction
 
 1. Preserve the JSON-LD contact recovery as the current zero-request promotion candidate; do not merge it into production from this isolated research track.
