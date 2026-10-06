@@ -21,14 +21,12 @@ from norway_company_agent.batch import (  # noqa: E402
     validate_envelopes,
 )
 from norway_company_agent.company_site_contact import attach_company_site_contact_email_observations  # noqa: E402
-from norway_company_agent.company_site_phone import attach_company_site_contact_phone_observations  # noqa: E402
 from norway_company_agent.company_site_social import attach_company_site_social_observations  # noqa: E402
 from norway_company_agent.registry_workforce import attach_registry_workforce_observations  # noqa: E402
 from norway_company_agent.annual_report_workforce import attach_annual_report_workforce_batch  # noqa: E402
 from norway_company_agent.evidence import utc_now  # noqa: E402
 from norway_company_agent.external_contract import (  # noqa: E402
     project_contact_email_observations,
-    project_contact_phone_observations,
     project_profile_handle_observations,
 )
 from norway_company_agent.external_footprint import validate_observation  # noqa: E402
@@ -179,7 +177,6 @@ def _enrich_profile(
     # snapshot. Neither fetches an external platform nor changes request accounting.
     attach_company_site_social_observations(profile)
     attach_company_site_contact_email_observations(profile)
-    attach_company_site_contact_phone_observations(profile)
     attach_registry_workforce_observations(profile)
 
     logical_requests = official_logical_requests + site_logical_requests
@@ -412,7 +409,6 @@ def main() -> None:
         )
         contract = project_profile_handle_observations(contract, envelope["profile"])
         contract = project_contact_email_observations(contract, envelope["profile"])
-        contract = project_contact_phone_observations(contract, envelope["profile"])
         projected.append(project_workforce_observations(contract, envelope["profile"]))
 
     contract_errors: list[dict[str, str]] = []
