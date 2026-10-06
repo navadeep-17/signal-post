@@ -13,6 +13,26 @@ GENERIC_NEWS_TITLES = {"aktuelt", "nyheter", "news", "blog", "blogg", "press", "
 DATE_HINT_RE = re.compile(
     r"\b(?:20\d{2}-[01]\d-[0-3]\d|[0-3]?\d[./-][01]?\d[./-](?:20\d{2}|\d{2}))\b"
 )
+NON_NEWS_FALLBACK_PATH_SEGMENTS = {
+    "profil",
+    "profile",
+    "profiles",
+    "person",
+    "persons",
+    "user",
+    "users",
+    "bruker",
+    "brukere",
+    "bolig",
+    "boliger",
+    "property",
+    "properties",
+    "listing",
+    "listings",
+    "annonse",
+    "annonser",
+}
+MAX_DATED_FALLBACK_ANCHOR_CHARS = 180
 
 
 def _same_registered_domain(left: str, right: str) -> bool:
@@ -35,6 +55,22 @@ def _specific_news_path(url: str) -> tuple[bool, str | None]:
         return False, None
     index, term = positions[-1]
     return index < len(parts) - 1, term
+
+
+
+
+
+def _non_news_fallback_path(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return True
+    parts = {
+        urllib.parse.unquote(part).strip().casefold()
+        for part in parsed.path.split("/")
+        if part.strip()
+    }
+    return bool(parts & NON_NEWS_FALLBACK_PATH_SEGMENTS)
 
 
 def _dated_local_context(anchor: Tag, *, max_chars: int = 1600) -> str | None:
@@ -109,6 +145,14 @@ def extract_news_detail_links(
             continue
 
         anchor_text = " ".join(anchor.get_text(" ", strip=True).split())
+        if (
+            not specific_path
+            and (
+                _non_news_fallback_path(clean)
+                or len(anchor_text) > MAX_DATED_FALLBACK_ANCHOR_CHARS
+            )
+        ):
+            continue
         generic_anchor = anchor_text.casefold().strip(" -|:") in GENERIC_NEWS_TITLES
         if generic_anchor and not dated_context:
             continue

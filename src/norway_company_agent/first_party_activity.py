@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -89,6 +89,8 @@ GENERIC_UPDATE_PATH_SEGMENTS = {"news", "nyheter", "aktuelt", "blog", "press", "
 GENERIC_CMS_PLACEHOLDER_TITLES = {
     "hello world",
     "hello world!",
+    "hei verden",
+    "hei verden!",
     "sample page",
     "sample post",
 }
@@ -270,6 +272,32 @@ def _is_generic_cms_placeholder(title: str, text: str) -> bool:
     return sum(marker in folded_text for marker in GENERIC_CMS_PLACEHOLDER_MARKERS) >= 2
 
 
+
+
+
+def _retrieval_date(record: dict[str, Any]) -> date | None:
+    raw = str(record.get("retrieved_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).date()
+
+
+def _publication_date_not_future(value: str, observed_on: date | None) -> bool:
+    if observed_on is None:
+        return False
+    try:
+        parsed = date.fromisoformat(str(value or "").strip())
+    except ValueError:
+        return False
+    return parsed <= observed_on
+
+
 def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     website = ((profile.get("evidence") or {}).get("website") or {})
     value = website.get("value") or {}
@@ -309,6 +337,7 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
     if not context:
         return {"jobs": [], "updates": []}
     verified_url = str(context["final_url"])
+    observed_on = _retrieval_date(context["record"])
     jobs: list[dict[str, Any]] = extract_current_first_party_jobs(profile)
     updates: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = {
@@ -365,6 +394,8 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
             and _specific_non_root_page_url(url, generic_segments=GENERIC_UPDATE_PATH_SEGMENTS)
         )
         date_evidence = _select_publication_date(page, text)
+        if date_evidence and not _publication_date_not_future(date_evidence["date"], observed_on):
+            date_evidence = None
         if (
             has_update_path
             and has_update_detail_url

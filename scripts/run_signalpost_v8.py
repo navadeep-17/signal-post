@@ -18,6 +18,7 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
     project_canonical_profile,
     validate_canonical_projection,
 )
+from norway_company_agent.external_precision_guard import project_external_precision_guard  # noqa: E402
 from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 from norway_company_agent.synthesis import (  # noqa: E402
@@ -196,6 +197,8 @@ def _project_q4_feed_activity(
     synthesis_errors: list[dict[str, str]] = []
     feed_claims = 0
     feed_companies = 0
+    precision_removed_claims = 0
+    precision_removed_companies = 0
 
     for row in rows:
         org = str(row.get("organisation_number") or "")
@@ -208,16 +211,20 @@ def _project_q4_feed_activity(
             if isinstance(claim, dict) and claim.get("field") == "external.company_update"
         )
         with_feed = project_first_party_feed_updates(row, profile)
+        guarded = project_external_precision_guard(with_feed)
+        removed = max(0, len(with_feed.get("claims") or []) - len(guarded.get("claims") or []))
+        precision_removed_claims += removed
+        precision_removed_companies += int(removed > 0)
         after = sum(
             1
-            for claim in with_feed.get("claims") or []
+            for claim in guarded.get("claims") or []
             if isinstance(claim, dict) and claim.get("field") == "external.company_update"
         )
         added = max(0, after - before)
         feed_claims += added
         feed_companies += int(added > 0)
 
-        item = project_canonical_profile(with_feed)
+        item = project_canonical_profile(guarded)
         item["synthesis"] = build_company_synthesis(item)
         for error in validate_contract_object(item):
             contract_errors.append({"organisation_number": org, "error": error})
@@ -263,6 +270,12 @@ def _project_q4_feed_activity(
         "companies": len(projected),
         "q4_feed_activity_context_enabled": True,
         "validation_errors": synthesis_errors,
+    }
+    report["external_precision_guard"] = {
+        "network_requests_added": 0,
+        "removed_claims": precision_removed_claims,
+        "companies_with_removed_claims": precision_removed_companies,
+        "scope": ["external.careers_page", "external.company_update"],
     }
     report["q4_feed_activity"] = {
         "production_fetch_location": "spare site-request slot after exact website verification and after H1g priority",
