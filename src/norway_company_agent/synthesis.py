@@ -400,7 +400,8 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
             "but no strict job posting is published for this run."
         )
     else:
-        hiring_text = "No company-authored hiring intent or strict job posting is published for this run."
+        # Preserve the qualified V7/V8 no-signal wording exactly when neither level exists.
+        hiring_text = "No strict job posting is published for this run."
     footprint_parts: list[str] = []
     if website:
         footprint_parts.append(f"verified website {website.get('value')}")
