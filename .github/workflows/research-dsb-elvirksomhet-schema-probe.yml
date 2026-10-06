@@ -1,0 +1,107 @@
+name: Research DSB Elvirksomhet Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-dsb-elvirksomhet-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download current full Excel export once
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed \
+            --header 'Accept: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://elvirksomhetsregisteret.dsb.no/api/v1/electricianbusinesses/excel' \
+            --output out/elvirksomheter.xlsx
+          test -s out/elvirksomheter.xlsx
+          wc -c out/elvirksomheter.xlsx
+          sha256sum out/elvirksomheter.xlsx
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('out/elvirksomheter.xlsx')
+          sig = p.read_bytes()[:4]
+          print('signature:', sig)
+          if sig != b'PK\x03\x04':
+              raise SystemExit('Not an XLSX/ZIP payload')
+          PY
+
+      - name: Inspect workbook structure without external libraries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json, re, zipfile
+          import xml.etree.ElementTree as ET
+
+          path = Path('out/elvirksomheter.xlsx')
+          ns = {'m': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+                'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
+
+          with zipfile.ZipFile(path) as z:
+              names = set(z.namelist())
+              print('zip-entry-count:', len(names))
+              print('entries:', sorted(n for n in names if n.startswith('xl/'))[:120])
+
+              shared = []
+              if 'xl/sharedStrings.xml' in names:
+                  root = ET.fromstring(z.read('xl/sharedStrings.xml'))
+                  for si in root.findall('m:si', ns):
+                      text = ''.join(t.text or '' for t in si.iter('{%s}t' % ns['m']))
+                      shared.append(text)
+              print('shared-string-count:', len(shared))
+
+              wb = ET.fromstring(z.read('xl/workbook.xml'))
+              sheets = []
+              for sh in wb.findall('.//m:sheets/m:sheet', ns):
+                  sheets.append((sh.attrib.get('name'), sh.attrib.get('{%s}id' % ns['r'])))
+              print('sheets:', sheets)
+
+              relroot = ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+              rels = {r.attrib['Id']: r.attrib['Target'] for r in relroot}
+              print('sheet-targets:', rels)
+
+              def cell_value(cell):
+                  typ = cell.attrib.get('t')
+                  v = cell.find('m:v', ns)
+                  if typ == 'inlineStr':
+                      return ''.join(t.text or '' for t in cell.iter('{%s}t' % ns['m']))
+                  if v is None:
+                      return ''
+                  raw = v.text or ''
+                  if typ == 's':
+                      try:
+                          return shared[int(raw)]
+                      except Exception:
+                          return raw
+                  return raw
+
+              for sheet_name, rid in sheets[:3]:
+                  target = rels.get(rid)
+                  if not target:
+                      continue
+                  xml_path = target.lstrip('/')
+                  if not xml_path.startswith('xl/'):
+                      xml_path = 'xl/' + xml_path
+                  root = ET.fromstring(z.read(xml_path))
+                  rows = root.findall('.//m:sheetData/m:row', ns)
+                  print('\nSHEET', sheet_name, 'rows=', len(rows), 'target=', xml_path)
+                  for row in rows[:6]:
+                      vals = [(c.attrib.get('r'), cell_value(c)) for c in row.findall('m:c', ns)]
+                      print('ROW', row.attrib.get('r'), json.dumps(vals, ensure_ascii=False)[:12000])
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/elvirksomheter.xlsx
