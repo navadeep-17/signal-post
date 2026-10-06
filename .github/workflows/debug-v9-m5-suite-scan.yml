@@ -1,0 +1,38 @@
+name: Debug V9 M5 Test File Scan
+
+on:
+  push:
+    branches:
+      - debug/v9-m5-suite-scan
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Run each test file with a 20-second bound
+        run: |
+          set -u
+          for f in $(find tests -maxdepth 1 -type f -name 'test_*.py' | sort); do
+            echo "=== START $f ==="
+            set +e
+            timeout --signal=TERM 20s uv run --with pytest pytest -q "$f"
+            rc=$?
+            set -e
+            echo "=== END $f rc=$rc ==="
+            if [ "$rc" -ne 0 ]; then
+              exit "$rc"
+            fi
+          done
