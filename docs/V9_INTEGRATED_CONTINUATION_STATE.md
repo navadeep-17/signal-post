@@ -37,15 +37,85 @@ changing the pinned V1 collector file.
 Contact recovery remains zero-network and outside request accounting. No site identity rule,
 wrong-organisation veto, evidence rule, or four-logical-site-request ceiling is weakened.
 
-## Gate before later milestones
+## Integrated consumed gate decision
 
-The integrated candidate must pass full CI, the frozen-1000 M4 replay, and an identical consumed
-baseline/challenger transfer with zero verified-site losses, zero scored-family losses, zero
-existing-contact losses, positive net-new scored-family coverage, request charge no higher than
-baseline, theoretical charge <= 2000, zero search/paid API usage, complete evidence, and manual
-precision review of every new external publication.
+Decision: **PROMOTE** the M2+M4 integrated candidate as the base for the next isolated milestone.
+Do not merge it to production `main` yet.
 
-Fresh qualification remains locked until this integrated consumed gate passes.
+Exact qualified head: `ce0efaf7a2abba82b66726111ed488bf5185fa3a`.
+
+Qualification evidence:
+
+- Baseline CI run `37496552802`: **PASS**;
+- M4 structured-contact replay run `37496552655`: **PASS**;
+- exact-head integrated consumed gate run `37496552710`: **PASS**;
+- integrated artifact ID: `11429661159`;
+- integrated artifact digest:
+  `sha256:a39d110a13edc21935c3c1e19613f5407cc1c012e4c40f209b0dba868e882977`;
+- cohort: 100 already-consumed companies, including all **54** M2 behaviorally affected companies,
+  **33** preserved-email controls and **13** no-email controls;
+- fresh companies used: **0**.
+
+Exact-head family transfer:
+
+- verified website companies: **8 -> 9**, net-new **+1**, lost **0**;
+- social companies: **5 -> 6**, net-new **+1**, lost **0**;
+- external-contact companies: **4 -> 6**, net-new **+2**, lost **0**;
+- careers-surface companies: **2 -> 3**, net-new **+1**, lost **0**;
+- company-authored hiring-intent companies: **0 -> 0**;
+- specific active-job companies: **0 -> 0**;
+- dated first-party activity companies: **2 -> 2**, lost **0**;
+- total net-new scored family-company edges: **+5**;
+- total lost scored family-company edges: **0**;
+- new evaluator-family publications: **8**;
+- lost evaluator-family publications: **0**;
+- new verified websites: **1**;
+- lost verified websites: **0**.
+
+Cost / runtime / contract:
+
+- observed logical requests: **801 -> 709**;
+- observed conservative challenge charge: **1602 -> 1418**;
+- theoretical conservative ceiling: **2000 -> 2000**;
+- wall runtime: **683.788 s -> 668.892 s**;
+- third-party API cost: **$0**;
+- search API requests: **0**;
+- contact-email network requests: **0**;
+- contact-phone network requests: **0**;
+- terminal outputs: **100/100**;
+- contract validation: **PASS**;
+- canonical validation errors: **0**;
+- synthesis validation errors: **0**;
+- external-observation validation errors: **0**;
+- structured-contact-phone projection is explicitly zero-network.
+
+Manual precision audit completed for **8/8** new external publications:
+
+1. VOLF AS (`979943377`) structured email `post@volf.no`: exact website gate 0.95,
+   same registered domain, and the individual schema.org Organization node carries exact
+   organisation number `979943377`.
+2. VOLF AS structured phone `+4770275662`: same exact website and exact structured-node
+   organisation-number identity.
+3. DEN GLADE GRIS AS (`999096298`) website `https://www.dengladegris.no/`: exact identity
+   0.98 with all legal-name tokens plus same-domain secondary identity corroboration.
+4. DEN GLADE GRIS AS careers surface `/ledige-stillinger`: same-host homepage declaration;
+   published only as careers presence, not active hiring intent or a specific vacancy.
+5. DEN GLADE GRIS AS Facebook handle: explicitly declared by the exact homepage and independently
+   token-compatible with the legal name.
+6. DEN GLADE GRIS AS Instagram handle: same bounded homepage-declaration rule.
+7. DEN GLADE GRIS AS email `booking@dengladegris.no`: bounded company-page contact evidence and
+   exact registered-domain match.
+8. DEN GLADE GRIS AS phone `+4722111710`: schema.org Organization node matched the legal name
+   `Den Glade Gris` on the exact company homepage.
+
+Manual result: **8 reviewed / 8 accepted / 0 wrong-company / 0 material page-scope ambiguity**.
+
+The integrated candidate therefore satisfies the consumed promotion gate: positive scored-family
+lift, zero regressions, lower observed request usage, unchanged worst-case theorem, zero paid/search
+cost, complete evidence, and zero wrong-company publications.
+
+Fresh qualification is still locked. The next milestone is **M5 hiring semantics**, implemented
+on a new isolated branch from this exact promoted integrated head.
 
 
 ### CI correction during integration
