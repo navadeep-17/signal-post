@@ -119,3 +119,26 @@ M5 adds no fetch. It only projects retained exact first-party evidence already a
 A consumed-data M5 gate compares the same 100 companies against the frozen M4 baseline, validates the three semantic levels separately, rejects lost prior hiring publications, requires complete evidence for every new intent/job publication, preserves the theoretical request ceiling, and emits every new intent/job for manual precision review.
 
 No fresh cohort is authorized by M5.
+
+
+## M6 isolated implementation branch
+
+Branch: `experiment/v9-m6-structured-first-party-activity`
+
+Base at branch creation: M5 head `38c74ee9d6925a6cbb4aa04c3d15c50ba1146907`.
+
+M6 does not weaken the existing dated-activity gate and does not revive retained homepage teaser dates. It adds only page-local schema.org publication-date extraction for already-fetched Article, NewsArticle, and BlogPosting objects:
+
+- `datePublished` is retained as a raw page-local candidate;
+- unrelated structured objects such as Organization/founding dates are ignored;
+- structured dates participate in the existing strongest-evidence conflict rule;
+- equally strong conflicting publication dates abstain;
+- future dates remain rejected;
+- a dated update still requires a specific first-party detail URL/title and the existing exact-company site boundary;
+- the detail page's own content hash supports the fact.
+
+M6 adds no request class. The extraction occurs while the already-budgeted HTML page is in memory. Existing RSS/Atom and strict detail-page paths remain unchanged.
+
+A consumed-data gate compares M6 with the exact M5 baseline on the same already-consumed 100 companies and requires zero lost updates, zero evidence/date-scope errors, unchanged theoretical request ceiling, and manual review of every net-new dated update.
+
+No fresh cohort is authorized by M6.
