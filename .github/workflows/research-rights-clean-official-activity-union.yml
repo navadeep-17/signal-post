@@ -1,0 +1,360 @@
+name: Research Rights-Clean Official Activity Union
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-rights-clean-official-activity-union.yml
+      - scripts/compare_official_activity_union.py
+      - tests/test_compare_official_activity_union.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run comparator tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_compare_official_activity_union.py
+
+      - name: Download frozen rights-clean source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/activity/landbruk out/activity/arbeid out/activity/forskningsradet
+          gh run download 37345868675 --repo "$GITHUB_REPOSITORY" --name research-landbruk-support-reach --dir out/activity/landbruk
+          gh run download 37347436734 --repo "$GITHUB_REPOSITORY" --name research-arbeidstilsynet-registry-union --dir out/activity/arbeid
+          gh run download 37404722383 --repo "$GITHUB_REPOSITORY" --name research-forskningsradet-project-reach --dir out/activity/forskningsradet
+
+      - name: Collect current support baseline and exact Doffin winners
+        run: |
+          mkdir -p out/activity/live
+          uv run python - <<'PY'
+          import base64, copy, datetime as dt, json, re, uuid
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+
+          from norway_company_agent.support_registry import fetch_support_award_batch
+
+          REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL="https://api.doffin.no/webclient/api/v2/notices-api/getEmbedToken?reportId="+REPORT
+          UA="Signalpost-research-source-screen/1.0"
+          TODAY=dt.date(2026,10,6)
+          CUTOFF=TODAY-dt.timedelta(days=365)
+
+          companies=[]
+          for line in Path("submission/final-release-1000.jsonl").read_text(encoding="utf-8").splitlines():
+              if not line.strip():
+                  continue
+              row=json.loads(line)
+              org=str(row.get("organisation_number") or "")
+              if re.fullmatch(r"\d{9}",org):
+                  companies.append({"organisation_number":org,"name":row.get("name") or ""})
+          targets={x["organisation_number"] for x in companies}
+          names={x["organisation_number"]:x["name"] for x in companies}
+          if len(targets)!=1000:
+              raise SystemExit(f"unexpected consumed cohort size: {len(targets)}")
+          print("cohort=",len(targets))
+
+          # Current production baseline: exact primary-recipient support awards <=365d.
+          profiles=[{"organisation_number":x["organisation_number"],"external_observations":[]} for x in companies]
+          support_report=fetch_support_award_batch(
+              profiles,
+              timeout=600.0,
+              as_of=TODAY,
+              lookback_days=365,
+              max_events_per_company=5,
+          )
+          support_rows=[]
+          for p in profiles:
+              obs=[
+                  o for o in p.get("external_observations") or []
+                  if isinstance(o,dict) and o.get("signal_type")=="official_support_award"
+              ]
+              if obs:
+                  support_rows.append({
+                      "organisation_number":p["organisation_number"],
+                      "name":names.get(p["organisation_number"],""),
+                      "events":len(obs),
+                  })
+          Path("out/activity/live/support.jsonl").write_text(
+              "".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in support_rows),
+              encoding="utf-8",
+          )
+          print("support-status=",support_report.get("status"))
+          print("support-requests=",support_report.get("requests"))
+          print("support-bytes=",support_report.get("bytes"))
+          print("support-recent-companies=",len(support_rows))
+
+          def req(url,headers=None,data=None,timeout=45):
+              h={"User-Agent":UA,"Accept":"application/json"}
+              if headers: h.update(headers)
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(",",":")).encode()
+                  h["Content-Type"]="application/json"
+              r=Request(url,data=body,headers=h)
+              try:
+                  with urlopen(r,timeout=timeout) as x:
+                      raw=x.read(); status=x.status
+              except HTTPError as e:
+                  raw=e.read(); status=e.code
+              try: obj=json.loads(raw.decode("utf-8-sig")) if raw else {}
+              except Exception: obj={}
+              return status,obj,raw
+
+          st,embed,_=req(TOKEN_URL)
+          if st!=200: raise SystemExit("Doffin embed unavailable")
+          token=embed.get("accessToken") or ""
+          eu=(embed.get("embedUrl") or [""])[0]
+          q=parse_qs(urlparse(eu).query)
+          cfg=q.get("config",[""])[0]
+          cfg += "="*((4-len(cfg)%4)%4)
+          cluster=json.loads(base64.b64decode(cfg).decode()).get("clusterUrl","").rstrip("/")
+          if not token or not cluster:
+              raise SystemExit("incomplete public Doffin embed contract")
+
+          def hdr():
+              return {
+                  "Authorization":f"EmbedToken {token}",
+                  "ActivityId":str(uuid.uuid4()),
+                  "RequestId":str(uuid.uuid4()),
+                  "X-PowerBI-HostEnv":"Embed for Customers",
+                  "Origin":"https://app.powerbi.com",
+                  "Referer":"https://app.powerbi.com/",
+              }
+
+          st,model,_=req(
+              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration?preferReadOnlySession=true&skipQueryData=true",
+              hdr(),
+          )
+          if st!=200: raise SystemExit("Doffin model unavailable")
+          exp=model.get("exploration") or {}
+          report=exp.get("report") or {}
+          model_id=report.get("modelId")
+          db=(report.get("model") or {}).get("dbName")
+
+          st,schema,_=req(
+              f"{cluster}/explore/reports/{REPORT}/conceptualschema?userPreferredLocale=nb-NO",
+              hdr(),
+          )
+          if st!=200: raise SystemExit("Doffin schema unavailable")
+          entities=((schema.get("schema") or {}).get("Entities") or [])
+          base=next((e for e in entities if e.get("Name")=="base_notices"),{})
+          props=[p.get("Name") for p in base.get("Properties") or [] if p.get("Name")]
+          preferred=[
+              "publication_datetime","publication_date","publicationDate",
+              "publication_datetime_notice","published_at","publication_time",
+              "notice_publication_date","publication_timestamp","dispatch_date",
+          ]
+          pub=next((p for p in preferred if p in props),None)
+          if not pub:
+              candidates=sorted(
+                  p for p in props
+                  if any(k in p.lower() for k in ("publ","dispatch","sent","notice_date","timestamp","created"))
+              )
+              pub=next((p for p in candidates if "publ" in p.lower()),None)
+          print("doffin-publication-property=",pub or "")
+          if not pub:
+              raise SystemExit("Doffin publication date unavailable")
+
+          native=None; vid=None
+          for sec in exp.get("sections") or []:
+              for vis in sec.get("visualContainers") or []:
+                  qr=vis.get("query")
+                  if not qr: continue
+                  try: obj=json.loads(qr) if isinstance(qr,str) else qr
+                  except Exception: continue
+                  txt=json.dumps(obj,ensure_ascii=False)
+                  if "winner_eeig_official_name_nor" not in txt: continue
+                  sels=[]
+                  for command in obj.get("Commands") or []:
+                      sq=command.get("SemanticQueryDataShapeCommand") or {}
+                      sels += ((sq.get("Query") or {}).get("Select") or [])
+                  if len(sels)==1:
+                      native=obj
+                      try: vcfg=json.loads(vis.get("config") or "{}")
+                      except Exception: vcfg={}
+                      vid=vcfg.get("name")
+                      break
+              if native: break
+          if not native: raise SystemExit("Doffin native query missing")
+
+          exact=copy.deepcopy(native)
+          cmd=exact["Commands"][0]["SemanticQueryDataShapeCommand"]
+          query=cmd["Query"]
+          desired=[
+              ("e","winner_eu_registration_number","org"),
+              ("e","winner_eeig_official_name_nor","name"),
+              ("e","doffin_identifier","doffin"),
+              ("e","contract_conclusion_date","conclusion"),
+              ("e","winner_decision_date","decision"),
+              ("b",pub,"publication"),
+          ]
+          query["From"]=[
+              {"Name":"e","Entity":"enriched_notice_lot_settled_contracts_with_winners_and_contract_values","Type":0},
+              {"Name":"b","Entity":"base_notices","Type":0},
+              {"Name":"b1","Entity":"base_notice_lot_results","Type":0},
+          ]
+          query["Select"]=[]
+          for src,prop,label in desired:
+              ent="enriched_notice_lot_settled_contracts_with_winners_and_contract_values" if src=="e" else "base_notices"
+              query["Select"].append({
+                  "Column":{"Expression":{"SourceRef":{"Source":src}},"Property":prop},
+                  "Name":ent+"."+prop,
+                  "NativeReferenceName":label,
+              })
+          where=list(query.get("Where") or [])
+          where.append({
+              "Condition":{"In":{
+                  "Expressions":[{"Column":{
+                      "Expression":{"SourceRef":{"Source":"e"}},
+                      "Property":"winner_eu_registration_number"
+                  }}],
+                  "Values":[[{"Literal":{"Value":"'"+org+"'"}}] for org in sorted(targets)]
+              }}
+          })
+          query["Where"]=where
+          cmd["Binding"]={
+              "Primary":{"Groupings":[{"Projections":list(range(len(desired)))}]},
+              "DataReduction":{"DataVolume":6,"Primary":{"Window":{"Count":2000}}},
+              "IncludeEmptyGroups":False,
+              "Version":1,
+          }
+          cmd["ExecutionMetricsKind"]=1
+          item={"Query":exact}
+          if db:
+              item["ApplicationContext"]={
+                  "DatasetId":db,
+                  "Sources":[{"ReportId":REPORT,"VisualId":vid or "signalpost-activity-union"}],
+              }
+          st,resp,raw=req(
+              cluster+"/explore/querydata?synchronous=true",
+              hdr(),
+              {"version":"1.0.0","queries":[item],"cancelQueries":[],"modelId":model_id},
+          )
+          print("doffin-query-http=",st,"bytes=",len(raw))
+          if st!=200: raise SystemExit("Doffin exact-winner query failed")
+
+          ds=((((resp.get("results") or [{}])[0].get("result") or {}).get("data") or {}).get("dsr") or {}).get("DS",[{}])[0]
+          vd=ds.get("ValueDicts") or {}
+          raw_rows=[]
+          for ph in ds.get("PH") or []:
+              for key,value in ph.items():
+                  if key.startswith("DM") and isinstance(value,list):
+                      raw_rows += value
+          specs=None; prev=[]; decoded=[]
+          for row in raw_rows:
+              if row.get("S"):
+                  specs=row["S"]; prev=[None]*len(specs)
+              if not specs: continue
+              repeat=int(row.get("R") or 0); nulls=int(row.get("Ø") or 0)
+              cells=list(row.get("C") or []); ci=0; vals=[]
+              for i,spec in enumerate(specs):
+                  if repeat & (1<<i): value=prev[i]
+                  elif nulls & (1<<i): value=None
+                  else:
+                      value=cells[ci] if ci<len(cells) else None
+                      ci+=1
+                      dn=spec.get("DN")
+                      dictionary=vd.get(dn) or [] if dn else []
+                      if dn and isinstance(value,int) and 0<=value<len(dictionary):
+                          value=dictionary[value]
+                  vals.append(value)
+              prev=vals; decoded.append(vals)
+
+          def as_date(value):
+              if isinstance(value,(int,float)) and value>10**11:
+                  return dt.datetime.fromtimestamp(value/1000,dt.timezone.utc).date()
+              if isinstance(value,str):
+                  m=re.search(r"(\d{4}-\d{2}-\d{2})",value)
+                  if m:
+                      try: return dt.date.fromisoformat(m.group(1))
+                      except ValueError: pass
+              return None
+
+          by_org={}
+          for vals in decoded:
+              if not vals: continue
+              org=str(vals[0] or "").strip().strip("'")
+              if org not in targets: continue
+              dates=[
+                  ("conclusion",as_date(vals[3] if len(vals)>3 else None)),
+                  ("decision",as_date(vals[4] if len(vals)>4 else None)),
+                  ("publication",as_date(vals[5] if len(vals)>5 else None)),
+              ]
+              valid=[x for x in dates if x[1] and CUTOFF<=x[1]<=TODAY]
+              entry=by_org.setdefault(org,{
+                  "winner_org":org,
+                  "target_name":names.get(org,""),
+                  "winner_names":set(),
+                  "records":0,
+                  "recent365":False,
+                  "latest_recent_date":None,
+                  "latest_recent_basis":None,
+              })
+              entry["records"]+=1
+              if len(vals)>1 and vals[1]:
+                  entry["winner_names"].add(str(vals[1]))
+              if valid:
+                  entry["recent365"]=True
+                  basis,date=max(valid,key=lambda x:x[1])
+                  if entry["latest_recent_date"] is None or date>entry["latest_recent_date"]:
+                      entry["latest_recent_date"]=date
+                      entry["latest_recent_basis"]=basis
+
+          doffin_rows=[]
+          for org in sorted(by_org):
+              e=by_org[org]
+              doffin_rows.append({
+                  "winner_org":org,
+                  "target_name":e["target_name"],
+                  "winner_names":sorted(e["winner_names"]),
+                  "records":e["records"],
+                  "recent365":e["recent365"],
+                  "latest_recent_date":e["latest_recent_date"].isoformat() if e["latest_recent_date"] else None,
+                  "latest_recent_basis":e["latest_recent_basis"],
+              })
+          Path("out/activity/live/doffin.jsonl").write_text(
+              "".join(json.dumps(x,ensure_ascii=False,sort_keys=True)+"\n" for x in doffin_rows),
+              encoding="utf-8",
+          )
+          print("doffin-all-companies=",len(doffin_rows))
+          print("doffin-recent365-companies=",sum(bool(x["recent365"]) for x in doffin_rows))
+          print("DOFFIN-RIGHTS underlying-notice-dataset=CC_BY_4_0")
+          print("DOFFIN-RIGHTS current-powerbi-presentation=REQUIRES_FINAL_SOURCE_DECLARATION_REVIEW")
+          PY
+
+      - name: Compare rights-clean candidate union against current production support
+        run: |
+          uv run python scripts/compare_official_activity_union.py             --cohort submission/final-release-1000.jsonl             --source landbruk:landbruk=out/activity/landbruk/landbruk/matched-companies.jsonl             --source arbeidstilsynet:arbeidstilsynet=out/activity/arbeid/arbeidstilsynet/matched-companies-1000.jsonl             --source forskningsradet:forskningsradet=out/activity/forskningsradet/forskningsradet-1000/matched-companies.jsonl             --source doffin:doffin=out/activity/live/doffin.jsonl             --source current_support:support=out/activity/live/support.jsonl             --baseline-source current_support             --output-dir out/activity/union
+          cat out/activity/union/report.json
+
+      - name: Upload frozen union evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-rights-clean-official-activity-union
+          retention-days: 30
+          path: |
+            out/activity/union/report.json
+            out/activity/union/net-new-all.jsonl
+            out/activity/union/net-new-recent.jsonl
+            out/activity/live/doffin.jsonl
+            out/activity/live/support.jsonl
