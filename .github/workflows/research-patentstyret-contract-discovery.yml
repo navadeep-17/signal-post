@@ -32,26 +32,38 @@ jobs:
               "$URL" --output "out/patentstyret/${NAME}.html"
           done
 
-      - name: Download referenced JavaScript assets
+      - name: Inspect official page links and tolerate stale sample assets
         run: |
           python - <<'PY'
           from pathlib import Path
           from urllib.parse import urljoin
           import re, subprocess
+
           refs = set()
+          hrefs = set()
           for html_path in Path('out/patentstyret').glob('*.html'):
               html = html_path.read_text(encoding='utf-8', errors='replace')
               refs.update(re.findall(r'(?:src|href)=["\']([^"\']+\.js(?:\?[^"\']*)?)', html, flags=re.I))
+              hrefs.update(re.findall(r'href=["\']([^"\']+)["\']', html, flags=re.I))
+              print('\n=== HREFS', html_path.name, '===')
+              for href in sorted(hrefs):
+                  if any(token in href.lower() for token in ['api', 'open-data', 'register', 'product', 'operation']):
+                      print('HREF', urljoin('https://developer.patentstyret.no/', href))
+
           print('js-ref-count:', len(refs))
           for i, ref in enumerate(sorted(refs)):
               url = urljoin('https://developer.patentstyret.no/', ref)
               dest = Path('out/patentstyret/js') / f'{i:03d}.js'
               print('fetch', url)
-              subprocess.run([
-                  'curl','--fail','--location','--compressed',
+              proc = subprocess.run([
+                  'curl','--silent','--show-error','--location','--compressed',
                   '--user-agent','Signalpost-research-source-screen/1.0',
+                  '--write-out','%{http_code}',
                   url,'--output',str(dest)
-              ], check=True)
+              ], text=True, capture_output=True)
+              print('status', proc.stdout.strip(), 'returncode', proc.returncode)
+              if proc.returncode != 0 or proc.stdout.strip() != '200':
+                  dest.unlink(missing_ok=True)
           PY
 
       - name: Search official portal assets for endpoint contract
@@ -66,6 +78,7 @@ jobs:
               'Ocp-Apim-Subscription-Key',
               'organizationNumber',
               'organisationNumber',
+              'organization',
               '/register/v1',
               'api-url',
               'backend',
@@ -73,9 +86,10 @@ jobs:
           for path in files:
               text = path.read_text(encoding='utf-8', errors='replace')
               low = text.lower()
-              if not any(n.lower() in low for n in needles):
+              matched = [n for n in needles if n.lower() in low]
+              if not matched:
                   continue
-              print('\n===', path, 'bytes=', path.stat().st_size, '===')
+              print('\n===', path, 'bytes=', path.stat().st_size, 'matched=', matched, '===')
               for needle in needles:
                   start = 0
                   shown = 0
