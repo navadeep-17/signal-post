@@ -92,6 +92,41 @@ The adapter abstains when:
 
 A source URL with no title/snippet receives no synthetic identity evidence.
 
+
+## Frozen Gate-A execution harness
+
+The branch now contains a complete consumed-only Gate-A runner:
+
+- module: `src/norway_company_agent/v9_openai_gate_a.py`;
+- CLI: `scripts/screen_v9_openai_websearch_gate_a.py`;
+- workflow: `.github/workflows/v9-openai-websearch-gate-a.yml`;
+- regressions: `tests/test_v9_openai_gate_a.py`.
+
+The workflow is fail-closed on ordinary pushes. Only its offline preflight job runs automatically. The live job requires a manual `workflow_dispatch` plus all of the following:
+
+- `enable_live_provider = true`;
+- explicit `evaluator_reproducible = true`;
+- rights status `approved` or `contract_confirmed`;
+- a non-empty `OPENAI_API_KEY` repository secret;
+- positive challenge budget;
+- at least **$0.22** explicitly allocated as the V9 project experiment budget for 20 companies.
+
+The $0.22 floor reserves **$0.011/company** before each request, slightly above the current $0.01 search-tool call price so bounded model-token charges are not hidden by the provider gate's tool-call-only projection.
+
+The live harness is fixed to the original consumed Gate-A artifact and SHA. It performs at most one provider search per company, at most three independent candidate fetches per company, stops candidate fetching after the first exact accept, and records only sanitized candidate/verification telemetry.
+
+Even if machine yield reaches 5/20, the report deliberately emits:
+
+```text
+machine_yield_pass = true
+gate_a_pass = false
+publication_enabled = false
+```
+
+until the separate manual wrong-company and evidence-defect audits are completed.
+
+Current external/manual reconnaissance has demonstrated that the unchanged verifier can reach **4/20** on this frozen cohort, including TRE FOR EN AS via `hauglidhelse.no`. That is verifier-capability evidence only; it gives this provider no qualification credit.
+
 ## Provider gate remains closed
 
 The implementation deliberately does **not** self-declare:
