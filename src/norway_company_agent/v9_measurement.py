@@ -59,7 +59,7 @@ def summarize_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         for row in indexed.values()
     )
     errors = sum(len(row.get("errors") or []) for row in indexed.values())
-    logical_requests = sum(
+    reported_conservative_request_charge = sum(
         int(((row.get("operations") or {}).get("requests") or 0))
         for row in indexed.values()
     )
@@ -76,8 +76,7 @@ def summarize_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "companies": len(indexed),
         "terminal_status_counts": dict(sorted(terminal.items())),
         "reported_errors": errors,
-        "logical_requests": logical_requests,
-        "conservative_request_charge": logical_requests * 2,
+        "reported_conservative_request_charge": reported_conservative_request_charge,
         "third_party_cost_usd": round(third_party_cost, 6),
         "profile_runtime_ms_sum": sum(runtime_ms_values),
         "family_company_coverage": {
@@ -220,7 +219,7 @@ def compare_company_family_coverage(
         "manual_precision_audit_required": True,
         "notes": [
             "Company-family coverage is measured, not raw claim count.",
-            "Conservative request charge uses the project's two-times logical-request theorem.",
+            "OUTPUT_CONTRACT operations.requests is already the conservative per-company request charge; the harness does not multiply it again.",
             "Wrong-company publication count is deliberately not inferred automatically.",
         ],
     }
