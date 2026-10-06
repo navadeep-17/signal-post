@@ -56,8 +56,8 @@ def test_compare_reports_company_family_delta_not_raw_claim_delta() -> None:
     assert report["families"]["external_contact"]["net_new_companies"] == 1
     assert report["wrong_company_publications"] is None
     assert report["manual_precision_audit_required"] is True
-    assert report["baseline"]["conservative_request_charge"] == 4
-    assert report["challenger"]["conservative_request_charge"] == 4
+    assert report["baseline"]["reported_conservative_request_charge"] == 2
+    assert report["challenger"]["reported_conservative_request_charge"] == 2
 
 
 def test_compare_rejects_non_identical_cohorts() -> None:
