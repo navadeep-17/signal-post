@@ -1,0 +1,81 @@
+name: Research Doffin Minified Symbol Resolution
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-symbol-resolution.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current Doffin bundle
+        run: |
+          mkdir -p out/js
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://www.doffin.no/' -o out/index.html
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess
+          html=Path('out/index.html').read_text(encoding='utf-8',errors='replace')
+          refs=re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']',html,re.I)
+          for i,ref in enumerate(refs):
+              url=urljoin('https://www.doffin.no/',ref)
+              dest=Path('out/js')/f'{i:03d}.js'
+              cp=subprocess.run([
+                  'curl','--silent','--show-error','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  '--write-out','%{http_code}',url,'--output',str(dest)
+              ],capture_output=True,text=True)
+              if cp.returncode or cp.stdout.strip()!='200':
+                  dest.unlink(missing_ok=True)
+          PY
+
+      - name: Resolve webclient minified symbols
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          for p in Path('out/js').glob('*.js'):
+              s=p.read_text(encoding='utf-8',errors='replace')
+              if 'api.doffin.no/webclient/api/v2' not in s:
+                  continue
+              print('BUNDLE',p,'bytes=',len(s))
+              symbols=['Hl','Ul','Jl','Xl','Zl','nu','eu','tu','Mu','Nu']
+              for sym in symbols:
+                  print('\n===== SYMBOL',sym,'=====')
+                  matches=list(re.finditer(r'(?<![A-Za-z0-9_$])'+re.escape(sym)+r'=',s))
+                  print('assignments=',len(matches))
+                  for m in matches[:8]:
+                      print(s[max(0,m.start()-900):min(len(s),m.start()+2200)])
+                      print('---')
+
+              for needle in ['Mu.get(', 'Mu.post(', 'Nu.get(', 'Nu.post(']:
+                  print('\n===== CALL PREFIX',needle,'=====')
+                  positions=[m.start() for m in re.finditer(re.escape(needle),s)]
+                  print('count=',len(positions))
+                  for idx in positions[:20]:
+                      print(s[max(0,idx-3000):min(len(s),idx+5000)])
+                      print('---')
+
+              print('\n===== SHORT URL CONSTANTS =====')
+              for m in re.finditer(r'([A-Za-z_$][A-Za-z0-9_$]{0,4})=([\'"][^\'"]{1,120}[\'"])',s):
+                  val=m.group(2)
+                  low=val.lower()
+                  if any(k in low for k in ['notice','search','webclient','api/v2','cpv','download']):
+                      print(m.group(1),'=',val)
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
