@@ -1,0 +1,210 @@
+name: V9 OpenAI Web Search Gate A
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_live_provider:
+        description: Explicitly enable the bounded consumed Gate-A provider run
+        required: true
+        type: boolean
+        default: false
+      evaluator_reproducible:
+        description: Confirm the same provider/key path is available to the evaluator
+        required: true
+        type: boolean
+        default: false
+      evaluator_supplied_credential:
+        description: Confirm OPENAI_API_KEY was supplied for scoring by Builderr/evaluator, not a personal account
+        required: true
+        type: boolean
+        default: false
+      rights_status:
+        description: Provider/use-rights state confirmed outside this workflow
+        required: true
+        type: choice
+        options:
+          - unknown
+          - approved
+          - contract_confirmed
+        default: unknown
+      challenge_cost_budget_usd:
+        description: Challenge-level third-party API budget available to this experiment
+        required: true
+        type: string
+        default: '0'
+      project_third_party_budget_usd:
+        description: Explicit Signalpost V9 budget allocated to this experiment
+        required: true
+        type: string
+        default: '0'
+  push:
+    branches:
+      - experiment/v9-openai-websearch-provider-v2
+    paths:
+      - src/norway_company_agent/v9_openai_websearch_v2.py
+      - src/norway_company_agent/v9_openai_gate_a.py
+      - scripts/screen_v9_openai_websearch_gate_a.py
+      - tests/test_v9_openai_websearch_v2.py
+      - tests/test_v9_openai_gate_a.py
+      - .github/workflows/v9-openai-websearch-gate-a.yml
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}/src
+  BASELINE_RUN_ID: '37421325313'
+  BASELINE_ARTIFACT: 'v9-consumed-baseline'
+  GATE_A_SHA256: 'f2177abd0bd0d6202f9fe47fd00b8def06b21c01fdf4c864c1f3b68f80b160d5'
+
+jobs:
+  offline-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked environment
+        run: uv sync --locked
+
+      - name: Run Gate-A harness regressions
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v9_openai_websearch_v2.py \
+            tests/test_v9_openai_gate_a.py \
+            tests/test_v9_discovery.py \
+            tests/test_v9_provider_gate.py \
+            tests/test_identity_org_conflict.py
+
+      - name: Verify default provider gate is closed
+        run: |
+          uv run python - <<'PY'
+          from norway_company_agent.v9_openai_gate_a import (
+              GateAProviderConfig,
+              preflight_gate_a_provider,
+          )
+
+          result = preflight_gate_a_provider(
+              GateAProviderConfig(
+                  enable_live_provider=False,
+                  evaluator_reproducible=False,
+                  rights_status="unknown",
+                  challenge_cost_budget_usd=0.0,
+                  project_third_party_budget_usd=0.0,
+                  evaluator_supplied_credential=False,
+              ),
+              company_count=20,
+              api_key_available=False,
+          )
+          assert result["allowed_for_live_v9_experiment"] is False, result
+          assert "explicit_live_enable_required" in result["reasons"], result
+          assert "provider_key_missing" in result["reasons"], result
+          assert "provider_not_evaluator_reproducible" in result["reasons"], result
+          assert "provider_rights_not_confirmed" in result["reasons"], result
+          assert "project_zero_cost_policy" in result["reasons"], result
+          print(result)
+          PY
+
+  live-consumed-gate-a:
+    if: github.event_name == 'workflow_dispatch' && inputs.enable_live_provider == true
+    needs: offline-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked environment
+        run: uv sync --locked
+
+      - name: Recover frozen consumed Gate-A profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen
+          gh run download "${BASELINE_RUN_ID}" \
+            --repo navadeep-17/signal-post \
+            --name "${BASELINE_ARTIFACT}" \
+            --dir frozen
+          test -s frozen/out/v9-baseline/work/profiles.jsonl
+          test -s frozen/out/v9-baseline/gate-a-20.jsonl
+          test "$(wc -l < frozen/out/v9-baseline/gate-a-20.jsonl)" -eq 20
+          echo "${GATE_A_SHA256}  frozen/out/v9-baseline/gate-a-20.jsonl" | sha256sum -c -
+
+      - name: Require explicit credential and provider declarations
+        run: |
+          test -n "${OPENAI_API_KEY:-}"
+          test "${{ inputs.evaluator_reproducible }}" = "true"
+          test "${{ inputs.evaluator_supplied_credential }}" = "true"
+          test "${{ inputs.rights_status }}" != "unknown"
+          python - <<'PY'
+          from decimal import Decimal
+
+          challenge = Decimal("${{ inputs.challenge_cost_budget_usd }}")
+          project = Decimal("${{ inputs.project_third_party_budget_usd }}")
+          assert challenge > 0, challenge
+          assert project >= Decimal("0.22"), project
+          PY
+
+      - name: Run bounded consumed Gate-A provider screen
+        run: |
+          mkdir -p out
+          uv run python scripts/screen_v9_openai_websearch_gate_a.py \
+            --profiles frozen/out/v9-baseline/work/profiles.jsonl \
+            --gate-a frozen/out/v9-baseline/gate-a-20.jsonl \
+            --report out/v9-openai-websearch-gate-a.json \
+            --enable-live-provider true \
+            --evaluator-reproducible "${{ inputs.evaluator_reproducible }}" \
+            --evaluator-supplied-credential "${{ inputs.evaluator_supplied_credential }}" \
+            --rights-status "${{ inputs.rights_status }}" \
+            --challenge-cost-budget-usd "${{ inputs.challenge_cost_budget_usd }}" \
+            --project-third-party-budget-usd "${{ inputs.project_third_party_budget_usd }}" \
+            --site-timeout 8
+
+      - name: Verify experiment-only invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("out/v9-openai-websearch-gate-a.json").read_text())
+          assert report["status"] == "completed", report
+          assert report["companies"] == 20, report
+          assert report["provider_search_calls"] <= 20, report
+          assert report["publication_enabled"] is False, report
+          assert report["production_publications"] == 0, report
+          assert report["fresh_qualification_credit"] is False, report
+          assert report["gate_a_pass"] is False, report
+          assert report["provider_result_text_persisted"] is False, report
+          assert report["provider_message_text_consumed"] is False, report
+          assert report["provider_estimated_cost_usd"] <= report["provider_preflight"]["effective_experiment_budget_usd"], report
+          print(json.dumps({k: v for k, v in report.items() if k != "company_results"}, indent=2))
+          PY
+
+      - name: Upload consumed provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-openai-websearch-gate-a
+          retention-days: 90
+          if-no-files-found: warn
+          path: out/v9-openai-websearch-gate-a.json

@@ -1,0 +1,73 @@
+name: V9 OpenAI Web Search Provider V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/v9-openai-websearch-provider-v2
+    paths:
+      - src/norway_company_agent/v9_openai_websearch_v2.py
+      - src/norway_company_agent/v9_openai_gate_a.py
+      - scripts/screen_v9_openai_websearch_gate_a.py
+      - tests/test_v9_openai_websearch_v2.py
+      - tests/test_v9_openai_gate_a.py
+      - src/norway_company_agent/v9_discovery.py
+      - src/norway_company_agent/v9_provider_gate.py
+      - docs/V9_OPENAI_WEBSEARCH_PROVIDER_V2.md
+      - .github/workflows/v9-openai-websearch-provider-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-provider-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked environment
+        run: uv sync --locked
+
+      - name: Run provider, nomination and verifier-boundary regressions
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v9_openai_websearch_v2.py \
+            tests/test_v9_openai_gate_a.py \
+            tests/test_v9_discovery.py \
+            tests/test_v9_provider_gate.py \
+            tests/test_search_discovery.py \
+            tests/test_identity_org_conflict.py \
+            tests/test_zero_cost_discovery.py
+
+      - name: Verify live provider remains disabled by default
+        run: |
+          test -z "${OPENAI_API_KEY:-}"
+          uv run python - <<'PY'
+          from norway_company_agent.v9_openai_websearch_v2 import provider_readiness
+
+          result = provider_readiness(
+              max_searches=20,
+              evaluator_key_available=False,
+              rights_status="unknown",
+              challenge_cost_budget_usd=10.0,
+              project_third_party_budget_usd=0.0,
+          )
+          assert result["allowed_for_live_v9_experiment"] is False, result
+          assert "provider_not_evaluator_reproducible" in result["reasons"], result
+          assert "provider_key_not_available_to_evaluator" in result["reasons"], result
+          assert "provider_rights_not_confirmed" in result["reasons"], result
+          assert "project_zero_cost_policy" in result["reasons"], result
+          print(result)
+          PY
