@@ -3,7 +3,7 @@ name: Q8 Manual Precision Consumed Replay
 on:
   push:
     branches:
-      - fix/q8-manual-precision-guards
+      - fix/q8-manual-precision-guards-v2
     paths:
       - src/norway_company_agent/homepage_careers_signal.py
       - src/norway_company_agent/homepage_news_signal.py
