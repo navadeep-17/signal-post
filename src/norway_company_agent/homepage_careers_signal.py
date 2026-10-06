@@ -6,7 +6,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-CAREERS_TERMS = (
+CAREERS_ANCHOR_TERMS = (
     "career",
     "careers",
     "join our team",
@@ -17,12 +17,23 @@ CAREERS_TERMS = (
     "jobbe hos oss",
     "ledige stillinger",
     "ledige-stillinger",
-    "jobb",
-    "jobber",
     "stillinger",
     "vacancies",
     "vacancy",
 )
+CAREERS_PATH_TERMS = (
+    "career",
+    "careers",
+    "karriere",
+    "jobb",
+    "jobber",
+    "stilling",
+    "stillinger",
+    "ledige stillinger",
+    "vacancy",
+    "vacancies",
+)
+MAX_CAREERS_ANCHOR_CHARS = 160
 
 
 def _normalized_host(url: str) -> str:
@@ -46,6 +57,30 @@ def _same_company_host(left: str, right: str) -> bool:
     if not a or not b:
         return False
     return a == b or a.endswith("." + b) or b.endswith("." + a)
+
+
+
+
+
+def _bounded_phrase_marker(text: str, terms: tuple[str, ...]) -> str | None:
+    folded = " ".join(str(text or "").casefold().split())
+    for term in terms:
+        pattern = rf"(?<!\\w){re.escape(term.casefold())}(?!\\w)"
+        if re.search(pattern, folded, re.IGNORECASE):
+            return term
+    return None
+
+
+def _careers_path_marker(path: str) -> str | None:
+    decoded = urllib.parse.unquote(str(path or "")).casefold()
+    normalized = re.sub(r"[-_/]+", " ", decoded)
+    return _bounded_phrase_marker(normalized, CAREERS_PATH_TERMS)
+
+
+def _careers_anchor_marker(anchor_text: str) -> str | None:
+    if not anchor_text or len(anchor_text) > MAX_CAREERS_ANCHOR_CHARS:
+        return None
+    return _bounded_phrase_marker(anchor_text, CAREERS_ANCHOR_TERMS)
 
 
 def extract_careers_links(
@@ -82,11 +117,7 @@ def extract_careers_links(
         if normalized in seen or not _same_company_host(normalized, verified_url):
             continue
         anchor_text = " ".join(anchor.get_text(" ", strip=True).split())
-        haystack = urllib.parse.unquote(f"{parsed.path} {anchor_text}").casefold()
-        marker = next(
-            (term for term in CAREERS_TERMS if re.search(re.escape(term), haystack, re.IGNORECASE)),
-            None,
-        )
+        marker = _careers_path_marker(parsed.path) or _careers_anchor_marker(anchor_text)
         if not marker:
             continue
         seen.add(normalized)
