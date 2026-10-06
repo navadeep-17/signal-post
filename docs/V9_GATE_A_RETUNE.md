@@ -351,6 +351,42 @@ This source was structurally clean but sparse: BRREG exposed subunits for most G
 Decision: **SHELVE as a website-discovery source for this Gate-A cohort.** Do not infer parent website ownership from subunit relation alone.
 
 
+## Source screen 8 — exact-org OpenStreetMap/Overpass nomination
+
+A consumed-only source screen tested whether public OpenStreetMap objects carrying exact Norwegian organisation-number tags could nominate a first-party website. The experiment batched the 20 frozen parent organisation numbers plus their exact BRREG subunit organisation numbers into one Overpass query. OSM metadata remained nomination-only and was never used as target-company publication evidence.
+
+Isolated branch:
+
+`experiment/v9-osm-orgnr-discovery`
+
+Final diagnostic screen:
+
+- workflow: `37449173244` — **PASS**
+- head: `bd65ed37b7a0ad4af946c76f5cac9eed1956a349`
+- artifact ID: `11405280045`
+- artifact digest: `sha256:09844f2b15c7dd8149467e34616fa93bdf38fefdf23e401fdd55297a492fc4f3`
+- parent organisation references: **20**
+- exact BRREG subunit references: **17**
+- total exact references queried: **37**
+- Overpass elements returned: **1**
+- candidate URLs nominated: **0**
+- machine-verified organisations: **0 / 20**
+- BRREG requests: **20**
+- Overpass requests: **1**
+- site verification requests: **0**
+- logical requests: **21**
+- conservative request charge: **42**
+- bytes: **24,260**
+- runtime: approximately **12.6 s**
+- third-party API cost: **$0**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+The only exact-reference OSM object was a BRREG subunit already associated with the PREG BARNEHAGER ÅLESUND path. It exposed an email address but no website field, so it could not nominate a fifth Gate-A website.
+
+Decision: **SHELVE as a primary Gate-A website source.** The source was precise but too sparse. Do not turn OSM organisation tags or BRREG parent→subunit relations into identity proof, and do not depend on the public Overpass endpoint for production without a separate reliability/rights review.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
