@@ -24,8 +24,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Run exactness unit tests
-        run: python -m pytest -q tests/test_screen_einnsyn_exact_org_reach.py
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_einnsyn_exact_org_reach.py
 
       - name: Recreate shared deterministic consumed 100
         run: |
