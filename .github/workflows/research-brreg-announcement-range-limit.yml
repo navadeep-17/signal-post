@@ -1,0 +1,81 @@
+name: Research BRREG Announcement Range Limit
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-announcement-range-limit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe bounded date spans
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import datetime as dt
+          import re
+          import subprocess
+          from pathlib import Path
+
+          end=dt.date(2026,10,1)
+          spans=[1,2,3,4,7]
+          for span in spans:
+              start=end-dt.timedelta(days=span-1)
+              fr=start.strftime("%d.%m.%Y")
+              to=end.strftime("%d.%m.%Y")
+              url=(
+                  "https://w2.brreg.no/kunngjoring/kombisok.jsp"
+                  f"?datoFra={fr}&datoTil={to}&id_region=0&id_niva1=9&id_bransje1=0"
+              )
+              dest=Path(f"out/span-{span}.html")
+              cp=subprocess.run([
+                  "curl","--silent","--show-error","--location","--compressed",
+                  "--user-agent","Signalpost-research-source-screen/1.0",
+                  "--connect-timeout","10","--max-time","60",
+                  "--write-out","%{http_code}",url,"--output",str(dest)
+              ],capture_output=True,text=True)
+              print(f"SPAN {span} http={cp.stdout.strip()} rc={cp.returncode} bytes={dest.stat().st_size if dest.exists() else 0}")
+              if cp.returncode or cp.stdout.strip()!="200":
+                  continue
+              raw=dest.read_bytes()
+              text=None
+              for enc in ("utf-8","iso-8859-1","latin-1"):
+                  try:
+                      text=raw.decode(enc); break
+                  except UnicodeDecodeError:
+                      pass
+              if text is None:
+                  continue
+              stripped=re.sub(r"<[^>]+>"," ",text)
+              stripped=re.sub(r"\s+"," ",stripped).strip()
+              orgs=re.findall(r"(?<!\d)\d{3}\s\d{3}\s\d{3}(?!\d)",stripped)
+              dates=sorted(set(re.findall(r"\b\d{2}\.\d{2}\.2026\b",stripped)))
+              trs=len(re.findall(r"<tr\b",text,re.I))
+              print(f"SPAN {span} tr={trs} org_tokens={len(orgs)} date_tokens={dates[:12]}")
+              low=stripped.casefold()
+              markers=[
+                  "maks","maximum","maksimalt","dager","periode","for lang",
+                  "feil","ugyldig","avgrens","begrens","søket","soket"
+              ]
+              hits=[]
+              for marker in markers:
+                  pos=low.find(marker)
+                  if pos>=0:
+                      hits.append((marker,stripped[max(0,pos-180):min(len(stripped),pos+420)]))
+              for marker,snippet in hits[:8]:
+                  print(f"SPAN {span} MARKER {marker}: {snippet[:700]}")
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
