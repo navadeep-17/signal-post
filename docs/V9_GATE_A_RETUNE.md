@@ -114,6 +114,44 @@ Focused regression workflow `37425242213` passed **40 tests**, including the exi
 
 No publication identity rule was weakened.
 
+
+## Source screen 3 — bounded secondary identity fetch
+
+A follow-up experiment tested whether an ambiguous nominated homepage could be rescued by one bounded same-domain legal/contact/privacy page while preserving the same exact-company rules.
+
+Isolated branch:
+
+`experiment/v9-search-secondary-identity`
+
+Final consumed Gate-A screen:
+
+- workflow: `37427405477` — PASS
+- head: `a86c3c0af5475b4a047733f4c18a10e74f7bb43c`
+- artifact ID: `11395436286`
+- artifact digest: `sha256:5b9842f36396df8a77286ef61fa982a97d8fd8a439f200080a9a514e3b3a324e`
+- candidates tested: **8**
+- machine-verified organisations: **3 / 20**
+- secondary identity attempts: **3**
+- secondary pages merged: **3**
+- incremental secondary accepts: **0**
+- logical site requests: **22**
+- conservative request charge: **44**
+- third-party API cost: **$0**
+- runtime: **18.142 s**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+The accepted organisations remained exactly AURSNES KIOSK AS, FALEX FORVALTNING AS, and PREG BARNEHAGER ÅLESUND AS; all three were already accepted by the primary independent-page verifier.
+
+The secondary path correctly remained conservative:
+
+- BRAVO SEAFOOD stayed a hard negative for BRAVO MATSENTER AS because a competing organisation number was present;
+- the SPAR Førde candidate still lacked exact BRAVO MATSENTER legal-entity proof, and the fetched SPAR legal page identified another organisation;
+- `dg13.no` remained review/ambiguous because neither exact target organisation-number evidence nor sufficient legal-name-plus-BRREG-location corroboration was recovered.
+
+Decision: **SHELVE / NO-GO for integration.** The mechanism preserved precision but added **0** verified Gate-A companies while increasing request use. Keep the experiment and artifact as engineering evidence; do not merge its runtime code into the V9 integration branch.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
