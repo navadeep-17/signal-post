@@ -12,11 +12,16 @@ from norway_company_agent.v9_discovery import (  # noqa: E402
 )
 
 
-def profile() -> dict:
+def profile(
+    *,
+    name: str = "EXAMPLE BEDRIFT AS",
+    org: str = "123456789",
+    municipality: str = "OSLO",
+) -> dict:
     return {
-        "organisation_number": "123456789",
-        "name": "EXAMPLE BEDRIFT AS",
-        "municipality": "OSLO",
+        "organisation_number": org,
+        "name": name,
+        "municipality": municipality,
     }
 
 
@@ -112,13 +117,50 @@ def test_candidate_count_is_hard_bounded_to_three() -> None:
     assert decision["max_candidates"] == 3
 
 
-def test_weak_name_only_result_does_not_get_nominated() -> None:
+def test_full_legal_name_title_can_nominate_brand_alias_domain_for_verification() -> None:
+    decision = nominate_v9_candidate_urls(
+        profile(name="FALEX FORVALTNING AS", org="917615624", municipality="OSLO"),
+        [
+            result(
+                "https://falex.no/",
+                title="Falex Forvaltning AS – Forvaltning",
+                snippet="Eiendomsforvaltning i Oslo",
+            )
+        ],
+    )
+
+    assert decision["candidate_urls"] == ["https://falex.no/"]
+    assert decision["decisions"][0]["reason"] == "full_legal_name_in_transient_title"
+    assert decision["publication_authorized"] is False
+
+
+def test_full_legal_name_title_can_nominate_hosted_company_surface() -> None:
+    decision = nominate_v9_candidate_urls(
+        profile(
+            name="PREG BARNEHAGER ÅLESUND AS",
+            org="930465143",
+            municipality="ÅLESUND",
+        ),
+        [
+            result(
+                "https://pregalesund.barnehage.no/",
+                title="Preg barnehager Ålesund AS",
+                snippet="Gartneriveien 8 6017 Ålesund",
+            )
+        ],
+    )
+
+    assert decision["candidate_urls"] == ["https://pregalesund.barnehage.no/"]
+    assert decision["publication_authorized"] is False
+
+
+def test_weak_partial_name_result_does_not_get_nominated() -> None:
     decision = nominate_v9_candidate_urls(
         profile(),
         [
             result(
                 "https://random-brand.no/",
-                title="Example Bedrift AS",
+                title="Example",
                 snippet="Bedrift i Oslo",
             )
         ],
