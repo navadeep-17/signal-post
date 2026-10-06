@@ -11,18 +11,20 @@ DOMAIN_STRENGTH_RANK = {"exact": 3, "acronym": 2, "multi": 1}
 
 def ranked_strong_registry_email_domain_candidates(
     profile: dict[str, Any],
+    *,
+    plan: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return strong BRREG email-domain nominations in deterministic priority order.
 
     This is candidate selection only. A returned domain is never ownership proof and
     must still pass the unchanged independent website fetch + exact-company verifier.
     """
-    plan = registry_email_domain_candidates(profile)
-    if not plan.get("eligible"):
+    candidate_plan = plan if plan is not None else registry_email_domain_candidates(profile)
+    if not candidate_plan.get("eligible"):
         return []
 
     ranked: list[tuple[int, str, dict[str, Any]]] = []
-    for candidate in plan.get("candidates") or []:
+    for candidate in candidate_plan.get("candidates") or []:
         if not isinstance(candidate, dict):
             continue
         domain = str(candidate.get("domain") or "").strip().casefold()
@@ -45,7 +47,9 @@ def ranked_strong_registry_email_domain_candidates(
 
 def select_strong_registry_email_domain_candidate(
     profile: dict[str, Any],
+    *,
+    plan: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Select at most one strong email-domain nomination for the V9 M2 slot."""
-    candidates = ranked_strong_registry_email_domain_candidates(profile)
+    candidates = ranked_strong_registry_email_domain_candidates(profile, plan=plan)
     return candidates[0] if candidates else None
