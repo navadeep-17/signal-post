@@ -1,226 +1,194 @@
 # Signalpost V9 Continuation State
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
-This document is the V9 engineering handoff. Live GitHub is authoritative if any recorded SHA advances.
+Live GitHub is authoritative if any recorded SHA advances.
 
-## M0 freeze verification
+## Frozen production boundary
 
-- current production `main`: `72f1bf2892ec1c1e35674aa383433c9a37afdaca`
-- frozen qualified SHA: `200f056a5a60cad23610a3958b6bec62dfb624a5`
-- frozen qualified ref: `release/v8-qualified-2026-10-06`
-- frozen submission ref: `release/v8-submission-2026-10-06`
-- submission ref currently equals `main`
-- V9 branch: `experiment/v9-email-domain-substitution`
-- V9 branch base: exact current `main`
-- research branch: `research/bulk-exact-org-recall`
-- live research relation observed at V9 start: **+293 / -67 vs main**
-- the research branch remains an archive and must never be merged wholesale
+- production `main`: `72f1bf2892ec1c1e35674aa383433c9a37afdaca`
+- V8 qualified SHA: `200f056a5a60cad23610a3958b6bec62dfb624a5`
+- V8 qualified ref: `release/v8-qualified-2026-10-06`
+- V8 submission ref: `release/v8-submission-2026-10-06`
+- research archive: `research/bulk-exact-org-recall`
+- no research branch may be merged wholesale
+- fresh qualification remains locked
 
-The live relation differs from the planning PDF's earlier +289/-67 snapshot; live GitHub wins.
+Production `main` is still frozen. V9 remains isolated.
 
-`docs/CONTINUATION_STATE.md` on `main` records the latest pre-cleanup Baseline CI run `37407690443` as PASS. The GitHub connector's commit-run wrapper exposes PR-triggered runs only and returned no directly attached run for the current main commit, so V9 branch CI is still a separate gate.
+## Promoted V9 lineage
 
-Decision: **M0 PASS**. V8 refs were not moved or rewritten.
+### M2 — BRREG registry-email-domain substitution
+
+**PROMOTE** after retune.
+
+Promoted head: `5fda04cd81f1cbba77ee741361e3b5bd064a0d86`.
+
+The final M2 policy preserves `exact`, `acronym`, `multi`, and `partial` email-domain
+candidates and substitutes only clearly unrelated `none` candidates. Candidate morphology is
+nomination only; the existing exact-company verifier remains authoritative.
+
+Targeted consumed transfer covered all 54 behaviorally affected companies:
+
+- verified websites: **8 -> 9**, net-new **+1**, lost **0**
+- scored family-company edges: **+4**, lost **0**
+- observed conservative request charge: **1602 -> 1418**
+- theoretical ceiling: **2000 -> 2000**
+- all new publications manually audited
+- wrong-company publications: **0**
+- search API requests: **0**
+- third-party cost: **$0**
+
+### M4 — zero-request structured contact recovery
+
+**PROMOTE**.
+
+Canonical isolated PR: **#143**. The overlapping stacked PR #144 is superseded and must not be
+revived.
+
+Standalone measured head: `e931519d58f82c79fc96b8e7fd54cb5143819b71`.
+
+Frozen-consumed-1000 replay:
+
+- external contact-email companies: **53 -> 58**
+- external contact-phone companies: **0 -> 19**
+- any external-contact companies: **53 -> 60**
+- new contact claims: **26**
+- existing contact losses: **0**
+- non-contact changes: **0**
+- network requests added: **0**
+- manual audit: **26/26 accepted, 0 wrong-company**
+
+### Integrated M2 + M4
+
+**PROMOTE** as the V9 base.
+
+Qualified integrated head: `ce0efaf7a2abba82b66726111ed488bf5185fa3a`.
+
+Consumed exact-head gate `37496552710`:
+
+- verified websites: **8 -> 9**
+- social: **5 -> 6**
+- external contact: **4 -> 6**
+- careers: **2 -> 3**
+- hiring intent: **0 -> 0**
+- active jobs: **0 -> 0**
+- dated first-party activity: **2 -> 2**
+- total net-new scored family-company edges: **+5**
+- total lost edges: **0**
+- new external publications: **8**
+- manual audit: **8/8 accepted, 0 wrong-company**
+- observed conservative request charge: **1602 -> 1418**
+- theoretical ceiling: **2000**
+- cost/search: **$0 / 0**
+
+### M5 — hiring semantics
+
+**PROMOTE**.
+
+Promoted/cleaned lineage base:
+`dc5907b27fb8844b0f690a166937bf908f058a73`.
+
+M5 preserves three separate meanings:
+
+- careers surface
+- company-authored hiring intent
+- specific active job posting
+
+Consumed-1000 replay added **1** exact first-party company-authored hiring-intent company at
+zero added requests, with no careers/job/non-intent losses and no contract/canonical/synthesis
+errors. Manual precision audit accepted **1/1** publication with zero wrong-company or
+specific-vacancy overclaim.
+
+This is the current promoted V9 code base.
+
+## Shelved milestone
+
+### M6 — structured dated first-party activity
+
+**SHELVE**.
+
+Measured implementation head:
+`b01eefd201c439f76fc25da4ddfd81a57dcc561b`.
+
+Exact-head evidence:
+
+- Baseline CI `37512933250`: PASS
+- consumed transfer `37512929936`: PASS
+- artifact `11437162970`
+- digest `sha256:2eef40b02a85079ba6ae55724754dea55b7a6653826e071d0c6766325f215215`
+- dated activity companies: **8 -> 8**
+- net-new/lost dated activity companies: **0 / 0**
+- new/lost activity publications: **0 / 0**
+- non-activity family changes: **none**
+- conservative request charge: **1892 -> 1892**
+- theoretical ceiling: **2000 -> 2000**
+- search requests / third-party cost: **0 / $0**
+- fresh companies used: **0**
+
+Reason: the implementation is strict and budget-neutral but produces zero measured scored-family
+lift. M6 is therefore not carried into the promoted lineage.
 
 ## Active milestone
 
-**M1 measurement harness + M2 budget-neutral strong BRREG registry-email-domain substitution.**
+**M7 — secondary deterministic candidate sources.**
 
-North-star:
+Active branch:
+`experiment/v9-m7-secondary-deterministic-candidates`
 
-> net-new exact-company coverage per Builderr-scored family per request
+Base:
+`dc5907b27fb8844b0f690a166937bf908f058a73` (promoted M5, excluding shelved M6).
 
-The V9 challenger must not optimize raw claim count.
+M7 must not repeat already measured dead paths unchanged.
 
-## First implementation block
+Known candidate-source state:
 
-Implemented on the isolated V9 branch only:
+- exact-parent BRREG subunit homepage hints: **DROP**, 0/3 accepted exact target sites;
+- exact-parent BRREG subunit email-domain hints: **DROP**, 0/10 accepted exact target sites;
+- broad NAV Arbeidsplassen scan: **NO-GO**, prior 20-company screen found 0 exact active-job
+  matches after 54 logical requests; reopen only for a materially new exact-org retrieval primitive;
+- Wikidata exact P2333 -> P856 candidate lookup already exists in the frozen production path and
+  still requires independent exact-company verification;
+- deterministic legal-name domain candidates are already represented by H1c/H1g;
+- historical-name .no DNS expansion remains stopped after prior zero verified-site yield;
+- Norid organisation-number lookup remains unusable for the production path under the project's
+  prior rights/access review.
 
-1. A company-family measurement module/CLI that compares baseline and challenger on an identical cohort and reports:
-   - verified website companies;
-   - social companies;
-   - external-contact companies;
-   - careers-surface companies;
-   - company-authored hiring-intent companies;
-   - specific active-job companies;
-   - dated first-party activity companies;
-   - logical/conservative request charge;
-   - terminal/error/cost summaries.
-2. The initial BRREG email-domain selector admitted `exact`, `multi`, or `acronym`; the M2 RETUNE now also preserves `partial` candidates because targeted consumed evidence showed that pre-fetch removal of partial domains can delete exact verified sites.
-3. The candidate remains nomination only. Independent fetch, existing exact-company verifier, wrong-org veto, registry-risk guard, and all publication evidence rules remain unchanged.
-4. The current retune substitutes only clearly unrelated (`none`) registry-email domains. `partial` remains candidate nomination only and still must pass the unchanged independent exact-company verifier.
+Therefore M7 begins as a **candidate-source revalidation milestone**, not as permission to add a
+new connector automatically.
 
-## Safety boundary
+## Builderr / budget rules
+
+Official per-100-company limits:
+
+- wall clock: **45 minutes**
+- outbound requests: **2,000**
+- external API spend: **$10**
+
+No general paid model/search provider is injected by default. Participant-owned API keys are not
+part of the official path. Production V9 remains credential-free.
+
+PR #137 stays parked as optional M9-only search fallback. Paid/model search may be reconsidered
+only if Builderr explicitly supplies a reproducible provider/key. Internal planning ceiling would
+be **$8**, retaining about **$2 reserve**.
+
+## Hard locks
 
 Do not:
 
-- move either V8 release ref;
-- merge the research branch wholesale;
-- weaken exact-company verification;
-- use an email domain as ownership proof;
-- consume a fresh cohort for M1/M2 tuning;
-- add search/paid API requests;
-- increase `MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE`;
-- merge this branch before consumed baseline-vs-challenger transfer evidence exists.
-
-## M2 consumed-transfer decision
-
-Decision: **RETUNE**. M2 is not promoted and no later milestone may be stacked on it yet.
-
-The governing consumed evidence is the exact-branch push run `37464768685` at challenger
-`58723f89fa192a1dd449c72f907ac86bd477c203`, compared with frozen `main`
-`72f1bf2892ec1c1e35674aa383433c9a37afdaca`. The subsequent branch commit
-`69c73fb38371ee14312fb75c8b91c76947fc3e5c` was an empty commit with the same Git tree
-`19e9f049a1acbfe3ba3c1e24bc1fe8d7628dd37f`, so the measured implementation tree is identical.
-
-The PR-triggered run `37464804373` checked GitHub's synthetic merge commit
-`09020e31ba36147a360c5f93ccb579b58731d22d`; it is useful corroboration but is not the
-governing exact-branch result. The M2 workflow has since been tightened to explicitly check out
-the PR head SHA and verify that recorded challenger SHA.
-
-Consumed 100-company exact-branch result:
-
-- verified website companies: **6 -> 5**; net-new **0**; lost **1**;
-- social companies: **4 -> 4**;
-- external-contact companies: **5 -> 5**;
-- careers-surface companies: **0 -> 0**;
-- company-authored hiring-intent companies: **0 -> 0**;
-- specific active-job companies: **0 -> 0**;
-- dated first-party activity companies: **1 -> 1**;
-- net-new scored company-family coverage: **0**;
-- evaluator-family publications added: **0**;
-- evaluator-family publications lost: **1**;
-- reported per-company conservative request charge: **1378 -> 1320**;
-- whole-run observed logical requests: **692 -> 663**;
-- whole-run observed conservative challenge charge: **1384 -> 1326**;
-- theoretical conservative ceiling: **2000 -> 2000**;
-- wall runtime: **636.253 s -> 635.181 s**;
-- third-party API cost: **$0 -> $0**;
-- search API requests: **0 -> 0**;
-- terminal outputs: **100/100 -> 100/100**;
-- source-level reported errors: **162 -> 164**;
-- contract errors: **0**;
-- canonical validation errors: **0**;
-- synthesis validation errors: **0**;
-- external-observation validation errors: **0**;
-- wrong-company new publications after manual audit: **0**.
-
-Manual publication audit is complete because the challenger added **zero** evaluator-family
-publications. The single lost publication was separately regression-audited: organisation
-`921093934`, `https://www.aursneskiosk.no/`. The retained baseline evidence classified it
-as exact with score 0.98, full normalized legal-name tokens, registry-location/title-domain
-corroboration, and same-domain secondary identity corroboration. Treat the loss as a real
-verified-site regression, not as removal of a dubious publication.
-
-Why RETUNE rather than PROMOTE: the challenger saved observed requests but produced no
-net-new scored-family coverage and violated the no-existing-verified-site-loss gate. The likely
-retune target is candidate allocation/priority: a strong email-domain nomination must not
-consume the request opportunity needed to retain an already productive deterministic H1c path.
-Do not weaken identity gates to repair this.
-
-## Milestone sequencing lock
-
-Until the M2 retune passes consumed transfer and manual audit:
-
-- do not start M5 or M6;
-- do not stack M4 onto M2;
-- do not consume a fresh cohort;
-- do not merge PR #142;
-- keep PR #143 as the canonical isolated M4 experiment based from `main`;
-- PR #144 is superseded/closed and must not be revived;
-- keep PR #137 parked as optional M9-only search fallback.
-
-Builderr's current official path must remain credential-free. No general model/search provider
-is injected by default and participant-owned API keys are not used. If Builderr later explicitly
-arranges a reproducible provider/key, paid model/search/tool usage shares the official **$10**
-external-API cap per 100-company shard; internal planning should target at most **$8** with about
-**$2 reserve**. Current shard limits remain **45 minutes**, **2,000 outbound requests**, and
-**$10 external API cost**.
+- modify or move V8 release refs;
+- modify `main`;
+- merge research branches wholesale;
+- weaken the exact-company verifier;
+- use candidate/search output as evidence;
+- add requests without re-proving the worst-case theorem;
+- consume a fresh cohort before M10/M11 pass;
+- revive stopped source paths unchanged;
+- stack shelved M6 behavior onto later milestones.
 
 ## Exact next action
 
-Remain in **M2 RETUNE**. Diagnose and fix the one-site regression without increasing the
-four-logical-site-request ceiling, then re-run the same consumed 100-company baseline/challenger
-gate on the exact challenger head. Promotion still requires zero website losses, positive
-net-new scored-family coverage, zero wrong-company publications, clean contract/canonical/
-synthesis/evidence validation, and the unchanged <=2,000 worst-case request theorem.
-
-
-## M2 RETUNE causal-exposure result
-
-A targeted consumed-only gate was added so M2 is measured on companies whose request allocation
-actually changes, rather than relying on a random consumed 100 with little causal exposure.
-
-Consumed-1000 causal census run `37484232499` (fresh companies used: **0**) found:
-
-- registry website already present: **116**;
-- eligible without registry website: **884**;
-- initial M2 behaviorally affected (`m2_delta`): **69**;
-- initial strong-email controls: **18**;
-- no-email controls: **797**;
-- baseline candidate strengths among email candidates: exact **15**, acronym **2**, multi **1**,
-  partial **15**, none **54**.
-
-The first targeted transfer run `37483662873` included all **69** affected companies, all
-**18** same-candidate controls, and **13** no-email controls. Control variance was **false**,
-so publication movement in that run is causally attributable to the M2 allocation change.
-
-Targeted result:
-
-- verified websites: **8 -> 7**; **+1 new / -2 lost**;
-- social: **5 -> 5**; **+1 / -1**;
-- external contact: **4 -> 4**; **+1 / -1**;
-- careers surface: **2 -> 3**; **+1 / -0**;
-- company-authored hiring intent: **0 -> 0**;
-- specific active jobs: **0 -> 0**;
-- dated first-party activity: **2 -> 1**; **+0 / -1**;
-- net-new family-company edges: **4**;
-- lost family-company edges: **5**;
-- new evaluator-family publications: **5**;
-- lost evaluator-family publications: **6**;
-- observed conservative request charge: **1602 -> 1358**;
-- theoretical ceiling: **2000 -> 2000**;
-- wall runtime: **702.497 s -> 639.446 s**;
-- external API cost: **$0**;
-- search API requests: **0**;
-- machine decision: **RETUNE_LOSS**.
-
-Manual audit of all five new publications is complete. All five belong to organisation
-`999096298`, **DEN GLADE GRIS AS**, and derive from the newly recovered exact site
-`https://www.dengladegris.no/`: official website, careers surface, Facebook, Instagram and
-same-domain contact email. The retained site identity is exact at **0.98**, matches all legal-name
-tokens, and records bounded same-domain secondary identity corroboration. Evidence is hashed and
-timestamped. Manual result: **5/5 reviewed, 0 wrong-company new publications**.
-
-The six lost publications are also real regressions, all inside the causal `m2_delta` bucket.
-Two lost verified sites explain the family losses:
-
-- `943378649`, **OPUS AS**, `https://opusas.no/`: BRREG registered email
-  `oad@opusas.no`; baseline website identity exact at **0.95**. Its email-domain morphology is
-  classified `partial`.
-- `965880437`, **KOKKERSVOLD AS**, `https://kokkers.no/`: BRREG registered email
-  `kjell@kokkers.no`; baseline website identity exact at **1.0** with explicit organisation
-  number `965880437`. Its email-domain morphology is also `partial`, and losing the site also
-  loses two strict dated same-site feed updates.
-
-This isolates the defect in M2 iteration 1: rejecting every `partial` candidate before fetching
-is too aggressive. Morphology is only a nomination heuristic; the unchanged exact-company verifier
-is what decides publication.
-
-### M2 RETUNE iteration 2
-
-The candidate-allocation policy is therefore narrowed:
-
-- preserve `exact`, `acronym`, `multi`, and `partial` registry-email candidates;
-- substitute only `none` candidates;
-- do not weaken or bypass any identity/evidence gate;
-- do not increase the four-logical-site-request ceiling;
-- do not use search or paid APIs;
-- re-run the consumed causal census and targeted consumed-100 transfer before any promotion.
-
-Expected causal exposure under the same census is approximately the **54** `none` candidates,
-rather than all 69 initial affected companies; the new census is authoritative once complete.
-
-Decision remains **RETUNE** until iteration 2 passes zero-loss, positive-family-lift and manual
-precision gates.
+Complete M7 source revalidation from existing project measurements. If no genuinely new
+deterministic candidate primitive clears the novelty, exact-identity, rights, request-economics,
+and expected-family-lift bar, record **SHELVE** for M7 without adding production code, then move
+serially to M8.
