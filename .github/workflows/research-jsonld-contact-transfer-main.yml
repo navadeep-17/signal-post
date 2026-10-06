@@ -108,7 +108,7 @@ jobs:
 
           baseline_companies=set()
           challenger_companies=set()
-          new_company_orgs=set()
+          companies_with_new_claims=set()
           baseline_claims=0
           challenger_claims=0
           new_claims=0
@@ -161,7 +161,7 @@ jobs:
 
               delta=after-before
               if delta:
-                  new_company_orgs.add(org)
+                  companies_with_new_claims.add(org)
                   new_claims += len(delta)
 
               for obs in jsonld:
@@ -203,13 +203,15 @@ jobs:
               for err in validate_company_synthesis(canonical):
                   synthesis_errors.append({"org":org,"error":err})
 
+          net_new_coverage=challenger_companies-baseline_companies
           report={
               "screen_type":"jsonld_contact_transfer_current_main_frozen1000",
               "companies":1000,
               "baseline_contact_email_companies":len(baseline_companies),
               "challenger_contact_email_companies":len(challenger_companies),
-              "net_new_contact_email_companies":len(new_company_orgs),
-              "net_new_contact_company_reach_pct":round(100*len(new_company_orgs)/1000,3),
+              "net_new_contact_email_companies":len(net_new_coverage),
+              "net_new_contact_company_reach_pct":round(100*len(net_new_coverage)/1000,3),
+              "companies_with_net_new_contact_claims":len(companies_with_new_claims),
               "baseline_contact_email_claims":baseline_claims,
               "challenger_contact_email_claims":challenger_claims,
               "net_new_contact_email_claims":new_claims,
@@ -225,7 +227,7 @@ jobs:
               "conservative_request_charge_added":0,
               "third_party_api_cost_usd":0.0,
               "promotion_gate_passed":(
-                  len(new_company_orgs)>0
+                  len(net_new_coverage)>0
                   and not lost_existing
                   and not non_contact_mutations
                   and not observation_errors
