@@ -1,0 +1,157 @@
+name: Research JSON-LD Contact Evaluator Overlap
+
+on:
+  push:
+    branches:
+      - research/jsonld-contact-transfer-main-20261006
+    paths:
+      - .github/workflows/research-jsonld-contact-evaluator-overlap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  overlap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Restore frozen retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/contact-overlap
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          find archived/final-release -name profiles.jsonl -print0             | sort -z             | xargs -0 cat > out/contact-overlap/profiles.jsonl
+          test "$(wc -l < out/contact-overlap/profiles.jsonl)" -eq 1000
+
+      - name: Measure overlap with current exact-BRREG contact fields
+        run: |
+          uv sync --locked
+          uv run python - <<'PY'
+          import copy,gzip,json
+          from pathlib import Path
+          from norway_company_agent.company_site_contact import attach_company_site_contact_email_observations
+          from norway_company_agent.external_contract import project_contact_email_observations
+
+          profiles=[
+              json.loads(x)
+              for x in Path("out/contact-overlap/profiles.jsonl").read_text(encoding="utf-8").splitlines()
+              if x.strip()
+          ]
+          pindex={str(x["organisation_number"]):x for x in profiles}
+
+          contracts=[]
+          with gzip.open("submission/final-release-1000-output.jsonl.gz","rt",encoding="utf-8") as h:
+              contracts=[json.loads(x) for x in h if x.strip()]
+          assert len(contracts)==1000
+
+          def companies_with_field(field):
+              return {
+                  str(row["organisation_number"])
+                  for row in contracts
+                  if any(
+                      isinstance(c,dict)
+                      and c.get("field")==field
+                      and c.get("availability")=="available"
+                      and c.get("value") not in (None,"",[],{})
+                      for c in row.get("claims") or []
+                  )
+              }
+
+          reg_email=companies_with_field("registered_contact_email")
+          reg_phone=companies_with_field("registered_phone")
+          reg_mobile=companies_with_field("registered_mobile")
+          ext_before=companies_with_field("external.contact_email")
+
+          ext_after=set()
+          companies_with_new_ext_claim=set()
+          new_ext_coverage=set()
+          for row in contracts:
+              org=str(row["organisation_number"])
+              before={
+                  str(c.get("value") or "").strip().lower()
+                  for c in row.get("claims") or []
+                  if isinstance(c,dict)
+                  and c.get("field")=="external.contact_email"
+                  and c.get("availability")=="available"
+                  and str(c.get("value") or "").strip()
+              }
+              profile=copy.deepcopy(pindex[org])
+              attach_company_site_contact_email_observations(profile)
+              projected=project_contact_email_observations(copy.deepcopy(row),profile)
+              after={
+                  str(c.get("value") or "").strip().lower()
+                  for c in projected.get("claims") or []
+                  if isinstance(c,dict)
+                  and c.get("field")=="external.contact_email"
+                  and c.get("availability")=="available"
+                  and str(c.get("value") or "").strip()
+              }
+              if after:
+                  ext_after.add(org)
+              if after-before:
+                  companies_with_new_ext_claim.add(org)
+              if not before and after:
+                  new_ext_coverage.add(org)
+
+          any_email_before=reg_email|ext_before
+          any_email_after=reg_email|ext_after
+          any_contact_before=reg_email|ext_before|reg_phone|reg_mobile
+          any_contact_after=reg_email|ext_after|reg_phone|reg_mobile
+
+          report={
+              "screen_type":"jsonld_contact_evaluator_overlap_current_main",
+              "companies":1000,
+              "registered_contact_email_companies":len(reg_email),
+              "registered_phone_companies":len(reg_phone),
+              "registered_mobile_companies":len(reg_mobile),
+              "external_contact_email_before":len(ext_before),
+              "external_contact_email_after":len(ext_after),
+              "external_contact_net_new_coverage_companies":len(new_ext_coverage),
+              "companies_with_net_new_external_email_claim":len(companies_with_new_ext_claim),
+              "any_email_before":len(any_email_before),
+              "any_email_after":len(any_email_after),
+              "net_new_any_email_companies":len(any_email_after-any_email_before),
+              "new_external_coverage_already_having_registered_email":len(new_ext_coverage & reg_email),
+              "new_external_coverage_without_registered_email":len(new_ext_coverage-reg_email),
+              "any_registered_or_external_contact_before":len(any_contact_before),
+              "any_registered_or_external_contact_after":len(any_contact_after),
+              "net_new_any_contact_companies":len(any_contact_after-any_contact_before),
+              "logical_requests_added":0,
+              "third_party_api_cost_usd":0.0,
+              "notes":[
+                  "This measures overlap only; it does not assume the external and registry contact fields score identically.",
+                  "No raw contact values or organisation-number lists are retained."
+              ]
+          }
+          Path("out/contact-overlap/report.json").write_text(
+              json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8"
+          )
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf archived/final-release
+          rm -f out/contact-overlap/profiles.jsonl
+
+      - name: Upload aggregate overlap report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-jsonld-contact-evaluator-overlap
+          retention-days: 30
+          path: out/contact-overlap/report.json
