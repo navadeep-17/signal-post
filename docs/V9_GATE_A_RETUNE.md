@@ -290,6 +290,67 @@ three redirects:     +0; run also had transient positive-control failure
 Do not merge these runtime relaxations into the V9 integration branch. Continue looking for a genuinely new first-party candidate/source for the fifth Gate-A organisation instead.
 
 
+## Source screen 6 — registry-seeded sitemap nomination
+
+A consumed-only source screen tested whether official BRREG website/email-domain seeds could expose a deeper exact-company page through same-domain robots/sitemap metadata. Sitemap content remained nomination-only and never became company evidence.
+
+Isolated branch:
+
+`experiment/v9-registry-seed-sitemap`
+
+Final hardened screen:
+
+- workflow: `37446354632` — **PASS**
+- head: `393b39bfc0a567552b5e6d12222ea025e166dd91`
+- frozen Gate-A manifest unchanged
+- candidate URLs nominated: **1**
+- machine-verified organisations: **0 / 20**
+- nomination requests: **24**
+- independent verification requests: **2**
+- logical requests: **26**
+- conservative request charge: **52**
+- total bytes: **873,807**
+- runtime: **18.129 s**
+- third-party API cost: **$0**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+During hardening, noisy manager/contact-person/location-only sitemap paths were explicitly removed from the ranking logic. The final source remained safe but did not recover a fifth Gate-A website.
+
+Decision: **SHELVE as a primary Gate-A source.** Keep the code and artifact on the isolated experiment branch; do not merge the runtime path into V9 integration.
+
+## Source screen 7 — BRREG subunit homepage nomination
+
+A second consumed-only source screen tested the official BRREG subunit endpoint. Exact parent→subunit relationships were allowed to nominate a subunit homepage only; the relationship itself was forbidden from contributing any parent-company identity evidence.
+
+Isolated branch:
+
+`experiment/v9-brreg-subunit-discovery`
+
+Final screen:
+
+- workflow: `37447133224` — **PASS**
+- workflow head: `389c6269c66579e13997deecad8f46c0066dca1d`
+- parents with official BRREG subunits: **17 / 20**
+- observed subunits: **17**
+- parents with subunit homepage candidates: **0**
+- candidate URLs nominated: **0**
+- machine-verified parent organisations: **0 / 20**
+- registry requests: **20**
+- site verification requests: **0**
+- logical requests: **20**
+- conservative request charge: **40**
+- total bytes: **23,529**
+- runtime: **14.278 s**
+- third-party API cost: **$0**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+This source was structurally clean but sparse: BRREG exposed subunits for most Gate-A parents, yet none of those subunit records supplied a usable homepage.
+
+Decision: **SHELVE as a website-discovery source for this Gate-A cohort.** Do not infer parent website ownership from subunit relation alone.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
