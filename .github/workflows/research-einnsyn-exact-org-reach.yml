@@ -1,13 +1,6 @@
 name: Research eInnsyn Consumed-100 Exact-Org Reach
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/screen_einnsyn_exact_org_reach.py
-      - tests/test_screen_einnsyn_exact_org_reach.py
-      - .github/workflows/research-einnsyn-exact-org-reach.yml
   workflow_dispatch:
 
 permissions:
