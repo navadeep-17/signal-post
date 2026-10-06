@@ -11,6 +11,7 @@ from norway_company_agent.canonical_projection import (
     validate_canonical_projection,
 )
 from norway_company_agent.hiring_intent_contract import (
+    hiring_intent_match,
     project_company_authored_hiring_intent,
 )
 from norway_company_agent.output_contract import validate_contract_object
@@ -20,43 +21,31 @@ from norway_company_agent.synthesis import (
 )
 
 
-ORG = "938702675"
-URL = "https://www.afgruppen.no/"
+ORG = "927097532"
+URL = "https://entalpy.no/"
 
 
-def _profile(*, count: int = 10, publishable: bool = True, method: str = "explicit_homepage_vacancy_count") -> dict:
+def _profile(text: str, *, publishable: bool = True) -> dict:
     return {
         "organisation_number": ORG,
-        "name": "AF GRUPPEN ASA",
+        "name": "ENTALPY AS",
         "evidence": {
             "website": {
                 "status": "available",
                 "source_type": "registry_linked_company_website",
                 "source_url": URL,
-                "retrieved_at": "2026-10-06T06:00:00Z",
+                "retrieved_at": "2026-09-17T16:33:12.152602Z",
                 "content_sha256": "a" * 64,
                 "value": {
                     "final_url": URL,
+                    "main_text_excerpt": text,
                     "identity_assessment": {
                         "status": "exact" if publishable else "review",
-                        "score": 1.0 if publishable else 0.7,
+                        "score": 0.99 if publishable else 0.7,
                         "publishable": publishable,
                         "method": "fixture",
                     },
-                    "active_hiring_signal": {
-                        "active_vacancy_count": count,
-                        "active_vacancies": count > 0,
-                        "method": method if count > 0 else "none",
-                        "homepage_url": URL,
-                        "evidence_span": f"{count} Antall ledige stillinger" if count > 0 else "",
-                    },
-                    "careers_links": [
-                        {
-                            "url": "https://www.afgruppen.no/karriere/",
-                            "homepage_url": URL,
-                            "homepage_content_sha256": "a" * 64,
-                        }
-                    ],
+                    "careers_links": [],
                     "pages": [],
                 },
             }
@@ -71,7 +60,7 @@ def _contract(*, careers: bool = True) -> dict:
         claims.append(
             {
                 "field": "external.careers_page",
-                "value": {"url": "https://www.afgruppen.no/karriere/"},
+                "value": {"url": "https://entalpy.no/karriere/"},
                 "availability": "available",
                 "confidence": 1.0,
                 "evidence_ids": ["ev-careers"],
@@ -85,7 +74,7 @@ def _contract(*, careers: bool = True) -> dict:
                 "id": "ev-careers",
                 "source_url": URL,
                 "source_class": "company_owned",
-                "retrieved_at": "2026-10-06T06:00:00Z",
+                "retrieved_at": "2026-09-17T16:33:12.152602Z",
                 "content_sha256": "a" * 64,
                 "claim_span": "Homepage careers link",
             }
@@ -94,8 +83,8 @@ def _contract(*, careers: bool = True) -> dict:
         "organisation_number": ORG,
         "run": {
             "run_id": "fixture",
-            "started_at": "2026-10-06T06:00:00Z",
-            "completed_at": "2026-10-06T06:00:01Z",
+            "started_at": "2026-09-17T16:33:12Z",
+            "completed_at": "2026-09-17T16:33:13Z",
             "terminal_status": "completed",
         },
         "claims": claims,
@@ -110,55 +99,70 @@ def _fields(row: dict) -> list[str]:
     return [str(claim.get("field") or "") for claim in row.get("claims") or []]
 
 
-def test_explicit_positive_homepage_count_becomes_intent_only() -> None:
-    row = project_company_authored_hiring_intent(_contract(), _profile())
+def test_measured_norwegian_recruitment_language_becomes_intent_only() -> None:
+    text = (
+        "Ser du etter nye utfordringer? Bli med i teamet vårt. "
+        "Vi søker etter talentfulle kuldeteknikere og mekanikere, "
+        "så vel som administrativt- og logistikkpersonell."
+    )
+    row = project_company_authored_hiring_intent(_contract(), _profile(text))
     assert _fields(row).count("external.careers_page") == 1
     assert _fields(row).count("external.hiring_intent") == 1
     assert "external.job_posting" not in _fields(row)
 
     claim = next(x for x in row["claims"] if x["field"] == "external.hiring_intent")
-    assert claim["value"]["active_vacancy_count"] == 10
-    assert "not proof of any specific vacancy" in claim["claim_scope"]
+    assert claim["value"]["match_type"] == "no_vi_soker"
+    assert "not proof that a specific vacancy is currently open" in claim["claim_scope"]
 
     evidence = next(x for x in row["evidence"] if x["id"] in claim["evidence_ids"])
     assert evidence["source_url"] == URL
     assert evidence["content_sha256"] == "a" * 64
-    assert evidence["claim_span"] == "10 Antall ledige stillinger"
-    assert evidence["extraction_method"] == "explicit_homepage_vacancy_count"
+    assert "Vi søker etter talentfulle kuldeteknikere" in evidence["claim_span"]
+    assert evidence["extraction_method"].startswith(
+        "explicit_company_authored_recruitment_language:"
+    )
 
 
-def test_careers_surface_without_positive_count_is_not_intent() -> None:
-    row = project_company_authored_hiring_intent(_contract(), _profile(count=0))
+def test_generic_careers_surface_is_not_hiring_intent() -> None:
+    row = project_company_authored_hiring_intent(
+        _contract(),
+        _profile("Karriere Jobb hos oss Join our team"),
+    )
     assert "external.careers_page" in _fields(row)
     assert "external.hiring_intent" not in _fields(row)
     assert "external.job_posting" not in _fields(row)
 
 
-def test_wrong_method_or_unverified_site_abstains() -> None:
-    assert "external.hiring_intent" not in _fields(
-        project_company_authored_hiring_intent(
-            _contract(),
-            _profile(method="broad_numeric_proximity"),
-        )
+def test_vi_soker_requires_people_or_role_context() -> None:
+    assert hiring_intent_match("Vi søker etter bedre løsninger for kundene våre.") is None
+    assert hiring_intent_match("Vi søker etter nye leverandører av reservedeler.") is None
+
+
+def test_negative_hiring_language_abstains() -> None:
+    assert hiring_intent_match("Vi har ingen ledige stillinger akkurat nå.") is None
+    assert hiring_intent_match("We are not hiring at this time.") is None
+
+
+def test_unverified_site_never_publishes_intent() -> None:
+    row = project_company_authored_hiring_intent(
+        _contract(),
+        _profile("Vi søker dyktige medarbeidere til teamet.", publishable=False),
     )
-    assert "external.hiring_intent" not in _fields(
-        project_company_authored_hiring_intent(
-            _contract(),
-            _profile(publishable=False),
-        )
-    )
+    assert "external.hiring_intent" not in _fields(row)
 
 
 def test_projection_is_zero_network_and_idempotent() -> None:
+    profile = _profile("We are hiring engineers to join our product team.")
     baseline = _contract()
-    first = project_company_authored_hiring_intent(baseline, _profile())
-    second = project_company_authored_hiring_intent(first, _profile())
+    first = project_company_authored_hiring_intent(baseline, profile)
+    second = project_company_authored_hiring_intent(first, profile)
     assert first["operations"] == baseline["operations"]
     assert second == first
 
 
 def test_canonical_and_synthesis_preserve_three_level_boundary() -> None:
-    projected = project_company_authored_hiring_intent(_contract(), _profile())
+    profile = _profile("Vi søker dyktige medarbeidere til teamet vårt.")
+    projected = project_company_authored_hiring_intent(_contract(), profile)
     canonical = project_canonical_profile(projected)
     assert validate_contract_object(canonical) == []
     assert validate_canonical_projection(canonical) == []
