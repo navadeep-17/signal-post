@@ -1,13 +1,6 @@
 name: Research BRREG Change Website Transfer
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/verify_brreg_change_website_candidates.py
-      - tests/test_verify_brreg_change_website_candidates.py
-      - .github/workflows/research-brreg-change-website-transfer.yml
   workflow_dispatch:
 
 permissions:
