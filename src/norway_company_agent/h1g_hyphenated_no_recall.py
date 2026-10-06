@@ -148,9 +148,20 @@ def _attach_activity_feed_in_spare_slot(
         result["activity_feed_skipped_reason"] = "verified_website_url_missing"
         return row, result
 
+    advertised = [
+        str(item).strip()
+        for item in ((website.get("value") or {}).get("activity_feed_links") or [])
+        if str(item or "").strip()
+    ]
+    candidate_url = advertised[0] if advertised else None
     result["activity_feed_attempted"] = True
+    result["activity_feed_candidate_source"] = (
+        "homepage_advertised_rss_atom" if candidate_url else "legacy_default_feed_path"
+    )
+    result["activity_feed_candidate_url"] = candidate_url
     feed_record, operations = fetch_verified_activity_feed(
         verified_url,
+        candidate_url=candidate_url,
         timeout=timeout,
     )
     added_requests = int(operations.get("requests") or 0)
@@ -189,8 +200,9 @@ def evaluate_hyphenated_no_fallback(
     orchestration can instead pass the already-measured site request count directly so the
     same four-request ceiling remains authoritative while discovery is still in progress.
 
-    Q4 never competes with website recovery. If a website is already exact-verified, one
-    `/feed/` attempt may use the final two logical site requests. Unresolved companies keep
+    Q4/M6 never competes with website recovery. If a website is already exact-verified,
+    one homepage-advertised RSS/Atom feed (falling back to `/feed/`) may use the final two
+    logical site requests. Unresolved companies keep
     those requests available for H1g. A site that H1g itself recovers therefore receives no
     additional feed request in the same run.
     """
