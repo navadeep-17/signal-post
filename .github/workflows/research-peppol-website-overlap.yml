@@ -1,11 +1,6 @@
 name: Research Peppol Website Overlap
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-peppol-website-overlap.yml
   workflow_dispatch:
 
 permissions:
