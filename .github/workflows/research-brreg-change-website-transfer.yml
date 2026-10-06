@@ -1,0 +1,76 @@
+name: Research BRREG Change Website Transfer
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/verify_brreg_change_website_candidates.py
+      - tests/test_verify_brreg_change_website_candidates.py
+      - .github/workflows/research-brreg-change-website-transfer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run focused transfer tests
+        run: |
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q tests/test_verify_brreg_change_website_candidates.py
+
+      - name: Download frozen net-new BRREG change candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p frozen/change
+          gh run download 37444445628             --repo "$GITHUB_REPOSITORY"             --pattern 'research-brreg-change-web-contact-net-new'             --dir frozen/change
+          CANDIDATES="$(find frozen/change -name net-new-websites.jsonl -print -quit)"
+          test -n "$CANDIDATES"
+          mkdir -p out/brreg-change-transfer
+          cp "$CANDIDATES" out/brreg-change-transfer/candidates.jsonl
+          test "$(wc -l < out/brreg-change-transfer/candidates.jsonl)" -eq 5
+
+      - name: Download archived exact-registry profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Verify frozen candidates with existing exact-site gates
+        env:
+          PYTHONPATH: src
+        run: |
+          uv run python scripts/verify_brreg_change_website_candidates.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --candidates out/brreg-change-transfer/candidates.jsonl             --report out/brreg-change-transfer/report.json             --workers 5             --timeout 8
+          cat out/brreg-change-transfer/report.json
+
+      - name: Remove raw candidate file before artifact upload
+        if: always()
+        run: rm -f out/brreg-change-transfer/candidates.jsonl
+
+      - name: Upload aggregate transfer result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-change-website-transfer
+          retention-days: 30
+          path: out/brreg-change-transfer/report.json
