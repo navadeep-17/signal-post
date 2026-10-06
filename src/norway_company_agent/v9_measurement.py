@@ -86,6 +86,103 @@ def summarize_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+
+
+AUDIT_FIELDS: frozenset[str] = frozenset(
+    field for fields in FAMILY_FIELDS.values() for field in fields
+)
+
+
+def _claim_signature(claim: dict[str, Any]) -> tuple[str, str]:
+    import json
+
+    field = str(claim.get("field") or "")
+    value = json.dumps(
+        claim.get("value"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return field, value
+
+
+def publication_diff(
+    baseline_rows: Iterable[dict[str, Any]],
+    challenger_rows: Iterable[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Return exact evaluator-family publications added/lost by the challenger.
+
+    Each added publication carries the challenger's referenced evidence objects so
+    every new external publication can be manually audited without reopening the
+    complete 100-company output.
+    """
+    baseline = _index_rows(baseline_rows)
+    challenger = _index_rows(challenger_rows)
+    if set(baseline) != set(challenger):
+        raise ValueError("baseline/challenger organisation sets differ")
+
+    def available_claims(row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            claim for claim in (row.get("claims") or [])
+            if isinstance(claim, dict)
+            and claim.get("availability") == "available"
+            and str(claim.get("field") or "") in AUDIT_FIELDS
+            and claim.get("value") not in (None, "")
+        ]
+
+    def evidence_index(row: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        return {
+            str(item.get("id")): item
+            for item in (row.get("evidence") or [])
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        }
+
+    added: list[dict[str, Any]] = []
+    lost: list[dict[str, Any]] = []
+    for org in sorted(baseline):
+        before = baseline[org]
+        after = challenger[org]
+        before_claims = available_claims(before)
+        after_claims = available_claims(after)
+        before_signatures = {_claim_signature(claim) for claim in before_claims}
+        after_signatures = {_claim_signature(claim) for claim in after_claims}
+        after_evidence = evidence_index(after)
+        before_evidence = evidence_index(before)
+
+        for claim in after_claims:
+            if _claim_signature(claim) in before_signatures:
+                continue
+            evidence_ids = [str(value) for value in claim.get("evidence_ids") or []]
+            added.append({
+                "organisation_number": org,
+                "field": claim.get("field"),
+                "value": claim.get("value"),
+                "claim": claim,
+                "evidence": [
+                    after_evidence[evidence_id]
+                    for evidence_id in evidence_ids
+                    if evidence_id in after_evidence
+                ],
+            })
+
+        for claim in before_claims:
+            if _claim_signature(claim) in after_signatures:
+                continue
+            evidence_ids = [str(value) for value in claim.get("evidence_ids") or []]
+            lost.append({
+                "organisation_number": org,
+                "field": claim.get("field"),
+                "value": claim.get("value"),
+                "claim": claim,
+                "evidence": [
+                    before_evidence[evidence_id]
+                    for evidence_id in evidence_ids
+                    if evidence_id in before_evidence
+                ],
+            })
+
+    return {"added": added, "lost": lost}
+
 def compare_company_family_coverage(
     baseline_rows: Iterable[dict[str, Any]],
     challenger_rows: Iterable[dict[str, Any]],
