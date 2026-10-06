@@ -1,11 +1,6 @@
 name: Research BRREG Announcement Schema Probe
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-announcement-schema-probe.yml
   workflow_dispatch:
 
 permissions:
