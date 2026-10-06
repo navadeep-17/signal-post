@@ -26,6 +26,7 @@ from norway_company_agent.external_contract import (  # noqa: E402
     project_contact_email_observations,
     project_contact_phone_observations,
 )
+from norway_company_agent.hiring_contract import project_hiring_semantics  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 from norway_company_agent.synthesis import (  # noqa: E402
     build_company_synthesis,
@@ -86,6 +87,8 @@ def _project_m4_zero_request_contacts(
 
     before_email_claims = sum(_available_claim_count(row, "external.contact_email") for row in rows)
     before_phone_claims = sum(_available_claim_count(row, "external.contact_phone") for row in rows)
+    before_intent_claims = sum(_available_claim_count(row, "external.hiring_intent") for row in rows)
+    before_job_claims = sum(_available_claim_count(row, "external.job_posting") for row in rows)
 
     projected: list[dict[str, Any]] = []
     contract_errors: list[dict[str, str]] = []
@@ -105,6 +108,7 @@ def _project_m4_zero_request_contacts(
 
         item = project_contact_email_observations(row, profile)
         item = project_contact_phone_observations(item, profile)
+        item = project_hiring_semantics(item, profile)
         item = project_canonical_profile(item)
         item["synthesis"] = build_company_synthesis(item)
 
@@ -118,6 +122,8 @@ def _project_m4_zero_request_contacts(
 
     after_email_claims = sum(_available_claim_count(row, "external.contact_email") for row in projected)
     after_phone_claims = sum(_available_claim_count(row, "external.contact_phone") for row in projected)
+    after_intent_claims = sum(_available_claim_count(row, "external.hiring_intent") for row in projected)
+    after_job_claims = sum(_available_claim_count(row, "external.job_posting") for row in projected)
     email_observations = [
         observation
         for profile in profiles
@@ -158,6 +164,9 @@ def _project_m4_zero_request_contacts(
             "company_page_structured_contact_phone_recovery_enabled": True,
             "contact_email_network_requests": 0,
             "contact_phone_network_requests": 0,
+            "company_authored_hiring_intent_projection_enabled": True,
+            "strict_first_party_job_projection_enabled": True,
+            "hiring_semantics_network_requests": 0,
         }
     )
     report["source_policy"] = source_policy
@@ -178,6 +187,23 @@ def _project_m4_zero_request_contacts(
         }
     )
     report["external_signals"] = external_signals
+
+    report["v9_m5_hiring_semantics"] = {
+        "network_requests_added": 0,
+        "third_party_cost_usd_added": 0.0,
+        "search_api_requests_added": 0,
+        "before_hiring_intent_claims": before_intent_claims,
+        "after_hiring_intent_claims": after_intent_claims,
+        "added_hiring_intent_claims": max(0, after_intent_claims - before_intent_claims),
+        "before_strict_job_claims": before_job_claims,
+        "after_strict_job_claims": after_job_claims,
+        "added_strict_job_claims": max(0, after_job_claims - before_job_claims),
+        "semantic_levels": {
+            "careers_surface": "external.careers_page",
+            "company_authored_intent": "external.hiring_intent",
+            "specific_active_job": "external.job_posting",
+        },
+    }
 
     report["v9_m4_zero_request_contacts"] = {
         "network_requests_added": 0,
