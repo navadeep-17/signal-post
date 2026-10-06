@@ -1,0 +1,212 @@
+name: Research Zero-Network Social Projection Gate
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-zero-network-social-projection-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install and run social/canonical regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_v6e_zero_network_social_recovery.py             tests/test_company_site_social.py             tests/test_canonical_projection.py
+
+      - name: Restore archived final-release profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/social-projection
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+          find archived/final-release -name profiles.jsonl -print0             | sort -z             | xargs -0 cat > out/social-projection/profiles.jsonl
+          test "$(wc -l < out/social-projection/profiles.jsonl)" -eq 1000
+
+      - name: Reproject baseline and challenger with zero network
+        run: |
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import copy
+          import gzip
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          from norway_company_agent.canonical_projection import (
+              project_canonical_profile,
+              validate_canonical_projection,
+          )
+          from norway_company_agent.careers_contract import project_careers_page_claims
+          from norway_company_agent.external_contract import project_profile_handle_observations
+          from norway_company_agent.output_contract import validate_contract_object
+          from norway_company_agent.synthesis import build_company_synthesis, validate_company_synthesis
+          from norway_company_agent.zero_network_social_recovery import attach_zero_network_social_recovery
+
+          def read_jsonl(path):
+              return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines() if x.strip()]
+
+          profiles=read_jsonl("out/social-projection/profiles.jsonl")
+          pindex={str(p["organisation_number"]):p for p in profiles}
+          assert len(pindex)==1000
+
+          rows=[]
+          with gzip.open("submission/final-release-1000-output.jsonl.gz","rt",encoding="utf-8") as h:
+              rows=[json.loads(x) for x in h if x.strip()]
+          assert len(rows)==1000
+
+          managed={"social_links","external.profile_handle"}
+          baseline_social_companies=set()
+          challenger_social_companies=set()
+          baseline_handles=0
+          challenger_handles=0
+          platform_added=Counter()
+          non_social_mutations=[]
+          contract_errors=[]
+          canonical_errors=[]
+          synthesis_errors=[]
+          area_before=Counter()
+          area_after=Counter()
+
+          def claim_sig(claim):
+              return json.dumps(claim,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+
+          for row in rows:
+              org=str(row["organisation_number"])
+              original=copy.deepcopy(pindex[org])
+
+              # Normalize careers in both arms first so the comparison isolates
+              # zero-network social recovery rather than projector composition.
+              prepared=project_careers_page_claims(copy.deepcopy(row),original)
+              base=project_profile_handle_observations(copy.deepcopy(prepared),original)
+
+              challenger_profile=attach_zero_network_social_recovery(copy.deepcopy(original))
+              challenger=project_profile_handle_observations(copy.deepcopy(prepared),challenger_profile)
+
+              before_non_social=sorted(
+                  claim_sig(c) for c in base.get("claims") or []
+                  if isinstance(c,dict) and c.get("field") not in managed
+              )
+              after_non_social=sorted(
+                  claim_sig(c) for c in challenger.get("claims") or []
+                  if isinstance(c,dict) and c.get("field") not in managed
+              )
+              if before_non_social != after_non_social:
+                  non_social_mutations.append(org)
+
+              base_handles=[
+                  c for c in base.get("claims") or []
+                  if isinstance(c,dict)
+                  and c.get("field")=="external.profile_handle"
+                  and c.get("availability")=="available"
+              ]
+              new_handles=[
+                  c for c in challenger.get("claims") or []
+                  if isinstance(c,dict)
+                  and c.get("field")=="external.profile_handle"
+                  and c.get("availability")=="available"
+              ]
+              baseline_handles += len(base_handles)
+              challenger_handles += len(new_handles)
+              if base_handles: baseline_social_companies.add(org)
+              if new_handles: challenger_social_companies.add(org)
+
+              base_keys={(str(c.get("platform") or ""),str(c.get("value") or "")) for c in base_handles}
+              for c in new_handles:
+                  key=(str(c.get("platform") or ""),str(c.get("value") or ""))
+                  if key not in base_keys:
+                      platform_added[key[0] or "unknown"] += 1
+
+              base_can=project_canonical_profile(base)
+              new_can=project_canonical_profile(challenger)
+              base_can["synthesis"]=build_company_synthesis(base_can)
+              new_can["synthesis"]=build_company_synthesis(new_can)
+
+              for area,val in ((base_can.get("canonical_profile") or {}).get("data_areas") or {}).items():
+                  area_before[area]+=int(bool(val))
+              for area,val in ((new_can.get("canonical_profile") or {}).get("data_areas") or {}).items():
+                  area_after[area]+=int(bool(val))
+
+              for err in validate_contract_object(new_can):
+                  contract_errors.append({"org":org,"error":err})
+              for err in validate_canonical_projection(new_can):
+                  canonical_errors.append({"org":org,"error":err})
+              for err in validate_company_synthesis(new_can):
+                  synthesis_errors.append({"org":org,"error":err})
+
+          net_new=challenger_social_companies-baseline_social_companies
+          lost=baseline_social_companies-challenger_social_companies
+          report={
+              "screen_type":"zero_network_social_projection_gate_frozen1000",
+              "companies":1000,
+              "baseline_social_companies":len(baseline_social_companies),
+              "challenger_social_companies":len(challenger_social_companies),
+              "net_new_social_companies":len(net_new),
+              "lost_social_companies":len(lost),
+              "baseline_profile_handle_claims":baseline_handles,
+              "challenger_profile_handle_claims":challenger_handles,
+              "net_new_profile_handle_claims":challenger_handles-baseline_handles,
+              "added_platform_counts":dict(sorted(platform_added.items())),
+              "non_social_claim_mutations":len(non_social_mutations),
+              "contract_errors":len(contract_errors),
+              "canonical_errors":len(canonical_errors),
+              "synthesis_errors":len(synthesis_errors),
+              "canonical_data_area_before":dict(sorted(area_before.items())),
+              "canonical_data_area_after":dict(sorted(area_after.items())),
+              "hiring_public_activity_company_delta":(
+                  area_after["hiring_and_public_activity"]-area_before["hiring_and_public_activity"]
+              ),
+              "logical_requests_added":0,
+              "conservative_request_charge_added":0,
+              "third_party_api_cost_usd":0.0,
+              "publication_boundary":"existing exact verified primary homepage + deterministic social-handle gate only",
+              "promotion_gate_passed":(
+                  len(net_new)>0
+                  and not lost
+                  and not non_social_mutations
+                  and not contract_errors
+                  and not canonical_errors
+                  and not synthesis_errors
+              ),
+          }
+          Path("out/social-projection/report.json").write_text(
+              json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8"
+          )
+          print(json.dumps(report,indent=2,sort_keys=True))
+          if not report["promotion_gate_passed"]:
+              raise SystemExit("zero-network social projection gate failed")
+          PY
+
+      - name: Remove archived/raw profile material
+        if: always()
+        run: |
+          rm -rf archived/final-release
+          rm -f out/social-projection/profiles.jsonl
+
+      - name: Upload aggregate gate result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-zero-network-social-projection-gate
+          retention-days: 30
+          path: out/social-projection/report.json
