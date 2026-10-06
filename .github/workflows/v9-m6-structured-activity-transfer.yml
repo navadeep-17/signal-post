@@ -1,0 +1,229 @@
+name: V9 M6 Structured Activity Transfer
+
+on:
+  push:
+    branches:
+      - experiment/v9-m6-structured-dated-activity
+  pull_request:
+    branches:
+      - experiment/v9-m5-hiring-semantics-integrated
+    paths:
+      - .github/workflows/v9-m6-structured-activity-transfer.yml
+      - src/norway_company_agent/first_party_feed.py
+      - src/norway_company_agent/final_site_discovery.py
+      - src/norway_company_agent/h1g_hyphenated_no_recall.py
+      - scripts/build_v9_m6_consumed_activity_target.py
+      - scripts/audit_v9_m6_activity.py
+      - tests/test_q4_first_party_feed.py
+      - tests/test_final_orchestrator.py
+      - tests/test_v9_m6_activity_audit.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact M6 challenger
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: challenger
+          fetch-depth: 1
+
+      - name: Checkout promoted M5 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: dc5907b27fb8844b0f690a166937bf908f058a73
+          path: baseline
+          fetch-depth: 1
+
+      - name: Record exact SHAs
+        run: |
+          mkdir -p shared/out
+          git -C baseline rev-parse HEAD | tee shared/out/baseline-sha.txt
+          git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
+          test "$(cat shared/out/baseline-sha.txt)" = "dc5907b27fb8844b0f690a166937bf908f058a73"
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(cat shared/out/challenger-sha.txt)" = "$EXPECTED"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Sync locked dependencies
+        run: |
+          (cd baseline && uv sync --locked)
+          (cd challenger && uv sync --locked)
+
+      - name: Run focused M6 tests
+        run: |
+          cd challenger
+          uv run --with pytest pytest -q             tests/test_q4_first_party_feed.py             tests/test_q4_feed_projection_hardening.py             tests/test_first_party_activity.py             tests/test_phase4_activity_date_evidence.py             tests/test_v9_m6_activity_audit.py
+
+      - name: Download frozen already-consumed 1000 retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p shared/archived
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir shared/archived
+          test "$(find shared/archived -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Build consumed exact-site target
+        run: |
+          cd challenger
+          uv run python scripts/build_v9_m6_consumed_activity_target.py             --profiles-dir ../shared/archived             --output ../shared/out/m6-target-100.jsonl             --report ../shared/out/m6-target-report.json             --target-count 100
+          test "$(wc -l < ../shared/out/m6-target-100.jsonl)" -eq 100
+
+      - name: Download one shared current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          sha256sum shared/brreg-enheter.csv | tee shared/out/brreg-enheter.sha256
+
+      - name: Run promoted M5 baseline on target
+        run: |
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/out/m6-target-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/baseline-output.jsonl             --report ../shared/out/baseline-report.json             --product-output ../shared/out/baseline-product.html             --work-dir ../shared/out/baseline-work             --run-id v9-m6-consumed-baseline             --expected-count 100             --workers 8             --site-timeout 6             --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Run M6 challenger on identical target
+        run: |
+          cd challenger
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/out/m6-target-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/challenger-output.jsonl             --report ../shared/out/challenger-report.json             --product-output ../shared/out/challenger-product.html             --work-dir ../shared/out/challenger-work             --run-id v9-m6-consumed-challenger             --expected-count 100             --workers 8             --site-timeout 6             --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Measure company-family transfer
+        run: |
+          cd challenger
+          uv run python scripts/measure_v9_company_family_coverage.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/m6-family-transfer.json             --new-publications ../shared/out/m6-new-publications.jsonl             --lost-publications ../shared/out/m6-lost-publications.jsonl
+
+      - name: Audit strict dated activity transfer
+        run: |
+          cd challenger
+          uv run python scripts/audit_v9_m6_activity.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/m6-activity-audit.json             --manual-audit ../shared/out/m6-manual-audit.jsonl
+
+      - name: Classify M6 consumed decision
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          out = Path("shared/out")
+          baseline = json.loads((out / "baseline-report.json").read_text())
+          challenger = json.loads((out / "challenger-report.json").read_text())
+          family = json.loads((out / "m6-family-transfer.json").read_text())
+          activity = json.loads((out / "m6-activity-audit.json").read_text())
+          target = json.loads((out / "m6-target-report.json").read_text())
+
+          assert baseline.get("passed") is True, baseline
+          assert challenger.get("passed") is True, challenger
+          assert target["fresh_companies_used"] == 0
+          assert family["same_company_set"] is True and family["companies"] == 100
+          assert activity["companies"] == 100
+          assert activity["all_new_evidence_strict"] is True, activity
+
+          bp = baseline.get("request_budget") or {}
+          cp = challenger.get("request_budget") or {}
+          b_ceiling = int(bp.get("theoretical_challenge_request_charge_ceiling") or 0)
+          c_ceiling = int(cp.get("theoretical_challenge_request_charge_ceiling") or 0)
+          b_observed = int(bp.get("observed_conservative_challenge_request_charge") or 0)
+          c_observed = int(cp.get("observed_conservative_challenge_request_charge") or 0)
+          assert 0 < c_ceiling <= 2000 and c_ceiling == b_ceiling, (bp, cp)
+          assert c_observed <= 2000 and b_observed <= 2000, (bp, cp)
+
+          policy = challenger.get("source_policy") or {}
+          assert int(policy.get("search_api_requests") or 0) == 0, policy
+          assert float(policy.get("third_party_cost_usd") or 0.0) == 0.0, policy
+
+          dated = family["families"]["dated_first_party_activity"]
+          non_activity_changed = {
+              key: value
+              for key, value in family["families"].items()
+              if key != "dated_first_party_activity"
+              and (int(value.get("net_new_companies") or 0) or int(value.get("lost_companies") or 0))
+          }
+
+          if activity["lost_activity_publications"] or int(dated.get("lost_companies") or 0):
+              decision = "RETUNE_LOSS"
+          elif non_activity_changed:
+              decision = "RETUNE_CONTROL_VARIANCE"
+          elif activity["net_new_dated_activity_companies"] > 0:
+              decision = "MANUAL_AUDIT_REQUIRED"
+          else:
+              decision = "SHELVE_NO_NET_NEW_YIELD"
+
+          summary = {
+              "machine_decision": decision,
+              "fresh_qualification": False,
+              "companies": 100,
+              "eligible_consumed_exact_site_population": target["eligible_exact_verified_site_companies"],
+              "dated_family": dated,
+              "activity_audit": activity,
+              "non_activity_family_changes": non_activity_changed,
+              "baseline_observed_conservative_request_charge": b_observed,
+              "challenger_observed_conservative_request_charge": c_observed,
+              "baseline_theoretical_ceiling": b_ceiling,
+              "challenger_theoretical_ceiling": c_ceiling,
+              "baseline_wall_runtime_seconds": (baseline.get("runtime") or {}).get("wall_runtime_seconds"),
+              "challenger_wall_runtime_seconds": (challenger.get("runtime") or {}).get("wall_runtime_seconds"),
+              "search_api_requests": policy.get("search_api_requests"),
+              "third_party_cost_usd": policy.get("third_party_cost_usd"),
+              "wrong_company_publications": None,
+              "manual_precision_audit_required": activity["new_activity_publications"] > 0,
+          }
+          (out / "m6-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+          PY
+
+      - name: Print every new activity publication
+        run: |
+          echo '--- M6 manual audit rows ---'
+          cat shared/out/m6-manual-audit.jsonl || true
+
+      - name: Remove product HTML before archive
+        if: always()
+        run: rm -f shared/out/baseline-product.html shared/out/challenger-product.html
+
+      - name: Upload M6 consumed evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m6-structured-activity-transfer
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/out/baseline-sha.txt
+            shared/out/challenger-sha.txt
+            shared/out/brreg-enheter.sha256
+            shared/out/m6-target-report.json
+            shared/out/m6-target-100.jsonl
+            shared/out/baseline-report.json
+            shared/out/challenger-report.json
+            shared/out/baseline-output.jsonl
+            shared/out/challenger-output.jsonl
+            shared/out/baseline-work/profiles.jsonl
+            shared/out/challenger-work/profiles.jsonl
+            shared/out/m6-family-transfer.json
+            shared/out/m6-new-publications.jsonl
+            shared/out/m6-lost-publications.jsonl
+            shared/out/m6-activity-audit.json
+            shared/out/m6-manual-audit.jsonl
+            shared/out/m6-summary.json
