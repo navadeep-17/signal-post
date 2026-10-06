@@ -188,7 +188,7 @@ The evaluator workspace preserves descriptive **Compare companies** behavior wit
 
 Server-side secrets required: **none**.
 
-The last known public Builderr result remains **65/100** until the newly qualified revision is explicitly submitted and evaluated. Recall/coverage, precision/evidence, synthesis and UX are score dimensions; they are **not separate qualification thresholds**.
+As of the Builderr public board reviewed on 2026-10-03, **Navadeep is listed at 52.41/100**. The challenge qualification threshold is **65/100 overall on an official run**. Recall/coverage, precision/evidence, synthesis and UX are score dimensions; they are **not separate qualification thresholds**. The newly qualified repository revision has not yet received an official Builderr score.
 
 ## 10. References
 
@@ -201,4 +201,4 @@ The last known public Builderr result remains **65/100** until the newly qualifi
 - `docs/SUBMISSION_SOURCE_RIGHTS.md`
 - `submission/manifest.json`
 
-The historical V8 official score remains the last known Builderr result until the newly qualified revision is explicitly submitted and evaluated.
+The public Builderr board result above remains the official score of record until the newly qualified revision is explicitly submitted and evaluated.
