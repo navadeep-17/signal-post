@@ -49,7 +49,7 @@ def _profile(*, title: str, text: str, candidates: list[dict[str, str]]) -> dict
             }],
         },
         content_sha256="b" * 64,
-        retrieved_at="2026-10-04T00:00:00Z",
+        retrieved_at="2026-10-03T12:34:56Z",
     )
     return {
         "organisation_number": "923609016",
@@ -72,6 +72,7 @@ def test_strong_publication_metadata_beats_dynamic_labelled_date() -> None:
     assert updates[0]["published_date"] == "2021-11-16"
     assert updates[0]["date_extraction_method"] == "meta_article_published_time"
     assert updates[0]["date_evidence"] == "2021-11-16T09:30:00+01:00"
+    assert updates[0]["retrieved_at"] == "2026-10-03T12:34:56Z"
 
 
 def test_equally_strong_conflicting_publication_dates_abstain() -> None:
