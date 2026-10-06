@@ -396,6 +396,95 @@ extractor already retains meta/OG description, and the archived profiles contain
 additional safe schema.org Organization.description candidates among the missing cases.
 Do not synthesize company descriptions from arbitrary homepage prose.
 
+## R7 — combined zero-network exact-site enrichment gate
+
+Status: **PROMOTION GATE PASS / STRONGEST ZERO-REQUEST RESEARCH CANDIDATE / KEEP ISOLATED**.
+
+The independently qualified JSON-LD contact recovery and homepage social recovery were
+replayed together against the same archived final-release 1000 to verify that they compose
+without silently replacing unrelated facts.
+
+Implementation:
+
+- `scripts/gate_zero_network_enrichment_bundle.py`;
+- `tests/test_zero_network_enrichment_bundle.py`;
+- `.github/workflows/research-zero-network-enrichment-bundle.yml`.
+
+Successful workflow: **37421708928**.
+
+Frozen aggregate artifact:
+
+- artifact ID: **11393242341**;
+- ZIP SHA-256: `287a3a8d31133f12f5afd1293f3ad397edb96e4e340f41a0b3be4e3fd22524f1`.
+
+Focused regression gate: **41 tests passed**.
+
+Measured frozen-1000 result:
+
+- baseline contact companies: **53**; challenger: **58**;
+- baseline contact claims: **57**; challenger: **64**;
+- **+5 newly covered contact companies / +7 contact claims**;
+- baseline social companies: **48**; challenger: **58**;
+- baseline social-handle claims: **82**; challenger: **99**;
+- **+10 newly covered social companies / +17 social-handle claims**;
+- baseline companies with contact or social: **75**;
+- challenger companies with contact or social: **80**;
+- union lift: **+5 companies / +0.5 percentage points**;
+- canonical `hiring_and_public_activity` data-area lift: **+10 companies**;
+- logical requests added: **0**;
+- conservative request charge added: **0**;
+- third-party API cost added: **$0**;
+- search API requests added: **0**;
+- lost existing contact companies: **0**;
+- lost existing social companies: **0**;
+- non-managed claim mutations: **0**;
+- observation-validation errors: **0**;
+- output-contract errors: **0**;
+- canonical-projection errors: **0**;
+- synthesis errors: **0**.
+
+Decision: this is the **strongest low-risk promotion candidate produced by the isolated
+research track** because it improves evaluator-visible external coverage while consuming no
+new request budget and without weakening exact-company identity. It remains research-only in
+this chat; no merge to `main` is authorized.
+
+## R8 — supplier-payment ledger metadata investigation
+
+Status: **METADATA SCREENED / CURRENT BROAD PUBLIC SOURCE NOT YET FOUND**.
+
+A supplier-payment route was investigated because municipal accounts-payable exports can,
+in principle, combine exact supplier organisation numbers with dated/value-bearing commercial
+activity.
+
+Implementation:
+
+- `scripts/resolve_data_norge_supplier_sources.py`;
+- `tests/test_resolve_data_norge_supplier_sources.py`;
+- `.github/workflows/research-data-norge-supplier-resolver.yml`.
+
+Latest frozen metadata run: **37419104906**.
+
+- metadata artifact: **11392570608**;
+- artifact ZIP SHA-256: `bea1a565aab4428470f8eb937c7755adcb0c6f50d15f6790eac91c7d9e5d4dad`;
+- 24 frozen broad-catalogue candidates were resolved;
+- the apparent 24/24 exact-org/open-license supplier score is a metadata-classification
+  overcount: most rows are agricultural subsidy/payment datasets, not general supplier ledgers;
+- the only genuine broad supplier-ledger candidate resolved was **Leverandørregnskap Stavanger
+  kommune**, NLOD/CSV, describing payments to companies with organisation numbers;
+- that dataset is explicitly marked ended/on hold by the live Stavanger open-data portal and
+  is not a current 2025/2026 activity source;
+- live targeted Data.norge searches for `leverandørregnskap`, `leverandørreskontro`,
+  supplier payments and invoices returned **0** discoverable current candidates.
+
+External current-source checking found no comparable openly downloadable 2025/2026 ledgers
+from the major municipalities tested. A separate commercial/research supplier database is
+known to aggregate municipal accounts-payable data at much broader scale, but that is not a
+$0 open-data production source and is outside this track.
+
+Decision: **do not download or productionize the stale Stavanger ledger**. Revisit supplier
+payments only if a current openly licensed bulk source or a reproducible multi-municipality
+export becomes available.
+
 ## Current direction
 
 1. Preserve the JSON-LD contact recovery as the current zero-request promotion candidate; do not merge it into production from this isolated research track.
