@@ -133,9 +133,15 @@ def canonical_hit_id(hit: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def fetch_search(query: str, *, size: int = 50, timeout: float = 25.0) -> tuple[bytes, dict[str, Any]]:
+def fetch_search(
+    query: str,
+    *,
+    size: int = 50,
+    page: int = 1,
+    timeout: float = 25.0,
+) -> tuple[bytes, dict[str, Any]]:
     body = json.dumps(
-        {"query": query, "pagination": {"size": size, "page": 1}},
+        {"query": query, "pagination": {"size": size, "page": page}},
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -243,7 +249,19 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--size", type=int, default=50)
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument(
+        "--broad-query",
+        help="Optional one-query catalogue sweep, e.g. organisasjonsnummer",
+    )
+    parser.add_argument(
+        "--pages",
+        type=int,
+        default=1,
+        help="Pages to fetch when --broad-query is used (bounded by 10).",
+    )
     args = parser.parse_args()
+    if args.pages < 1 or args.pages > 10:
+        parser.error("--pages must be between 1 and 10")
 
     raw_hashes: list[dict[str, str]] = []
     if args.fixture:
@@ -253,13 +271,28 @@ def main() -> int:
         source = str(args.fixture)
     else:
         payloads: list[tuple[str, dict[str, Any]]] = []
-        for index, query in enumerate(SEARCH_QUERIES):
-            raw, payload = fetch_search(query, size=args.size)
-            payloads.append((query, payload))
-            raw_hashes.append({"query": query, "sha256": hashlib.sha256(raw).hexdigest()})
-            if index + 1 < len(SEARCH_QUERIES):
-                time.sleep(0.25)
-        request_count = len(SEARCH_QUERIES)
+        if args.broad_query:
+            for page in range(1, args.pages + 1):
+                raw, payload = fetch_search(args.broad_query, size=args.size, page=page)
+                payloads.append((args.broad_query, payload))
+                raw_hashes.append(
+                    {
+                        "query": args.broad_query,
+                        "page": str(page),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                    }
+                )
+                if page < args.pages:
+                    time.sleep(0.25)
+            request_count = args.pages
+        else:
+            for index, query in enumerate(SEARCH_QUERIES):
+                raw, payload = fetch_search(query, size=args.size)
+                payloads.append((query, payload))
+                raw_hashes.append({"query": query, "sha256": hashlib.sha256(raw).hexdigest()})
+                if index + 1 < len(SEARCH_QUERIES):
+                    time.sleep(0.25)
+            request_count = len(SEARCH_QUERIES)
         source = SEARCH_ENDPOINT
 
     rows = mine_payloads(payloads)
@@ -273,7 +306,12 @@ def main() -> int:
         "source": source,
         "screen_type": "catalog_metadata_targeted_search_mining",
         "requests": request_count,
-        "queries": list(SEARCH_QUERIES) if not args.fixture else [q for q, _ in payloads],
+        "queries": (
+            [args.broad_query] if args.broad_query
+            else list(SEARCH_QUERIES) if not args.fixture
+            else [q for q, _ in payloads]
+        ),
+        "broad_query_pages": args.pages if args.broad_query else None,
         "datasets_found": len(rows),
         "datasets_with_explicit_license_metadata": sum(bool(r["license_metadata"]) for r in rows),
         "datasets_marked_open_data": sum(r["is_open_data"] is True for r in rows),
