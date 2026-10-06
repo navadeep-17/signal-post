@@ -1,0 +1,146 @@
+name: Research BRREG Historical-Name Survivor Verification
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-historical-name-survivor.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --locked
+
+      - name: Download the sole safe-public historical-name candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/prior
+          gh run download 37443309574             --repo "$GITHUB_REPOSITORY"             --name research-brreg-historical-name-dns-preflight             --dir out/prior
+          test -s out/prior/resolved.jsonl
+          echo "resolved-lines=$(wc -l < out/prior/resolved.jsonl)"
+          test "$(wc -l < out/prior/resolved.jsonl)" -eq 1
+
+      - name: Apply existing exact-site identity and registry-risk gates
+        env:
+          PYTHONPATH: src
+        run: |
+          uv run python - <<'PY'
+          import json, urllib.request
+          from pathlib import Path
+          from norway_company_agent.final_site_discovery import fetch_bounded_homepage
+          from norway_company_agent.identity import apply_website_identity_gate
+          from norway_company_agent.zero_cost_discovery import qualify_deterministic_domain_identity
+          from norway_company_agent.zero_cost_registry_guard import apply_registry_risk_guard
+
+          row=json.loads(Path('out/prior/resolved.jsonl').read_text(encoding='utf-8').strip())
+          org=str(row['organisation_number'])
+          domain=str(row['domain'])
+
+          req=urllib.request.Request(
+              f'https://data.brreg.no/enhetsregisteret/api/enheter/{org}',
+              headers={
+                  'User-Agent':'Signalpost-research-source-screen/1.0',
+                  'Accept':'application/vnd.brreg.enhetsregisteret.enhet.v2+json',
+              },
+          )
+          with urllib.request.urlopen(req,timeout=12) as resp:
+              body=json.loads(resp.read().decode('utf-8'))
+              entity_http=resp.status
+          addr=body.get('forretningsadresse') or {}
+          profile={
+              'organisation_number':org,
+              'name':body.get('navn'),
+              'municipality':addr.get('kommune'),
+              'evidence':{
+                  'registry':{
+                      'status':'available',
+                      'value':{
+                          'forretningsadresse.postnummer':addr.get('postnummer'),
+                          'forretningsadresse.poststed':addr.get('poststed'),
+                          'forretningsadresse.kommune':addr.get('kommune'),
+                          'forretningsadresse.adresse':' '.join(addr.get('adresse') or []),
+                      },
+                  }
+              },
+          }
+
+          record,ops=fetch_bounded_homepage(
+              f'https://{domain}/',
+              source_type='brreg_historical_name_domain_candidate',
+              timeout=8,
+          )
+          gated=apply_website_identity_gate(profile,record)
+          candidate=gated['website']
+          assessment=qualify_deterministic_domain_identity(
+              profile,domain,candidate,gated.get('assessment')
+          )
+          if assessment is not None:
+              value=candidate.get('value') or {}
+              value['identity_assessment']=assessment
+              candidate['value']=value
+
+          identity_publishable=bool(
+              assessment and assessment.get('publishable')
+              and candidate.get('status')=='available'
+          )
+          guard_publishable=False
+          guard_reasons=[]
+          if identity_publishable:
+              trial={
+                  **profile,
+                  'evidence':{**profile['evidence'],'website':candidate},
+                  'website':(candidate.get('value') or {}).get('final_url') or candidate.get('source_url') or '',
+              }
+              trial,guard_reasons=apply_registry_risk_guard(trial)
+              guarded=(trial.get('evidence') or {}).get('website') or {}
+              guard_identity=(guarded.get('value') or {}).get('identity_assessment') or {}
+              guard_publishable=bool(
+                  guarded.get('status')=='available' and guard_identity.get('publishable')
+              )
+
+          report={
+              'screen_type':'brreg_historical_name_single_dns_survivor_exact_site_verification',
+              'survivor_candidates':1,
+              'entity_http_status':entity_http,
+              'site_status':candidate.get('status'),
+              'site_logical_requests':int(ops.get('requests') or 0),
+              'identity_publishable':identity_publishable,
+              'registry_guard_publishable':guard_publishable,
+              'identity_score':(assessment or {}).get('score'),
+              'identity_reasons':list((assessment or {}).get('reasons') or []),
+              'observed_organisation_number_count':len((assessment or {}).get('observed_organisation_numbers') or []),
+              'observed_site_owner_count':len((assessment or {}).get('observed_site_owners') or []),
+              'registry_guard_reason_count':len(guard_reasons or []),
+              'incremental_production_entity_requests':0,
+              'third_party_cost_usd':0.0,
+              'search_api_requests':0,
+              'production_publication_enabled':False,
+          }
+          Path('out/report.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload aggregate survivor result
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-historical-name-survivor
+          retention-days: 30
+          path: out/report.json
