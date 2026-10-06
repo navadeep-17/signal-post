@@ -187,7 +187,7 @@ def extract_homepage_hiring_signal(*, final_url: str, soup: BeautifulSoup) -> di
     navigation counters cannot consume the bounded careers-follow-up slot.
     """
     text = " ".join(soup.get_text(" ", strip=True).split())[:30_000]
-    counts: list[int] = []
+    matches: list[tuple[int, str]] = []
     for pattern in ACTIVE_VACANCY_COUNT_PATTERNS:
         for match in pattern.finditer(text):
             try:
@@ -195,13 +195,17 @@ def extract_homepage_hiring_signal(*, final_url: str, soup: BeautifulSoup) -> di
             except (TypeError, ValueError):
                 continue
             if 0 < value <= 500:
-                counts.append(value)
-    count = max(counts) if counts else 0
+                matches.append((value, " ".join(match.group(0).split())[:300]))
+    if matches:
+        count, evidence_span = sorted(matches, key=lambda item: (-item[0], item[1].casefold()))[0]
+    else:
+        count, evidence_span = 0, ""
     return {
         "active_vacancy_count": count,
         "active_vacancies": count > 0,
         "method": "explicit_homepage_vacancy_count" if count > 0 else "none",
         "homepage_url": final_url,
+        "evidence_span": evidence_span,
     }
 
 
