@@ -1,0 +1,252 @@
+name: Research Doffindata Consumed 1000 Coverage
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-consumed-1000.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Screen frozen consumed 1000 by exact winner registration number
+        run: |
+          python - <<'PY'
+          import base64, copy, json, re, uuid
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+
+          REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL=(
+              "https://api.doffin.no/webclient/api/v2/notices-api/"
+              f"getEmbedToken?reportId={REPORT}"
+          )
+          UA="Signalpost-research-source-screen/1.0"
+
+          companies=[]
+          for line in Path("submission/final-release-1000.jsonl").read_text(encoding="utf-8").splitlines():
+              if not line.strip(): continue
+              row=json.loads(line)
+              org=str(row.get("organisation_number") or "").strip()
+              if re.fullmatch(r"\d{9}",org):
+                  companies.append((org,row.get("name") or ""))
+          targets={org for org,_ in companies}
+          names=dict(companies)
+          print("cohort-rows=",len(companies))
+          print("cohort-unique-orgs=",len(targets))
+          if len(targets)!=1000:
+              raise SystemExit("expected frozen consumed 1000 exact orgs")
+
+          def req(url,headers=None,data=None,timeout=60):
+              h={"User-Agent":UA,"Accept":"application/json"}
+              if headers:h.update(headers)
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(",",":")).encode()
+                  h["Content-Type"]="application/json"
+              r=Request(url,data=body,headers=h)
+              try:
+                  with urlopen(r,timeout=timeout) as x:
+                      raw=x.read(); status=x.status
+              except HTTPError as e:
+                  raw=e.read(); status=e.code
+              try: obj=json.loads(raw.decode("utf-8-sig")) if raw else {}
+              except Exception as exc:
+                  print("parse-failed=",type(exc).__name__,"bytes=",len(raw),"prefix=",raw[:20].hex())
+                  obj={}
+              return status,obj,raw
+
+          st,embed,_=req(TOKEN_URL)
+          if st!=200: raise SystemExit("embed metadata unavailable")
+          token=embed.get("accessToken") or ""
+          embed_url=(embed.get("embedUrl") or [""])[0]
+          if not token or not embed_url: raise SystemExit("missing public embed contract")
+          q=parse_qs(urlparse(embed_url).query)
+          cfg=q.get("config",[""])[0]
+          cfg += "="*((4-len(cfg)%4)%4)
+          config=json.loads(base64.b64decode(cfg).decode())
+          cluster=(config.get("clusterUrl") or "").rstrip("/")
+          if not cluster: raise SystemExit("missing clusterUrl")
+
+          def headers():
+              return {
+                  "Authorization":f"EmbedToken {token}",
+                  "ActivityId":str(uuid.uuid4()),
+                  "RequestId":str(uuid.uuid4()),
+                  "X-PowerBI-HostEnv":"Embed for Customers",
+                  "Origin":"https://app.powerbi.com",
+                  "Referer":"https://app.powerbi.com/",
+              }
+
+          model_url=(
+              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration"
+              "?preferReadOnlySession=true&skipQueryData=true"
+          )
+          st,model,_=req(model_url,headers())
+          if st!=200: raise SystemExit("models unavailable")
+          exploration=model.get("exploration") or {}
+          report=exploration.get("report") or {}
+          model_id=report.get("modelId")
+          db_name=(report.get("model") or {}).get("dbName")
+          print("model-id=",model_id)
+          print("model-db=",db_name)
+
+          native=None
+          visual_name=None
+          for section in exploration.get("sections") or []:
+              for visual in section.get("visualContainers") or []:
+                  qraw=visual.get("query")
+                  if not qraw: continue
+                  try:qobj=json.loads(qraw) if isinstance(qraw,str) else qraw
+                  except Exception:continue
+                  txt=json.dumps(qobj,ensure_ascii=False)
+                  if "winner_eeig_official_name_nor" not in txt: continue
+                  selects=[]
+                  for command in qobj.get("Commands") or []:
+                      sq=command.get("SemanticQueryDataShapeCommand") or {}
+                      selects.extend((sq.get("Query") or {}).get("Select") or [])
+                  if len(selects)==1:
+                      native=qobj
+                      cfgraw=visual.get("config") or "{}"
+                      try:vcfg=json.loads(cfgraw) if isinstance(cfgraw,str) else cfgraw
+                      except Exception:vcfg={}
+                      visual_name=(vcfg or {}).get("name")
+                      break
+              if native: break
+          if not native: raise SystemExit("supplier slicer contract unavailable")
+
+          exact=copy.deepcopy(native)
+          cmd=(exact.get("Commands") or [])[0].get("SemanticQueryDataShapeCommand")
+          query=cmd["Query"]
+          query["From"]=[
+              {"Name":"e","Entity":"enriched_notice_lot_settled_contracts_with_winners_and_contract_values","Type":0},
+              {"Name":"b","Entity":"base_notices","Type":0},
+              {"Name":"b1","Entity":"base_notice_lot_results","Type":0},
+          ]
+          prop="winner_eu_registration_number"
+          query["Select"]=[{
+              "Column":{"Expression":{"SourceRef":{"Source":"e"}},"Property":prop},
+              "Name":"enriched_notice_lot_settled_contracts_with_winners_and_contract_values."+prop,
+              "NativeReferenceName":"winner_eu_registration_number",
+          }]
+          # Preserve the report's native ContractAwardNotice/result/winner filters,
+          # then add one exact target-set membership filter for all consumed companies.
+          where=list(query.get("Where") or [])
+          where.append({
+              "Condition":{
+                  "In":{
+                      "Expressions":[{
+                          "Column":{"Expression":{"SourceRef":{"Source":"e"}},"Property":prop}
+                      }],
+                      "Values":[
+                          [{"Literal":{"Value":"'"+org+"'"}}]
+                          for org in sorted(targets)
+                      ],
+                  }
+              }
+          })
+          query["Where"]=where
+          binding=cmd.setdefault("Binding",{})
+          binding["Primary"]={"Groupings":[{"Projections":[0]}]}
+          binding["DataReduction"]={"DataVolume":6,"Primary":{"Window":{"Count":2000}}}
+          binding["IncludeEmptyGroups"]=False
+          binding["Version"]=1
+          cmd["ExecutionMetricsKind"]=1
+
+          item={"Query":exact}
+          if db_name:
+              item["ApplicationContext"]={
+                  "DatasetId":db_name,
+                  "Sources":[{"ReportId":REPORT,"VisualId":visual_name or "signalpost-consumed-1000"}],
+              }
+          body={
+              "version":"1.0.0",
+              "queries":[item],
+              "cancelQueries":[],
+              "modelId":model_id,
+          }
+
+          st,resp,raw=req(cluster+"/explore/querydata?synchronous=true",headers(),body)
+          print("query-http=",st,"response-bytes=",len(raw))
+          if st!=200:
+              print("error-shape=",json.dumps(resp,ensure_ascii=False)[:10000])
+              raise SystemExit("bulk exact-org query failed")
+          print("response-keys=",sorted(resp) if isinstance(resp,dict) else type(resp).__name__)
+
+          # Exact target values can occur only as result scalars/dictionaries because
+          # Power BI does not echo our semantic Where literal list in the response.
+          returned=set()
+          scalar_strings=[]
+          def walk(obj):
+              if isinstance(obj,dict):
+                  for v in obj.values(): walk(v)
+              elif isinstance(obj,list):
+                  for v in obj: walk(v)
+              elif isinstance(obj,str):
+                  s=obj.strip().strip("'")
+                  if s in targets:
+                      returned.add(s)
+                  if len(s)<=120:
+                      scalar_strings.append(s)
+              elif isinstance(obj,int):
+                  s=str(obj)
+                  if s in targets:
+                      returned.add(s)
+          walk(resp)
+
+          # Cross-check specifically against DSR value dictionaries / inline cells.
+          dsr_values=set()
+          for result in (resp.get("results") or []) if isinstance(resp,dict) else []:
+              dsr=(((result.get("result") or {}).get("data") or {}).get("dsr") or {})
+              for ds in dsr.get("DS") or []:
+                  for values in (ds.get("ValueDicts") or {}).values():
+                      for v in values or []:
+                          s=str(v).strip().strip("'")
+                          if s in targets: dsr_values.add(s)
+                  for ph in ds.get("PH") or []:
+                      for rows in ph.values():
+                          if not isinstance(rows,list): continue
+                          for row in rows:
+                              for v in row.get("C") or []:
+                                  s=str(v).strip().strip("'")
+                                  if s in targets: dsr_values.add(s)
+
+          print("matched-target-orgs=",len(returned))
+          print("matched-dsr-orgs=",len(dsr_values))
+          print("crosscheck-equal=",returned==dsr_values)
+          print("coverage-percent=",round(100*len(returned)/len(targets),2))
+          for org in sorted(returned):
+              print("MATCH",org,names.get(org,""))
+
+          # Report execution row count / completeness markers when available.
+          row_counts=[]
+          incomplete=[]
+          def metrics_walk(obj):
+              if isinstance(obj,dict):
+                  if obj.get("Name")=="Execute DAX Query":
+                      m=obj.get("Metrics") or {}
+                      if isinstance(m.get("RowCount"),int):
+                          row_counts.append(m["RowCount"])
+                  if "IC" in obj and isinstance(obj["IC"],bool):
+                      incomplete.append(obj["IC"])
+                  for v in obj.values(): metrics_walk(v)
+              elif isinstance(obj,list):
+                  for v in obj: metrics_walk(v)
+          metrics_walk(resp)
+          print("dax-row-counts=",row_counts)
+          print("dsr-incomplete-flags=",incomplete)
+          print("VIABILITY exact-consumed-company-coverage=",len(returned))
+          print("VIABILITY one-query-target-screen=",True)
+          print("VIABILITY zero-third-party-cost=",True)
+          PY
