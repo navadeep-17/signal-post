@@ -21,6 +21,10 @@ GENERIC_TITLES = {
     "presse",
     "home",
     "forside",
+    "hello world",
+    "hei verden",
+    "sample post",
+    "sample page",
 }
 DATE_TAGS = {"pubdate", "published", "updated", "date"}
 
