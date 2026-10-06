@@ -167,6 +167,8 @@ def _project_m4_zero_request_contacts(
             "company_authored_hiring_intent_projection_enabled": True,
             "strict_first_party_job_projection_enabled": True,
             "hiring_semantics_network_requests": 0,
+            "structured_article_date_extraction_enabled": True,
+            "structured_article_date_extraction_network_requests": 0,
         }
     )
     report["source_policy"] = source_policy
@@ -187,6 +189,28 @@ def _project_m4_zero_request_contacts(
         }
     )
     report["external_signals"] = external_signals
+
+    structured_update_claims = sum(
+        1
+        for row in projected
+        for claim in row.get("claims") or []
+        if isinstance(claim, dict)
+        and claim.get("field") == "external.company_update"
+        and any(
+            "jsonld_" in str(evidence_item.get("claim_span") or "").casefold()
+            for evidence_id in claim.get("evidence_ids") or []
+            for evidence_item in row.get("evidence") or []
+            if isinstance(evidence_item, dict)
+            and str(evidence_item.get("id") or "") == str(evidence_id)
+        )
+    )
+    report["v9_m6_structured_activity"] = {
+        "network_requests_added_by_extraction": 0,
+        "third_party_cost_usd_added": 0.0,
+        "search_api_requests_added": 0,
+        "structured_jsonld_dated_update_claims": structured_update_claims,
+        "page_hash_scope": "same fetched detail page only",
+    }
 
     report["v9_m5_hiring_semantics"] = {
         "network_requests_added": 0,
