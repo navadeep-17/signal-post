@@ -254,11 +254,71 @@ def _secondary_identity_links(base_url: str, soup: BeautifulSoup) -> list[str]:
     return [url for _, url in ranked[:8]]
 
 
-def _page_date_candidates(soup: BeautifulSoup, *, limit: int = 8) -> list[dict[str, str]]:
-    """Retain bounded explicit publication-date candidates from the fetched page DOM.
+def _iter_structured_objects(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _iter_structured_objects(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _iter_structured_objects(child)
 
-    These are raw page-local observations, not interpreted facts. The strict first-party
-    projector decides whether a candidate can support a dated company update.
+
+def _jsonld_article_date_candidates(
+    structured: dict[str, Any] | None,
+    *,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    """Return page-local schema.org article publication dates.
+
+    Only explicit Article/NewsArticle/BlogPosting datePublished values are retained.
+    Non-article structured dates are ignored. These remain candidates: the strict
+    first-party projector still resolves same-rank conflicts and future dates.
+    """
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in _iter_structured_objects((structured or {}).get("json-ld") or []):
+        raw_type = item.get("@type")
+        types = (
+            [raw_type]
+            if isinstance(raw_type, str)
+            else [str(value) for value in raw_type]
+            if isinstance(raw_type, list)
+            else []
+        )
+        folded = {str(value).casefold() for value in types}
+        if "newsarticle" in folded:
+            method = "jsonld_newsarticle_date_published"
+        elif "blogposting" in folded:
+            method = "jsonld_blogposting_date_published"
+        elif "article" in folded:
+            method = "jsonld_article_date_published"
+        else:
+            continue
+        raw = " ".join(str(item.get("datePublished") or "").split())[:200]
+        if not raw:
+            continue
+        key = (raw, method)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"raw": raw, "method": method})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _page_date_candidates(
+    soup: BeautifulSoup,
+    *,
+    structured: dict[str, Any] | None = None,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    """Retain bounded page-local publication-date candidates from one fetched page.
+
+    Structured schema.org article dates are considered alongside DOM metadata. These are
+    raw observations, never facts by themselves; the strict first-party projector still
+    requires a specific same-site detail page, page-local hash and non-future date.
     """
     candidates: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -272,6 +332,11 @@ def _page_date_candidates(soup: BeautifulSoup, *, limit: int = 8) -> list[dict[s
             return
         seen.add(key)
         candidates.append({"raw": value, "method": method})
+
+    for item in _jsonld_article_date_candidates(structured, limit=limit):
+        add(item["raw"], item["method"])
+        if len(candidates) >= limit:
+            return candidates
 
     selectors = (
         ('meta[property="article:published_time"]', "content", "meta_article_published_time"),
@@ -354,7 +419,7 @@ def fetch_bounded_homepage(
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         description_tag = soup.select_one('meta[name="description"], meta[property="og:description"]')
         description = str(description_tag.get("content") or "").strip() if description_tag else ""
-        published_date_candidates = _page_date_candidates(soup)
+        published_date_candidates = _page_date_candidates(soup, structured=structured)
         active_hiring_signal = extract_homepage_hiring_signal(final_url=final_url, soup=soup)
         job_listing_candidates = extract_job_listing_candidates(
             final_url=final_url, soup=soup, structured=structured
