@@ -8,7 +8,7 @@ This file is the authoritative short handoff for the next implementation session
 
 - engineering: **CLOSED**
 - qualification: **GO / RELEASE-QUALIFIED**
-- release finalization: **COMPLETE pending only final docs-cleanup merge/ref move described by the current release PR**
+- release finalization: **COMPLETE**
 - qualified production SHA: `200f056a5a60cad23610a3958b6bec62dfb624a5`
 - qualified code ref: `release/v8-qualified-2026-10-06`
 - final submission ref: `release/v8-submission-2026-10-06`
