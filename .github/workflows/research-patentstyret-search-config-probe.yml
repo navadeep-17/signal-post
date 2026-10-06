@@ -1,0 +1,84 @@
+name: Research Patentstyret Search Config Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-search-config-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch shell and main bundle
+        run: |
+          mkdir -p out
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://search.patentstyret.no/' -o out/index.html
+          MAIN="$(python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('out/index.html').read_text(encoding='utf-8',errors='replace')
+          refs=re.findall(r'<script[^>]+src=["\']([^"\']*main\.[^"\']+\.js)["\']',s,re.I)
+          print(refs[0] if refs else '')
+          PY
+          )"
+          echo "main-ref=$MAIN"
+          test -n "$MAIN"
+          case "$MAIN" in
+            http*) URL="$MAIN" ;;
+            /*) URL="https://search.patentstyret.no$MAIN" ;;
+            *) URL="https://search.patentstyret.no/advanced/$MAIN" ;;
+          esac
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' "$URL" -o out/main.js
+
+      - name: Extract config-loading clues
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('out/main.js').read_text(encoding='utf-8',errors='replace')
+          for pattern in [
+              r'["\'][^"\']{0,160}\.json(?:\?[^"\']*)?["\']',
+              r'["\'][^"\']{0,160}(?:config|environment|settings)[^"\']*["\']',
+              r'urlSearchApi.{0,900}',
+              r'searchUrl.{0,900}',
+          ]:
+              print('\nPATTERN',pattern)
+              found=[]
+              for m in re.finditer(pattern,s,re.I):
+                  val=m.group(0)
+                  if val not in found:
+                      found.append(val)
+              for val in found[:120]:
+                  print(val[:1800])
+          PY
+
+      - name: Probe only likely public runtime config files
+        run: |
+          for URL in \
+            'https://search.patentstyret.no/advanced/assets/config.json' \
+            'https://search.patentstyret.no/advanced/assets/environment.json' \
+            'https://search.patentstyret.no/advanced/assets/settings.json' \
+            'https://search.patentstyret.no/assets/config.json' \
+            'https://search.patentstyret.no/config.json'; do
+            echo "=== $URL ==="
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --connect-timeout 10 --max-time 20 \
+              --write-out '%{http_code}' "$URL" -o out/probe.body || true)"
+            echo "http=$CODE bytes=$(wc -c < out/probe.body 2>/dev/null || echo 0)"
+            if [ "$CODE" = "200" ]; then head -c 12000 out/probe.body; echo; fi
+          done
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
