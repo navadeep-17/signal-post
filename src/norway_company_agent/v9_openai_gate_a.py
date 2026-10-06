@@ -21,6 +21,7 @@ class GateAProviderConfig:
     rights_status: str
     challenge_cost_budget_usd: float
     project_third_party_budget_usd: float
+    evaluator_supplied_credential: bool = False
 
     def __post_init__(self) -> None:
         if self.challenge_cost_budget_usd < 0:
@@ -59,6 +60,8 @@ def preflight_gate_a_provider(
         reasons.append("explicit_live_enable_required")
     if not api_key_available:
         reasons.append("provider_key_missing")
+    if not config.evaluator_supplied_credential:
+        reasons.append("evaluator_supplied_credential_not_confirmed")
     if reserved_total > effective_budget:
         reasons.append("reserved_provider_cost_exceeds_effective_budget")
 
@@ -69,6 +72,7 @@ def preflight_gate_a_provider(
         "allowed_for_live_v9_experiment": allowed,
         "enable_live_provider": config.enable_live_provider,
         "api_key_available": api_key_available,
+        "evaluator_supplied_credential": config.evaluator_supplied_credential,
         "reserved_provider_cost_per_company_usd": RESERVED_PROVIDER_COST_PER_COMPANY_USD,
         "reserved_provider_cost_total_usd": reserved_total,
         "effective_experiment_budget_usd": effective_budget,
