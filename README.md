@@ -133,11 +133,13 @@ Current Builderr-submitted revision remains:
 - commit: `e7cbbcdd505596dbd5d819b5e8647602760a7aa3`;
 - ref: `release/v8-final-2026-10-03`.
 
-The newer production candidate at `main@200f056a5a60cad23610a3958b6bec62dfb624a5` passed Q8 fresh release qualification attempt #4 and is now **release-qualified pending documentation-only finalization, exact-head CI, release-ref freeze and explicit Builderr submission**.
+The production code qualified by Q8 is `200f056a5a60cad23610a3958b6bec62dfb624a5`, permanently anchored by `release/v8-qualified-2026-10-06`.
 
-The qualification-only PR #124 was closed without merge. See [`docs/Q8_RELEASE_QUALIFICATION.md`](docs/Q8_RELEASE_QUALIFICATION.md).
+The documentation-complete submission revision is anchored separately by `release/v8-submission-2026-10-06`. That ref is the exact Builderr submission revision after final documentation-only cleanup and green exact-SHA CI. The difference from the Q8-qualified code SHA is documentation/release metadata only; no evaluator, collector, identity, evidence, canonical, synthesis, UI, scheduler or source-connector behavior changes are included.
 
-The certified V1/V5 lineage remains preserved; no qualification harness is part of production.
+The qualification-only PR #124 was closed without merge. See [`docs/Q8_RELEASE_QUALIFICATION.md`](docs/Q8_RELEASE_QUALIFICATION.md). `submission/v8-qualified-2026-10-06.json` is the current machine-readable Q8 record; `submission/manifest.json` remains the immutable historical V5/V2 certified-lineage manifest.
+
+The certified V1/V5 lineage remains preserved; no qualification harness is part of production. Builderr has not yet scored the newly qualified revision.
 
 ## Qualification evidence
 
@@ -214,4 +216,5 @@ The main track is frozen for release. New source experiments and fresh qualifica
 - [`.github/workflows/README.md`](.github/workflows/README.md) — workflow inventory and qualification policy
 - [`docs/REQUIREMENTS_MATRIX.md`](docs/REQUIREMENTS_MATRIX.md) — challenge requirement coverage
 - [`docs/SUBMISSION_SOURCE_RIGHTS.md`](docs/SUBMISSION_SOURCE_RIGHTS.md) — source/licence/acquisition policy
-- [`submission/manifest.json`](submission/manifest.json) — certified machine-readable lineage
+- [`submission/v8-qualified-2026-10-06.json`](submission/v8-qualified-2026-10-06.json) — current machine-readable Q8 qualification record
+- [`submission/manifest.json`](submission/manifest.json) — historical certified V5/V2 lineage manifest

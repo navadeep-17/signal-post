@@ -19,9 +19,9 @@ This directory separates current release guidance, qualification evidence and hi
 
 The previously submitted Builderr revision remains `e7cbbcdd505596dbd5d819b5e8647602760a7aa3` until a replacement is explicitly submitted.
 
-The newer production line at `main@200f056a5a60cad23610a3958b6bec62dfb624a5` passed Q8 fresh release qualification attempt #4. The qualification-only PR #124 was closed without merge. Release work is now documentation-only finalization, exact-head CI, release-ref freeze and Builderr submission.
+The production code at `200f056a5a60cad23610a3958b6bec62dfb624a5` passed Q8 fresh release qualification attempt #4 and is permanently anchored by `release/v8-qualified-2026-10-06`. The documentation-complete Builderr submission revision is anchored separately by `release/v8-submission-2026-10-06`; post-qualification differences are documentation/release metadata only.
 
-No new source experiment or fresh cohort is on the critical path before submission.
+No new source experiment or fresh cohort is on the critical path before submission. The newly qualified revision has not yet received an official Builderr score.
 
 ## Production lineage
 
@@ -37,13 +37,14 @@ Documents and branches for H1/H2, Website Discovery 2.0, Common Crawl, NAV, OSM/
 
 When older documents differ:
 
-1. live Builderr challenge/evaluator contract;
-2. `../SUBMISSION.md`;
-3. `Q8_RELEASE_QUALIFICATION.md`;
-4. `CONTINUATION_STATE.md`;
-5. `../submission/V8_EVALUATOR_PATH.md`;
-6. `../OUTPUT_CONTRACT.md` and `../submission/manifest.json`;
-7. current roadmap/requirements/source-rights docs;
-8. historical experiments.
+1. live Builderr challenge/evaluator contract and official result;
+2. `../SUBMISSION.md` — current release/submission guide;
+3. `Q8_RELEASE_QUALIFICATION.md` — frozen human-readable fresh qualification record;
+4. `../submission/v8-qualified-2026-10-06.json` — frozen machine-readable current qualification record;
+5. `CONTINUATION_STATE.md` — current handoff/next action;
+6. `../submission/V8_EVALUATOR_PATH.md` and `../OUTPUT_CONTRACT.md` — current evaluator/output contract;
+7. `SUBMISSION_SOURCE_RIGHTS.md` and `REQUIREMENTS_MATRIX.md` — current source/acquisition and requirements declarations;
+8. `../submission/manifest.json` — historical certified V5/V2 lineage/audit manifest, not the current V8 release-state authority;
+9. historical experiments.
 
-Builderr remains authoritative for the official evaluator result and score.
+`release/v8-submission-2026-10-06` is the exact final submission ref. Builderr remains authoritative for the official evaluator result and score.

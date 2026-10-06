@@ -8,6 +8,7 @@ This matrix separates repository-verifiable engineering properties from Builderr
 
 - production code SHA: `200f056a5a60cad23610a3958b6bec62dfb624a5`
 - qualified code ref: `release/v8-qualified-2026-10-06`
+- final submission ref: `release/v8-submission-2026-10-06`
 - evaluator: `scripts/run_signalpost_v8.py`
 - final fresh qualification: workflow `37403982422`
 - artifact: `11386579108`
@@ -15,6 +16,8 @@ This matrix separates repository-verifiable engineering properties from Builderr
 - official Builderr score for this revision: **OPEN**
 
 The public qualification line is **65/100 overall**. Recall/coverage, precision/evidence, synthesis and UX are weighted score dimensions and are **not separate qualification thresholds**.
+
+The latest official Builderr result for the previously evaluated revision is **49.99/100**; the older public-board snapshot may still show **52.41/100**. The newly qualified revision has not yet received an official Builderr score.
 
 | Requirement | Current evidence | Status |
 |---|---|---|
