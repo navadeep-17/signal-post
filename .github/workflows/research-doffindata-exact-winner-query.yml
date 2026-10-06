@@ -1,0 +1,230 @@
+name: Research Doffindata Exact Winner Query Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-exact-winner-query.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Query public report for exact winner identifiers
+        run: |
+          python - <<'PY'
+          import base64, copy, json, re, uuid
+          from urllib.parse import urlparse, parse_qs
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+
+          REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL=(
+              "https://api.doffin.no/webclient/api/v2/notices-api/"
+              f"getEmbedToken?reportId={REPORT}"
+          )
+          UA="Signalpost-research-source-screen/1.0"
+          ORG_RE=re.compile(r"(?<!\d)\d{9}(?!\d)")
+
+          def req(url,headers=None,data=None,timeout=45):
+              h={"User-Agent":UA,"Accept":"application/json"}
+              if headers:h.update(headers)
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(",",":")).encode()
+                  h["Content-Type"]="application/json"
+              r=Request(url,data=body,headers=h)
+              try:
+                  with urlopen(r,timeout=timeout) as x:
+                      raw=x.read(); status=x.status; ctype=x.headers.get("Content-Type","")
+              except HTTPError as e:
+                  raw=e.read(); status=e.code; ctype=e.headers.get("Content-Type","") if e.headers else ""
+              try: obj=json.loads(raw.decode()) if raw else {}
+              except Exception: obj={}
+              return status,obj,raw,ctype
+
+          st,embed,_,_=req(TOKEN_URL)
+          if st!=200: raise SystemExit("embed metadata unavailable")
+          token=embed.get("accessToken") or ""
+          embed_url=(embed.get("embedUrl") or [""])[0]
+          if not token or not embed_url: raise SystemExit("missing embed contract")
+          q=parse_qs(urlparse(embed_url).query)
+          cfg=q.get("config",[""])[0]
+          cfg += "="*((4-len(cfg)%4)%4)
+          config=json.loads(base64.b64decode(cfg).decode())
+          cluster=(config.get("clusterUrl") or "").rstrip("/")
+          if not cluster: raise SystemExit("missing clusterUrl")
+
+          def headers():
+              return {
+                  "Authorization":f"EmbedToken {token}",
+                  "ActivityId":str(uuid.uuid4()),
+                  "RequestId":str(uuid.uuid4()),
+                  "X-PowerBI-HostEnv":"Embed for Customers",
+                  "Origin":"https://app.powerbi.com",
+                  "Referer":"https://app.powerbi.com/",
+              }
+
+          model_url=(
+              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration"
+              "?preferReadOnlySession=true&skipQueryData=true"
+          )
+          st,model,raw,_=req(model_url,headers())
+          if st!=200: raise SystemExit("models unavailable")
+          exploration=model.get("exploration") or {}
+          report=exploration.get("report") or {}
+          model_id=report.get("modelId")
+          db_name=(report.get("model") or {}).get("dbName")
+          print("model-id=",model_id)
+          print("db-name=",db_name)
+
+          # Reuse the report's own supplier slicer query as the known-good semantic contract.
+          native=None
+          visual_name=None
+          for section in exploration.get("sections") or []:
+              for visual in section.get("visualContainers") or []:
+                  qraw=visual.get("query")
+                  if not qraw: continue
+                  try:qobj=json.loads(qraw) if isinstance(qraw,str) else qraw
+                  except Exception:continue
+                  txt=json.dumps(qobj,ensure_ascii=False)
+                  if "winner_eeig_official_name_nor" not in txt:
+                      continue
+                  cmds=qobj.get("Commands") or []
+                  selects=[]
+                  for cmd in cmds:
+                      sq=cmd.get("SemanticQueryDataShapeCommand") or {}
+                      selects.extend((sq.get("Query") or {}).get("Select") or [])
+                  if len(selects)==1:
+                      native=qobj
+                      cfgraw=visual.get("config") or "{}"
+                      try:vcfg=json.loads(cfgraw) if isinstance(cfgraw,str) else cfgraw
+                      except Exception:vcfg={}
+                      visual_name=(vcfg or {}).get("name")
+                      break
+              if native: break
+          if not native: raise SystemExit("native supplier slicer query unavailable")
+          print("native-visual=",visual_name)
+
+          def wrapper(inner, visual_id):
+              item={"Query":inner}
+              # This context is public report metadata; it is not a credential.
+              if db_name:
+                  item["ApplicationContext"]={
+                      "DatasetId":db_name,
+                      "Sources":[{"ReportId":REPORT,"VisualId":visual_id or "signalpost-research"}],
+                  }
+              return {
+                  "version":"1.0.0",
+                  "queries":[item],
+                  "cancelQueries":[],
+                  "modelId":model_id,
+              }
+
+          query_url=cluster+"/explore/querydata?synchronous=true"
+
+          # First prove the wrapper with the unmodified report-native supplier slicer query.
+          native_body=wrapper(native,visual_name)
+          st,native_resp,native_raw,ctype=req(query_url,headers(),native_body)
+          print("native-query-http=",st,"bytes=",len(native_raw),"content-type=",ctype.split(";")[0])
+          if isinstance(native_resp,dict):
+              print("native-query-top-keys=",sorted(native_resp)[:80])
+          if st!=200:
+              if isinstance(native_resp,dict):
+                  print("native-error-shape=",json.dumps(native_resp,ensure_ascii=False)[:8000])
+              raise SystemExit("native report querydata request failed")
+
+          # Modify only the selected fields; preserve Doffin's native award/result filters and binding shape.
+          exact=copy.deepcopy(native)
+          cmd=(exact.get("Commands") or [])[0].get("SemanticQueryDataShapeCommand")
+          if not cmd: raise SystemExit("unexpected native query shape")
+          query=cmd.get("Query") or {}
+          # The enriched table already contains all winner/contract facts required for exact-company proof.
+          fields=[
+              ("winner_organization_technical_identifier","winner_org_identifier"),
+              ("winner_eeig_official_name_nor","winner_name"),
+              ("winner_eu_registration_number","winner_eu_registration_number"),
+              ("contract_identifier","contract_identifier"),
+              ("contract_conclusion_date","contract_conclusion_date"),
+              ("winner_decision_date","winner_decision_date"),
+              ("result_value_lot","result_value_lot"),
+              ("result_value_cur_lot","result_value_cur_lot"),
+          ]
+          query["From"]=[
+              {"Name":"e","Entity":"enriched_notice_lot_settled_contracts_with_winners_and_contract_values","Type":0},
+              # Preserve sources needed by the native result-status filters.
+              {"Name":"b","Entity":"base_notices","Type":0},
+              {"Name":"b1","Entity":"base_notice_lot_results","Type":0},
+          ]
+          query["Select"]=[
+              {
+                  "Column":{
+                      "Expression":{"SourceRef":{"Source":"e"}},
+                      "Property":prop,
+                  },
+                  "Name":(
+                      "enriched_notice_lot_settled_contracts_with_winners_and_contract_values."
+                      + prop
+                  ),
+                  "NativeReferenceName":label,
+              }
+              for prop,label in fields
+          ]
+          binding=cmd.setdefault("Binding",{})
+          primary=binding.setdefault("Primary",{})
+          groupings=primary.setdefault("Groupings",[{}])
+          if not groupings: groupings.append({})
+          groupings[0]["Projections"]=list(range(len(fields)))
+          reduction=binding.setdefault("DataReduction",{})
+          reduction["DataVolume"]=6
+          reduction["Primary"]={"Window":{"Count":200}}
+          binding["Version"]=1
+          cmd["ExecutionMetricsKind"]=1
+
+          exact_body=wrapper(exact,visual_name)
+          st,exact_resp,exact_raw,ctype=req(query_url,headers(),exact_body)
+          print("exact-query-http=",st,"bytes=",len(exact_raw),"content-type=",ctype.split(";")[0])
+          if isinstance(exact_resp,dict):
+              print("exact-query-top-keys=",sorted(exact_resp)[:80])
+          if st!=200:
+              if isinstance(exact_resp,dict):
+                  print("exact-error-shape=",json.dumps(exact_resp,ensure_ascii=False)[:12000])
+              raise SystemExit("exact winner query failed")
+
+          # Inspect DSR response generically. Only print bounded non-sensitive public result data.
+          text=json.dumps(exact_resp,ensure_ascii=False)
+          orgs=sorted(set(ORG_RE.findall(text)))
+          print("nine-digit-values-count=",len(orgs))
+          print("nine-digit-values-sample=",orgs[:80])
+
+          def walk(obj,path="root",depth=0):
+              if depth>12:return
+              if isinstance(obj,dict):
+                  for k,v in obj.items():
+                      p=f"{path}.{k}"
+                      if k in {"ValueDicts","DS","PH","DM0","C","R","HAD","IC"}:
+                          if isinstance(v,(str,int,float,bool,type(None))):
+                              print("DSR",p,"=",str(v)[:1200])
+                          elif isinstance(v,(list,dict)):
+                              compact=json.dumps(v,ensure_ascii=False,separators=(",",":"))
+                              print("DSR",p,"=",compact[:10000])
+                      walk(v,p,depth+1)
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj[:40]):
+                      walk(v,f"{path}[{i}]",depth+1)
+          walk(exact_resp)
+
+          # Explicit exact-org proof marker.
+          norwegian_like=[x for x in orgs if len(x)==9]
+          print("VIABILITY returned-nine-digit-identifiers=",bool(norwegian_like))
+          print("VIABILITY exact-identifier-field-requested=",True)
+          print("VIABILITY bulk-query-single-request=",True)
+          PY
