@@ -1,11 +1,6 @@
 name: Research Peppol Aggregate Exact-Org Coverage
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-peppol-aggregate-coverage.yml
   workflow_dispatch:
 
 permissions:
