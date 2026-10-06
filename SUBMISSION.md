@@ -11,14 +11,18 @@ Current Builderr-submitted revision remains:
 - submitted commit: `e7cbbcdd505596dbd5d819b5e8647602760a7aa3`
 - frozen ref: `release/v8-final-2026-10-03`
 
-New repository release candidate:
+New qualified release:
 
-- production commit qualified by Q8: `200f056a5a60cad23610a3958b6bec62dfb624a5`
-- post-merge Baseline CI: `37403437730` — **PASS**
+- production code qualified by Q8: `200f056a5a60cad23610a3958b6bec62dfb624a5`
+- qualified code ref: `release/v8-qualified-2026-10-06`
+- qualified-code Baseline CI: `37403437730` — **PASS**
+- final submission ref: `release/v8-submission-2026-10-06`
 - evaluator entry point: `scripts/run_signalpost_v8.py`
 - Q8 decision: **GO / RELEASE-QUALIFIED**
 
-The Q8 qualification harness on PR #124 is intentionally closed without merge. Do not submit or merge its qualification-only head. The production candidate is the production `main` line, followed only by documentation-only release finalization and exact-head CI.
+`release/v8-submission-2026-10-06` is the exact documentation-complete revision to submit after the final documentation-only PR and exact-SHA/post-merge Baseline CI are green. Its difference from the qualified code SHA is documentation/release metadata only. The exact final SHA and CI runs are recorded by the GitHub ref/checks and final release PR so this document does not create a self-referential SHA by embedding the commit that contains itself.
+
+The Q8 qualification harness on PR #124 is intentionally closed without merge. Do not submit or merge its qualification-only head.
 
 ## 2. Evaluator command
 
@@ -140,14 +144,9 @@ See `docs/Q8_RELEASE_QUALIFICATION.md` for the frozen detailed record.
 
 ## 7. Release discipline
 
-Before sending the new revision to Builderr:
+Release finalization is documentation/release-metadata only. The qualified production code remains frozen at `200f056a5a60cad23610a3958b6bec62dfb624a5`, and `release/v8-qualified-2026-10-06` must not move.
 
-1. merge only documentation-only finalization;
-2. require exact-head Baseline CI;
-3. require post-merge Baseline CI;
-4. freeze a release ref for the final `main` SHA;
-5. submit that exact SHA/ref;
-6. record the actual submitted revision here afterward.
+The final submission ref is `release/v8-submission-2026-10-06`; submit exactly the SHA it resolves to after the final post-merge Baseline CI passes. The only remaining external action is to submit that frozen revision to Builderr, then record the actual submitted SHA/ref and official result.
 
 Do not consume another fresh cohort merely for bookkeeping. Any production-code change after the qualified candidate requires a new qualification decision.
 
@@ -199,6 +198,7 @@ The latest official Builderr result received by email on **2026-10-05** is **49.
 - `OUTPUT_CONTRACT.md`
 - `docs/REQUIREMENTS_MATRIX.md`
 - `docs/SUBMISSION_SOURCE_RIGHTS.md`
-- `submission/manifest.json`
+- `submission/v8-qualified-2026-10-06.json` — current machine-readable Q8 qualification record
+- `submission/manifest.json` — historical certified V5/V2 lineage manifest
 
 The 49.99/100 evaluator result above is the latest official score communicated by Builderr until the newly qualified revision is explicitly submitted and evaluated.
