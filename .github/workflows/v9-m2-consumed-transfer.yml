@@ -15,6 +15,20 @@ on:
       - tests/test_v9_email_domain.py
       - tests/test_v9_measurement.py
       - tests/test_v9_site_unlock.py
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/v9-m2-consumed-transfer.yml
+      - src/norway_company_agent/final_site_discovery.py
+      - src/norway_company_agent/v9_email_domain.py
+      - src/norway_company_agent/v9_measurement.py
+      - src/norway_company_agent/v9_site_unlock.py
+      - scripts/measure_v9_company_family_coverage.py
+      - scripts/audit_v9_new_site_unlock.py
+      - tests/test_v9_email_domain.py
+      - tests/test_v9_measurement.py
+      - tests/test_v9_site_unlock.py
   workflow_dispatch:
 
 permissions:
