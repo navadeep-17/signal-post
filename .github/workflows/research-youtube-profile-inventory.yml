@@ -1,13 +1,6 @@
 name: Research Verified YouTube Profile Inventory
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/inventory_verified_youtube_profiles.py
-      - tests/test_inventory_verified_youtube_profiles.py
-      - .github/workflows/research-youtube-profile-inventory.yml
   workflow_dispatch:
 
 permissions:
