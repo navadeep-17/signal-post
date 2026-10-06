@@ -6,23 +6,27 @@ This file is the authoritative short handoff for the next implementation session
 
 ## Repository state
 
-- production branch: `main`
-- current qualified production SHA: `200f056a5a60cad23610a3958b6bec62dfb624a5`
-- post-merge Baseline CI: `37403437730` — **PASS**
+- engineering: **CLOSED**
+- qualification: **GO / RELEASE-QUALIFIED**
+- release finalization: **COMPLETE pending only final docs-cleanup merge/ref move described by the current release PR**
+- qualified production SHA: `200f056a5a60cad23610a3958b6bec62dfb624a5`
+- qualified code ref: `release/v8-qualified-2026-10-06`
+- final submission ref: `release/v8-submission-2026-10-06`
 - evaluator entry point: `scripts/run_signalpost_v8.py`
+- latest pre-cleanup main Baseline CI: `37407690443` — **PASS**
 - certified V1 immutability remains preserved
 - third-party API cost remains **$0**
 - search API calls remain **0**
 - PR #124 (Q8 attempt #4 qualification harness) is **closed without merge**
-- working finalization branch: `docs/q8-release-finalization`
+- official Builderr score for the newly qualified revision: **OPEN**
+
+The latest official Builderr result for the previously evaluated revision is **49.99/100** (Recall 8.99/50, Precision and evidence 21.00/30, Synthesis 12.00/12, UX 8.00/8). The older public-board snapshot may still show **52.41/100**. Qualification requires **65/100 overall** on an official Builderr run; local Q8 GO is not an official Builderr score.
 
 ## Active stage
 
-The main engineering/qualification track is **CLOSED / RELEASE-QUALIFIED**.
+The engineering and fresh-qualification tracks are closed. No feature/source experiment or fresh cohort is on the submission critical path.
 
-Q8 fresh release qualification attempt #4 passed both the machine gate and manual precision gate. No further source experiment or fresh cohort should be started before the release decision.
-
-Current task: **release bookkeeping -> exact-head CI -> freeze release ref -> Builderr submission**.
+Current task: **submit the exact frozen `release/v8-submission-2026-10-06` revision to Builderr after its final post-merge Baseline CI is green, then record the official result.**
 
 ## Q8 attempt #4 — release qualification PASS
 
@@ -83,13 +87,8 @@ R&D branches such as model/search website discovery, NAV variants, Common Crawl,
 
 ## NEXT
 
-1. Finish documentation-only release finalization on `docs/q8-release-finalization`.
-2. Open a documentation-only PR against `main`.
-3. Require exact-head Baseline CI.
-4. Merge only if the diff remains documentation-only and CI is green.
-5. Require post-merge Baseline CI on the final `main`.
-6. Freeze a release ref for that exact final production revision.
-7. Submit the frozen revision to Builderr.
-8. After submission, record the submitted SHA/ref and official Builderr result separately.
+1. Submit the exact SHA referenced by `release/v8-submission-2026-10-06` to Builderr.
+2. After submission/evaluation, record the actual submitted SHA/ref and official Builderr result separately.
+3. Use the official category breakdown to choose any later engineering work.
 
-No further feature work is on the critical path before submission.
+No further feature work, source addition, experimental merge or fresh cohort is on the critical path before submission.
