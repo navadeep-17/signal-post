@@ -1,0 +1,90 @@
+name: Research R5 Expanded Artifact Union
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-r5-expanded-artifact-union.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run artifact-union tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_compare_bulk_exact_org_union.py
+
+      - name: Download frozen research artifacts only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/r5/landbruk out/r5/arbeid out/r5/sgregister out/r5/dsb out/r5/osm
+          gh run download 37345868675 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-landbruk-support-reach \
+            --dir out/r5/landbruk
+          gh run download 37347436734 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-arbeidstilsynet-registry-union \
+            --dir out/r5/arbeid
+          gh run download 37347732285 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-sgregister-bulk-reach \
+            --dir out/r5/sgregister
+          gh run download 37402490263 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-dsb-elvirksomhet-reach \
+            --dir out/r5/dsb
+          gh run download 37352761202 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-osm-exact-org-reach \
+            --dir out/r5/osm
+          find out/r5 -type f -maxdepth 4 -print
+
+      - name: Compare expanded source union with zero source requests
+        run: |
+          uv run python scripts/compare_bulk_exact_org_union.py \
+            --source landbruk=out/r5/landbruk/landbruk/matched-companies.jsonl \
+            --source arbeidstilsynet=out/r5/arbeid/arbeidstilsynet/matched-companies-1000.jsonl \
+            --source sgregister=out/r5/sgregister/sgregister/matched-companies-1000.jsonl \
+            --source dsb=out/r5/dsb/dsb-1000/matched-companies.jsonl \
+            --source osm=out/r5/osm/osm-1000/matched-companies.jsonl \
+            --source-report landbruk=out/r5/landbruk/landbruk/report.json \
+            --source-report arbeidstilsynet=out/r5/arbeid/arbeidstilsynet/report.json \
+            --source-report sgregister=out/r5/sgregister/sgregister/report.json \
+            --source-report dsb=out/r5/dsb/dsb-1000/report.json \
+            --source-report osm=out/r5/osm/osm-1000/report.json \
+            --original-requests landbruk=1 \
+            --original-requests arbeidstilsynet=2 \
+            --original-requests sgregister=1 \
+            --original-requests dsb=1 \
+            --original-requests osm=1 \
+            --cohort-size 1000 \
+            --consumed-100 out/r5/sgregister/consumed-100.jsonl \
+            --output-dir out/r5-union
+          cat out/r5-union/report.json
+
+      - name: Upload frozen expanded union evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-r5-expanded-artifact-union
+          retention-days: 30
+          path: |
+            out/r5-union/report.json
+            out/r5-union/union-companies.jsonl
