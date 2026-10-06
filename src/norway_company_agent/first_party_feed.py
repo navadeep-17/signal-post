@@ -22,6 +22,7 @@ GENERIC_TITLES = {
     "home",
     "forside",
     "hello world",
+    "hei verden",
     "sample page",
     "sample post",
 }
