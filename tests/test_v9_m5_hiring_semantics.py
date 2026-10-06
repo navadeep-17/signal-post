@@ -196,3 +196,12 @@ def test_evaluator_wiring_uses_v8_wrapper_and_preserves_pinned_v2() -> None:
     assert '"hiring_semantics_network_requests": 0' in v8
     assert "hiring_intent_contract" not in v2
     assert "project_company_authored_hiring_intent" not in v2
+
+
+def test_synthesis_is_backward_compatible_when_m5_adds_no_intent() -> None:
+    baseline = project_canonical_profile(_contract(careers=False))
+    baseline["synthesis"] = build_company_synthesis(baseline)
+    assert baseline["synthesis"]["decision_brief"]["hiring"]["text"] == (
+        "No strict job posting is published for this run."
+    )
+    assert "No company-authored hiring-intent signal is published." not in baseline["synthesis"]["unknowns"]
