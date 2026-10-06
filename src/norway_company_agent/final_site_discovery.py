@@ -18,6 +18,7 @@ from .domain_discovery import (
     _page_contains_org_number,
     _page_matches_registry_location,
     qualify_registry_email_domain_identity,
+    registry_email_domain_candidates,
 )
 from .evidence import evidence
 from .homepage_careers_signal import extract_careers_links
@@ -647,7 +648,8 @@ def discover_final_website(profile: dict[str, Any], *, timeout: float = 6.0) -> 
                 )
             return row, total
     else:
-        candidate = select_strong_registry_email_domain_candidate(row)
+        email_plan = registry_email_domain_candidates(row)
+        candidate = select_strong_registry_email_domain_candidate(row, plan=email_plan)
         if candidate:
             total["email_attempted"] = True
             record, ops = fetch_bounded_homepage(
