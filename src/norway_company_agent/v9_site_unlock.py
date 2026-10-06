@@ -60,6 +60,37 @@ def _claim_evidence(row: dict[str, Any], field: str) -> list[dict[str, Any]]:
     return found
 
 
+
+
+def _publication_rows(row: dict[str, Any], fields: set[str]) -> list[dict[str, Any]]:
+    evidence = _evidence_index(row)
+    publications: list[dict[str, Any]] = []
+    for field in sorted(fields):
+        for claim in _available_claims(row).get(field) or []:
+            linked = [
+                evidence[str(evidence_id)]
+                for evidence_id in claim.get("evidence_ids") or []
+                if str(evidence_id) in evidence
+            ]
+            publications.append(
+                {
+                    "field": field,
+                    "value": claim.get("value"),
+                    "confidence": claim.get("confidence"),
+                    "evidence": [
+                        {
+                            "id": item.get("id"),
+                            "source_url": item.get("source_url"),
+                            "retrieved_at": item.get("retrieved_at"),
+                            "content_sha256": item.get("content_sha256"),
+                            "claim_span": item.get("claim_span"),
+                        }
+                        for item in linked
+                    ],
+                }
+            )
+    return publications
+
 def _evidence_complete(item: dict[str, Any]) -> bool:
     source_url = str(item.get("source_url") or "")
     retrieved_at = str(item.get("retrieved_at") or "")
@@ -112,6 +143,9 @@ def audit_new_verified_site_unlock(
             }
         )
         all_evidence = [*website_evidence, *external_evidence]
+        publication_fields = {"official_website"}
+        for family in unlocked:
+            publication_fields.update(FAMILY_FIELDS[family])
         audit_rows.append(
             {
                 "organisation_number": org,
@@ -119,6 +153,10 @@ def audit_new_verified_site_unlock(
                 "unlocked_families": unlocked,
                 "company_family_edges_unlocked": len(unlocked),
                 "source_urls": source_urls,
+                "new_external_publications": _publication_rows(
+                    challenger[org],
+                    publication_fields,
+                ),
                 "evidence_rows": len(all_evidence),
                 "all_relevant_evidence_hashed_and_timestamped": bool(all_evidence)
                 and all(_evidence_complete(item) for item in all_evidence),
