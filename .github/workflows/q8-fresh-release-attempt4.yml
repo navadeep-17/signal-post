@@ -116,23 +116,23 @@ jobs:
           test -s consumed-q8-attempt3.zip
           echo "${CONSUMED_Q8_ARTIFACT_SHA256}  consumed-q8-attempt3.zip" | sha256sum -c -
           unzip -q consumed-q8-attempt3.zip \
-            q8-exclude-8723.jsonl \
+            q8-exclude-8623.jsonl \
             q8-fresh-100.jsonl \
             q8-selection.json
-          echo "${PRIOR_EXCLUSION_SHA256}  q8-exclude-8723.jsonl" | sha256sum -c -
+          echo "${PRIOR_EXCLUSION_SHA256}  q8-exclude-8623.jsonl" | sha256sum -c -
           echo "${CONSUMED_FRESH_COHORT_SHA256}  q8-fresh-100.jsonl" | sha256sum -c -
           python - <<'PY'
           import json
           from pathlib import Path
           selection = json.loads(Path('q8-selection.json').read_text())
-          assert selection['seed'] == 20261107, selection
-          assert selection['excluded_rows'] == 8723, selection
+          assert selection['seed'] == 20261106, selection
+          assert selection['excluded_rows'] == 8623, selection
           assert selection['overlap_count'] == 0, selection
           assert selection['exclude_manifest_sha256'] == '058f920539689ec067ff82b8d2fc5dfbadd83c4597ccf3211d725d1d6bee9d27', selection
           assert selection['output_sha256'] == '179651e71afd473723e0d4e92a19bbba0281ec6ada56c61879265fb472d144cb', selection
           PY
           uv run python scripts/build_q8_exclusion.py \
-            --prior q8-exclude-8723.jsonl \
+            --prior q8-exclude-8623.jsonl \
             --consumed-fresh q8-fresh-100.jsonl \
             --output q8-exclude-8723.jsonl \
             --report q8-exclusion-report.json \
@@ -140,7 +140,7 @@ jobs:
             --expected-consumed 100 \
             --expected-union 8723
           test "$(wc -l < q8-exclude-8723.jsonl)" -eq 8723
-          sha256sum q8-exclude-8723.jsonl > q8-exclude-8623.sha256
+          sha256sum q8-exclude-8723.jsonl > q8-exclude-8723.sha256
 
       - name: Select genuinely fresh Q8 attempt-4 cohort
         run: |
@@ -158,9 +158,9 @@ jobs:
           import json
           from pathlib import Path
           selection = json.loads(Path('q8-selection.json').read_text())
-          assert selection['seed'] == 20261106, selection
+          assert selection['seed'] == 20261107, selection
           assert selection['count'] == 100, selection
-          assert selection['excluded_rows'] == 8623, selection
+          assert selection['excluded_rows'] == 8723, selection
           assert selection['overlap_count'] == 0, selection
           assert selection['universe_sha256'] == '1c89710e5b01f8617e86d09fbdff4a52f2f8dbbba297e74f7164b5984f5a0384', selection
           print(json.dumps(selection, indent=2))
@@ -260,7 +260,7 @@ jobs:
             brreg-enheter.sha256
             q8-exclusion-report.json
             q8-exclude-8723.jsonl
-            q8-exclude-8623.sha256
+            q8-exclude-8723.sha256
             q8-fresh-100.jsonl
             q8-fresh-100.sha256
             q8-selection.json
