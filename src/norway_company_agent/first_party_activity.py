@@ -89,6 +89,8 @@ GENERIC_UPDATE_PATH_SEGMENTS = {"news", "nyheter", "aktuelt", "blog", "press", "
 GENERIC_CMS_PLACEHOLDER_TITLES = {
     "hello world",
     "hello world!",
+    "hei verden",
+    "hei verden!",
     "sample page",
     "sample post",
 }
