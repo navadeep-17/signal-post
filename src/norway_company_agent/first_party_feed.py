@@ -11,6 +11,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 
 GENERIC_TITLES = {
     "news",
@@ -43,6 +45,49 @@ def _same_verified_site(url: str, verified_url: str) -> bool:
     if not candidate or not verified:
         return False
     return candidate == verified or candidate.endswith("." + verified) or verified.endswith("." + candidate)
+
+
+def advertised_feed_links(
+    verified_url: str,
+    soup: BeautifulSoup,
+    *,
+    limit: int = 4,
+) -> list[str]:
+    """Return explicit same-site RSS/Atom links advertised by the verified homepage.
+
+    These are nomination only. No link is evidence until the feed itself is fetched,
+    parsed and revalidated. Cross-site and non-RSS/Atom alternates are rejected.
+    """
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    out: list[str] = []
+    seen: set[str] = set()
+    accepted_types = {
+        "application/rss+xml",
+        "application/atom+xml",
+    }
+    for node in soup.select("link[href]"):
+        rel = {str(value).casefold() for value in (node.get("rel") or [])}
+        media_type = str(node.get("type") or "").split(";", 1)[0].strip().casefold()
+        if "alternate" not in rel or media_type not in accepted_types:
+            continue
+        raw = str(node.get("href") or "").strip()
+        if not raw:
+            continue
+        candidate = urllib.parse.urljoin(verified_url, raw)
+        parsed = urllib.parse.urlparse(candidate)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            continue
+        clean = urllib.parse.urlunparse(
+            (parsed.scheme, parsed.netloc, parsed.path or "/", "", parsed.query, "")
+        )
+        if clean in seen or not _same_verified_site(clean, verified_url):
+            continue
+        seen.add(clean)
+        out.append(clean)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def feed_candidate_urls(verified_url: str, *, limit: int = 2) -> list[str]:
@@ -239,23 +284,31 @@ def parse_company_feed(
 def fetch_verified_activity_feed(
     verified_url: str,
     *,
+    candidate_url: str | None = None,
     timeout: float = 6.0,
     max_bytes: int = 500_000,
     max_entries: int = 5,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Spend one two-request slot on `/feed/` for an already verified company site.
+    """Spend one two-request slot on one already-nominated same-site RSS/Atom feed.
 
-    Production deliberately tries only the consumed-screen winner (`/feed/`). Robots plus
-    one feed GET therefore cost at most two logical site requests. Redirects remain under
-    the same SSRF-safe bounded opener used by homepage discovery. The returned evidence
-    stores only parsed current dated same-site entries and the feed snapshot hash, never raw XML.
+    When the exact verified homepage explicitly advertises an RSS/Atom alternate, M6 may
+    substitute that URL for the legacy deterministic `/feed/` candidate. This never adds
+    a request: robots plus one feed GET still consume at most the same two-request slot.
+    The feed snapshot remains the cited evidence source.
     """
     # Local imports avoid coupling the pure parser to the website discovery module.
     from .evidence import evidence
     from .final_site_discovery import BOUNDED_SAFE_OPENER, _robots_allowed
     from .website import USER_AGENT, assert_public_url
 
-    candidates = feed_candidate_urls(verified_url, limit=1)
+    nominated = str(candidate_url or "").strip()
+    if nominated:
+        if not _same_verified_site(nominated, verified_url):
+            candidates = []
+        else:
+            candidates = [nominated]
+    else:
+        candidates = feed_candidate_urls(verified_url, limit=1)
     metrics: dict[str, Any] = {"requests": 0, "bytes": 0, "latencies_ms": []}
     if not candidates:
         return (
