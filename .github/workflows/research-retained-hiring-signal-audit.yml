@@ -1,13 +1,6 @@
 name: Research Retained Hiring Signal Audit
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - scripts/audit_retained_hiring_signals.py
-      - tests/test_audit_retained_hiring_signals.py
-      - .github/workflows/research-retained-hiring-signal-audit.yml
   workflow_dispatch:
 
 permissions:
