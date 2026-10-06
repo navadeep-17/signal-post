@@ -1,0 +1,123 @@
+name: Research eInnsyn Public Search Contract Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-einnsyn-public-search-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe documented public-read behavior without credentials
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import json
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+          from pathlib import Path
+
+          base = "https://api.einnsyn.no/search"
+          cases = {
+              "single_equ": {
+                  "query": '"923609016"',
+                  "entity": "Journalpost",
+                  "limit": "5",
+                  "sortBy": "publisertDato",
+                  "sortOrder": "desc",
+              },
+              "single_patentstyret": {
+                  "query": '"971526157"',
+                  "entity": "Journalpost",
+                  "limit": "5",
+                  "sortBy": "publisertDato",
+                  "sortOrder": "desc",
+              },
+              "two_org_or": {
+                  "query": '"923609016" OR "971526157"',
+                  "entity": "Journalpost",
+                  "limit": "10",
+                  "sortBy": "publisertDato",
+                  "sortOrder": "desc",
+              },
+          }
+
+          report = {"screen_type": "einnsyn_anonymous_exact_org_contract_probe", "cases": {}}
+          for name, params in cases.items():
+              url = base + "?" + urllib.parse.urlencode(params)
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "Signalpost-research-source-screen/1.0",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      raw = resp.read()
+                      status = resp.status
+                      ctype = resp.headers.get("Content-Type", "")
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read()
+                  status = exc.code
+                  ctype = exc.headers.get("Content-Type", "") if exc.headers else ""
+              except Exception as exc:
+                  report["cases"][name] = {
+                      "transport_error": f"{type(exc).__name__}: {str(exc)[:240]}"
+                  }
+                  continue
+
+              try:
+                  data = json.loads(raw.decode("utf-8-sig")) if raw else {}
+              except Exception:
+                  data = {}
+
+              items = data.get("items") if isinstance(data, dict) else None
+              if not isinstance(items, list):
+                  items = []
+              serialized = json.dumps(items, ensure_ascii=False)
+              report["cases"][name] = {
+                  "http_status": status,
+                  "content_type": ctype.split(";")[0],
+                  "bytes": len(raw),
+                  "response_keys": sorted(data) if isinstance(data, dict) else [],
+                  "item_count": len(items),
+                  "contains_923609016": "923609016" in serialized,
+                  "contains_971526157": "971526157" in serialized,
+                  "item_entities": sorted(
+                      {str(x.get("entity") or "") for x in items if isinstance(x, dict)}
+                  ),
+                  "item_key_union": sorted(
+                      {
+                          str(k)
+                          for x in items
+                          if isinstance(x, dict)
+                          for k in x.keys()
+                      }
+                  ),
+                  "has_next": bool(data.get("next")) if isinstance(data, dict) else False,
+              }
+          Path("out/report.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload metadata-only probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-einnsyn-public-search-probe
+          retention-days: 30
+          path: out/report.json
