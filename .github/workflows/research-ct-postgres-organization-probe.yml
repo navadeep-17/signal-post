@@ -1,0 +1,105 @@
+name: Research CT PostgreSQL Organization Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-ct-postgres-organization-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql --version
+
+      - name: Probe official crt.sh public database with one exact organization
+        env:
+          PGPASSWORD: guest
+          PGCONNECT_TIMEOUT: "10"
+        run: |
+          mkdir -p out
+          cat > out/probe.sql <<'SQL'
+          \set ON_ERROR_STOP on
+          SET statement_timeout = '30000ms';
+          SET lock_timeout = '5000ms';
+          \pset tuples_only on
+          \pset format unaligned
+
+          SELECT 'connection_ok=' || current_database() || ':' || current_user;
+
+          WITH orgcerts AS MATERIALIZED (
+              SELECT DISTINCT cai.CERTIFICATE_ID
+              FROM certificate_and_identities cai
+              WHERE plainto_tsquery('certwatch', 'ELOPAK ASA') @@ identities(cai.CERTIFICATE)
+                AND cai.NAME_VALUE = 'ELOPAK ASA'
+                AND cai.NAME_TYPE = '2.5.4.10'
+                AND coalesce(x509_notAfter(cai.CERTIFICATE), 'infinity'::timestamp)
+                    >= now() AT TIME ZONE 'UTC'
+              LIMIT 100
+          ),
+          domains AS (
+              SELECT DISTINCT lower(regexp_replace(dns.NAME_VALUE, '^\\*\\.', '')) AS domain
+              FROM orgcerts oc
+              JOIN certificate_and_identities dns
+                ON dns.CERTIFICATE_ID = oc.CERTIFICATE_ID
+              WHERE dns.NAME_TYPE = 'san:dNSName'
+                AND dns.NAME_VALUE IS NOT NULL
+          )
+          SELECT 'certificate_hits=' || (SELECT count(*) FROM orgcerts)
+          UNION ALL
+          SELECT 'domain_hits=' || count(*) FROM domains
+          UNION ALL
+          SELECT 'contains_elopak_com=' ||
+                 CASE WHEN EXISTS (
+                     SELECT 1 FROM domains
+                     WHERE domain = 'elopak.com' OR domain LIKE '%.elopak.com'
+                 ) THEN 'true' ELSE 'false' END;
+
+          WITH orgcerts AS MATERIALIZED (
+              SELECT DISTINCT cai.CERTIFICATE_ID
+              FROM certificate_and_identities cai
+              WHERE plainto_tsquery('certwatch', 'ELOPAK ASA') @@ identities(cai.CERTIFICATE)
+                AND cai.NAME_VALUE = 'ELOPAK ASA'
+                AND cai.NAME_TYPE = '2.5.4.10'
+                AND coalesce(x509_notAfter(cai.CERTIFICATE), 'infinity'::timestamp)
+                    >= now() AT TIME ZONE 'UTC'
+              LIMIT 100
+          )
+          SELECT DISTINCT lower(regexp_replace(dns.NAME_VALUE, '^\\*\\.', '')) AS domain
+          FROM orgcerts oc
+          JOIN certificate_and_identities dns
+            ON dns.CERTIFICATE_ID = oc.CERTIFICATE_ID
+          WHERE dns.NAME_TYPE = 'san:dNSName'
+            AND dns.NAME_VALUE IS NOT NULL
+          ORDER BY 1
+          LIMIT 50;
+          SQL
+
+          set +e
+          timeout 75s psql             "host=crt.sh port=5432 dbname=certwatch user=guest sslmode=prefer connect_timeout=10"             -f out/probe.sql > out/result.txt 2> out/error.txt
+          RC=$?
+          set -e
+          echo "psql-rc=$RC"
+          echo "=== bounded stdout ==="
+          head -n 120 out/result.txt || true
+          echo "=== bounded stderr ==="
+          head -n 80 out/error.txt || true
+          test "$RC" -eq 0
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
