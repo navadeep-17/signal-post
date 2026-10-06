@@ -1,0 +1,132 @@
+name: Research Patentstyret Batch Identity Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-patentstyret-batch-identity-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect raw responses for exact identifier
+        run: |
+          mkdir -p out
+          for DOMAIN in trademark design; do
+            case "$DOMAIN" in
+              trademark) URL='https://search.patentstyret.no/api/search/trademark/v2' ;;
+              design) URL='https://search.patentstyret.no/api/search/design/v2' ;;
+            esac
+            printf '%s' '{"from":0,"size":50,"aggregation":{},"filters":[],"commonSearch":"912355683"}' > out/query.json
+            curl --fail --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' \
+              --header 'Content-Type: application/json' \
+              --data-binary @out/query.json \
+              "$URL" -o "out/${DOMAIN}.json"
+            python - "${DOMAIN}" <<'PY'
+          import json,re,sys
+          from pathlib import Path
+          domain=sys.argv[1]
+          text=Path(f'out/{domain}.json').read_text(encoding='utf-8')
+          data=json.loads(text)
+          print(f'=== RAW {domain} ===')
+          print('bytes=',len(text),'contains-query-org=', '912355683' in text)
+          orgs=sorted(set(re.findall(r'(?<!\d)\d{9}(?!\d)',text)))
+          print('nine-digit-values=',orgs)
+          results=data.get('results') or []
+          print('result-count=',len(results),'totalHits=',data.get('totalHits'))
+          if results:
+              print('first-result-keys=',sorted(results[0]))
+              for key in ['applicants','proprietors','designers','inventors','agent']:
+                  value=results[0].get(key)
+                  if value:
+                      print(key,'=',json.dumps(value,ensure_ascii=False,sort_keys=True))
+                      if isinstance(value,list) and value and isinstance(value[0],dict):
+                          print(key+'-object-keys=',sorted(value[0]))
+                      elif isinstance(value,dict):
+                          print(key+'-object-keys=',sorted(value))
+          PY
+          done
+
+      - name: Extract all indexed party field paths from frontend
+        run: |
+          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://search.patentstyret.no/advanced/main.e56e868a50c47e49.js' -o out/main.js
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('out/main.js').read_text(encoding='utf-8',errors='replace')
+          literals=set(re.findall(r'["\']([^"\']{1,240})["\']',s))
+          print('=== PARTY FIELD LITERALS ===')
+          keys=['nestedApplicants','nestedProprietors','nestedInventors','customer','applicant','proprietor','organisation','organization','identifier']
+          for lit in sorted(literals):
+              low=lit.lower()
+              if any(k.lower() in low for k in keys):
+                  if any(ch in lit for ch in ['.','_']) or len(lit)<80:
+                      print(lit)
+          PY
+
+      - name: Test bounded two-org nameSearch encodings
+        run: |
+          URL='https://search.patentstyret.no/api/search/trademark/v2'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          vals={
+              'space':'912355683 971526157',
+              'comma':'912355683,971526157',
+              'semicolon':'912355683;971526157',
+              'or':'912355683 OR 971526157',
+              'pipe':'912355683|971526157',
+          }
+          for name,value in vals.items():
+              payload={
+                'from':0,'size':50,'aggregation':{},'filters':[],
+                'nameSearch':{
+                  'nameInput':value,
+                  'matchApplicant':True,
+                  'matchProprietor':True,
+                  'matchInventor':False,
+                  'matchDesigner':False
+                }
+              }
+              Path(f'out/batch-{name}.json').write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8')
+          PY
+          for NAME in space comma semicolon or pipe; do
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' --header 'Content-Type: application/json' \
+              --data-binary "@out/batch-${NAME}.json" \
+              --write-out '%{http_code}' "$URL" -o "out/batch-${NAME}.response.json" || true)"
+            python - "${NAME}" "${CODE}" <<'PY'
+          import json,sys
+          from pathlib import Path
+          name,code=sys.argv[1:3]
+          p=Path(f'out/batch-{name}.response.json')
+          text=p.read_text(encoding='utf-8',errors='replace') if p.exists() else ''
+          try: data=json.loads(text) if text else {}
+          except Exception: data={}
+          print('BATCH',name,'http=',code,'totalHits=',data.get('totalHits'),'bytes=',len(text))
+          names=set()
+          for row in data.get('results') or []:
+              for key in ('applicants','proprietors'):
+                  for item in row.get(key) or []:
+                      if isinstance(item,dict) and item.get('name'):
+                          names.add(item['name'])
+          print('names=',sorted(names))
+          PY
+          done
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
