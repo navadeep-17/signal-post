@@ -1,0 +1,459 @@
+name: Research Doffindata Consumed Detail and Net-New
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-consumed-detail.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Measure exact Doffin award detail and net-new public activity
+        run: |
+          python - <<'PY'
+          import base64
+          import copy
+          import datetime as dt
+          import gzip
+          import json
+          import re
+          import uuid
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+
+          REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL=(
+              "https://api.doffin.no/webclient/api/v2/notices-api/"
+              f"getEmbedToken?reportId={REPORT}"
+          )
+          UA="Signalpost-research-source-screen/1.0"
+          TODAY=dt.date(2026,10,6)
+          RECENT_DAYS=365
+
+          companies=[]
+          for line in Path("submission/final-release-1000.jsonl").read_text(encoding="utf-8").splitlines():
+              if not line.strip():
+                  continue
+              row=json.loads(line)
+              org=str(row.get("organisation_number") or "").strip()
+              if re.fullmatch(r"\d{9}",org):
+                  companies.append((org,row.get("name") or ""))
+          targets={org for org,_ in companies}
+          names=dict(companies)
+          print("cohort-unique-orgs=",len(targets))
+          if len(targets)!=1000:
+              raise SystemExit("expected exact frozen consumed 1000")
+
+          # Current certified output: establish current public/hiring coverage before Doffin.
+          current={}
+          with gzip.open("submission/final-release-1000-output.jsonl.gz","rt",encoding="utf-8") as fh:
+              for line in fh:
+                  if not line.strip():
+                      continue
+                  obj=json.loads(line)
+                  org=str(obj.get("organisation_number") or "")
+                  if org in targets:
+                      profile=obj.get("canonical_profile") or {}
+                      data_areas=profile.get("data_areas") or {}
+                      public=profile.get("public_activity") or []
+                      jobs=profile.get("jobs") or []
+                      current[org]={
+                          "hiring_public_area":bool(data_areas.get("hiring_and_public_activity")),
+                          "public_count":len(public),
+                          "jobs_count":len(jobs),
+                          "public_fields":sorted({
+                              str(x.get("canonical_field") or x.get("type") or "")
+                              for x in public if isinstance(x,dict)
+                          }),
+                          "claim_fields":sorted({
+                              str(x.get("field") or "")
+                              for x in obj.get("claims") or []
+                              if isinstance(x,dict)
+                              and x.get("availability")=="available"
+                              and any(k in str(x.get("field") or "").lower()
+                                      for k in ("support","award","public","news","job","activity"))
+                          }),
+                      }
+          print("current-output-orgs=",len(current))
+          current_area=sum(1 for x in current.values() if x["hiring_public_area"])
+          current_public=sum(1 for x in current.values() if x["public_count"]>0)
+          current_jobs=sum(1 for x in current.values() if x["jobs_count"]>0)
+          print("current-hiring-public-area-companies=",current_area)
+          print("current-public-activity-companies=",current_public)
+          print("current-jobs-companies=",current_jobs)
+
+          def req(url,headers=None,data=None,timeout=60):
+              h={"User-Agent":UA,"Accept":"application/json"}
+              if headers:
+                  h.update(headers)
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(",",":")).encode()
+                  h["Content-Type"]="application/json"
+              r=Request(url,data=body,headers=h)
+              try:
+                  with urlopen(r,timeout=timeout) as x:
+                      raw=x.read(); status=x.status
+              except HTTPError as e:
+                  raw=e.read(); status=e.code
+              try:
+                  obj=json.loads(raw.decode("utf-8-sig")) if raw else {}
+              except Exception as exc:
+                  print("parse-failed=",type(exc).__name__,"bytes=",len(raw),"prefix=",raw[:20].hex())
+                  obj={}
+              return status,obj,raw
+
+          st,embed,_=req(TOKEN_URL)
+          if st!=200:
+              raise SystemExit("embed metadata unavailable")
+          token=embed.get("accessToken") or ""
+          embed_url=(embed.get("embedUrl") or [""])[0]
+          if not token or not embed_url:
+              raise SystemExit("missing public embed contract")
+          q=parse_qs(urlparse(embed_url).query)
+          cfg=q.get("config",[""])[0]
+          cfg += "="*((4-len(cfg)%4)%4)
+          config=json.loads(base64.b64decode(cfg).decode())
+          cluster=(config.get("clusterUrl") or "").rstrip("/")
+          if not cluster:
+              raise SystemExit("missing clusterUrl")
+
+          def headers():
+              return {
+                  "Authorization":f"EmbedToken {token}",
+                  "ActivityId":str(uuid.uuid4()),
+                  "RequestId":str(uuid.uuid4()),
+                  "X-PowerBI-HostEnv":"Embed for Customers",
+                  "Origin":"https://app.powerbi.com",
+                  "Referer":"https://app.powerbi.com/",
+              }
+
+          model_url=(
+              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration"
+              "?preferReadOnlySession=true&skipQueryData=true"
+          )
+          st,model,_=req(model_url,headers())
+          if st!=200:
+              raise SystemExit("models unavailable")
+          exploration=model.get("exploration") or {}
+          report=exploration.get("report") or {}
+          model_id=report.get("modelId")
+          db_name=(report.get("model") or {}).get("dbName")
+
+          # Confirm exact enriched table fields from conceptual schema.
+          schema_url=f"{cluster}/explore/reports/{REPORT}/conceptualschema?userPreferredLocale=nb-NO"
+          st,schema,_=req(schema_url,headers())
+          if st!=200:
+              raise SystemExit("schema unavailable")
+          enriched_props=set()
+          for ent in ((schema.get("schema") or {}).get("Entities") or []):
+              if ent.get("Name")=="enriched_notice_lot_settled_contracts_with_winners_and_contract_values":
+                  enriched_props={p.get("Name") for p in ent.get("Properties") or [] if p.get("Name")}
+                  print("enriched-property-count=",len(enriched_props))
+                  for p in sorted(enriched_props):
+                      print("ENRICHED-PROP",p)
+                  break
+          if "winner_eu_registration_number" not in enriched_props:
+              raise SystemExit("exact winner registration field missing")
+
+          # Reuse Doffin's own supplier slicer query to preserve official award/result filters.
+          native=None
+          visual_name=None
+          for section in exploration.get("sections") or []:
+              for visual in section.get("visualContainers") or []:
+                  qraw=visual.get("query")
+                  if not qraw:
+                      continue
+                  try:
+                      qobj=json.loads(qraw) if isinstance(qraw,str) else qraw
+                  except Exception:
+                      continue
+                  txt=json.dumps(qobj,ensure_ascii=False)
+                  if "winner_eeig_official_name_nor" not in txt:
+                      continue
+                  selects=[]
+                  for command in qobj.get("Commands") or []:
+                      sq=command.get("SemanticQueryDataShapeCommand") or {}
+                      selects.extend((sq.get("Query") or {}).get("Select") or [])
+                  if len(selects)==1:
+                      native=qobj
+                      cfgraw=visual.get("config") or "{}"
+                      try:
+                          vcfg=json.loads(cfgraw) if isinstance(cfgraw,str) else cfgraw
+                      except Exception:
+                          vcfg={}
+                      visual_name=(vcfg or {}).get("name")
+                      break
+              if native:
+                  break
+          if not native:
+              raise SystemExit("native supplier query unavailable")
+
+          exact=copy.deepcopy(native)
+          cmd=(exact.get("Commands") or [])[0].get("SemanticQueryDataShapeCommand")
+          query=cmd["Query"]
+
+          # Use enriched fields only when possible, plus base_notices source identifier.
+          desired=[
+              ("e","winner_eu_registration_number","winner_org"),
+              ("e","winner_eeig_official_name_nor","winner_name"),
+              ("e","contract_identifier","contract_identifier"),
+              ("e","contract_conclusion_date","contract_conclusion_date"),
+              ("e","winner_decision_date","winner_decision_date"),
+              ("e","result_value_lot","result_value_lot"),
+              ("e","result_value_cur_lot","result_value_currency"),
+              ("e","winner_business_internet_address","winner_website"),
+              ("e","winner_business_contact_email_domain","winner_email_domain"),
+          ]
+          desired=[x for x in desired if x[1] in enriched_props]
+          # Doffin identifier provides a stable source notice reference.
+          desired.append(("b","doffin_identifier","doffin_identifier"))
+
+          query["From"]=[
+              {"Name":"e","Entity":"enriched_notice_lot_settled_contracts_with_winners_and_contract_values","Type":0},
+              {"Name":"b","Entity":"base_notices","Type":0},
+              {"Name":"b1","Entity":"base_notice_lot_results","Type":0},
+          ]
+          query["Select"]=[]
+          for source,prop,label in desired:
+              entity=(
+                  "enriched_notice_lot_settled_contracts_with_winners_and_contract_values"
+                  if source=="e" else "base_notices"
+              )
+              query["Select"].append({
+                  "Column":{"Expression":{"SourceRef":{"Source":source}},"Property":prop},
+                  "Name":entity+"."+prop,
+                  "NativeReferenceName":label,
+              })
+
+          where=list(query.get("Where") or [])
+          where.append({
+              "Condition":{"In":{
+                  "Expressions":[{
+                      "Column":{"Expression":{"SourceRef":{"Source":"e"}},
+                                "Property":"winner_eu_registration_number"}
+                  }],
+                  "Values":[[{"Literal":{"Value":"'"+org+"'"}}] for org in sorted(targets)],
+              }}
+          })
+          query["Where"]=where
+          binding=cmd.setdefault("Binding",{})
+          binding["Primary"]={"Groupings":[{"Projections":list(range(len(desired)))}]}
+          binding["DataReduction"]={"DataVolume":6,"Primary":{"Window":{"Count":2000}}}
+          binding["IncludeEmptyGroups"]=False
+          binding["Version"]=1
+          cmd["ExecutionMetricsKind"]=1
+
+          item={"Query":exact}
+          if db_name:
+              item["ApplicationContext"]={
+                  "DatasetId":db_name,
+                  "Sources":[{"ReportId":REPORT,"VisualId":visual_name or "signalpost-detail"}],
+              }
+          body={"version":"1.0.0","queries":[item],"cancelQueries":[],"modelId":model_id}
+          st,resp,raw=req(cluster+"/explore/querydata?synchronous=true",headers(),body)
+          print("detail-query-http=",st,"bytes=",len(raw),"selected-fields=",len(desired))
+          if st!=200:
+              print("detail-error=",json.dumps(resp,ensure_ascii=False)[:12000])
+              raise SystemExit("detail query failed")
+
+          # Decode standard Power BI DSR repeat/null/dictionary encoding.
+          def get_dataset(response):
+              results=response.get("results") or []
+              if not results:
+                  return None
+              dsr=(((results[0].get("result") or {}).get("data") or {}).get("dsr") or {})
+              dsets=dsr.get("DS") or []
+              return dsets[0] if dsets else None
+
+          def decode_dsr(ds):
+              if not ds:
+                  return [],[]
+              value_dicts=ds.get("ValueDicts") or {}
+              dm=[]
+              for ph in ds.get("PH") or []:
+                  for key,rows in ph.items():
+                      if key.startswith("DM") and isinstance(rows,list):
+                          dm.extend(rows)
+              if not dm:
+                  return [],[]
+              specs=None
+              previous=[]
+              decoded=[]
+              for row in dm:
+                  if row.get("S"):
+                      specs=row["S"]
+                      previous=[None]*len(specs)
+                  if not specs:
+                      continue
+                  repeat=int(row.get("R") or 0)
+                  nulls=int(row.get("Ø") or 0)
+                  cells=list(row.get("C") or [])
+                  ci=0
+                  values=[]
+                  for i,spec in enumerate(specs):
+                      if repeat & (1<<i):
+                          val=previous[i]
+                      elif nulls & (1<<i):
+                          val=None
+                      else:
+                          if ci>=len(cells):
+                              val=None
+                          else:
+                              val=cells[ci]; ci+=1
+                              dn=spec.get("DN")
+                              if dn and isinstance(val,int):
+                                  dictionary=value_dicts.get(dn) or []
+                                  if 0 <= val < len(dictionary):
+                                      val=dictionary[val]
+                      values.append(val)
+                  previous=values
+                  decoded.append(values)
+              names=[s.get("N") for s in specs] if specs else []
+              return names,decoded
+
+          ds=get_dataset(resp)
+          cols,rows=decode_dsr(ds)
+          print("dsr-columns=",cols)
+          print("dsr-decoded-rows=",len(rows))
+          print("dsr-ic=",None if not ds else ds.get("IC"))
+
+          # Descriptor provides exact selected field names in projection order.
+          descriptor_select=[]
+          results=resp.get("results") or []
+          if results:
+              data=((results[0].get("result") or {}).get("data") or {})
+              descriptor_select=(data.get("descriptor") or {}).get("Select") or []
+          field_names=[x.get("Name") or x.get("Value") or f"col{i}" for i,x in enumerate(descriptor_select)]
+          print("descriptor-fields=",field_names)
+          if len(field_names)!=len(desired):
+              print("descriptor-field-count-warning=",len(field_names),len(desired))
+
+          def normalize(v):
+              if isinstance(v,str):
+                  return v.strip().strip("'")
+              return v
+
+          def millis_to_date(v):
+              if isinstance(v,(int,float)) and v > 10**11:
+                  try:
+                      return dt.datetime.fromtimestamp(v/1000,dt.timezone.utc).date().isoformat()
+                  except Exception:
+                      return None
+              if isinstance(v,str):
+                  s=v.strip()
+                  if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*",s):
+                      return s[:10]
+              return None
+
+          records=[]
+          labels=[x[2] for x in desired]
+          for vals in rows:
+              rec={labels[i]:normalize(vals[i]) if i < len(vals) else None for i in range(len(labels))}
+              org=str(rec.get("winner_org") or "")
+              if org in targets:
+                  for date_key in ("contract_conclusion_date","winner_decision_date"):
+                      rec[date_key+"_iso"]=millis_to_date(rec.get(date_key))
+                  records.append(rec)
+
+          matched={str(r["winner_org"]) for r in records}
+          print("detail-matched-unique-orgs=",len(matched))
+          print("detail-records=",len(records))
+
+          recent_orgs=set()
+          dated_orgs=set()
+          valued_orgs=set()
+          source_orgs=set()
+          website_orgs=set()
+          email_domain_orgs=set()
+          by_org={}
+          for rec in records:
+              org=str(rec["winner_org"])
+              by_org.setdefault(org,[]).append(rec)
+              dates=[]
+              for k in ("contract_conclusion_date_iso","winner_decision_date_iso"):
+                  v=rec.get(k)
+                  if v:
+                      try:
+                          dates.append(dt.date.fromisoformat(v))
+                      except Exception:
+                          pass
+              if dates:
+                  dated_orgs.add(org)
+                  newest=max(dates)
+                  if 0 <= (TODAY-newest).days <= RECENT_DAYS:
+                      recent_orgs.add(org)
+              if rec.get("result_value_lot") not in (None,""):
+                  valued_orgs.add(org)
+              if rec.get("doffin_identifier"):
+                  source_orgs.add(org)
+              if rec.get("winner_website"):
+                  website_orgs.add(org)
+              if rec.get("winner_email_domain"):
+                  email_domain_orgs.add(org)
+
+          print("companies-with-dated-award=",len(dated_orgs))
+          print("companies-with-recent-365d-award=",len(recent_orgs))
+          print("companies-with-result-value=",len(valued_orgs))
+          print("companies-with-doffin-id=",len(source_orgs))
+          print("companies-with-winner-website=",len(website_orgs))
+          print("companies-with-winner-email-domain=",len(email_domain_orgs))
+
+          for org in sorted(matched):
+              rows_org=by_org[org]
+              newest=None
+              for rec in rows_org:
+                  for k in ("contract_conclusion_date_iso","winner_decision_date_iso"):
+                      if rec.get(k):
+                          d=dt.date.fromisoformat(rec[k])
+                          newest=max(newest,d) if newest else d
+              cur=current.get(org,{})
+              print(
+                  "DETAIL",
+                  org,
+                  names.get(org,""),
+                  "awards=",len(rows_org),
+                  "newest=",newest.isoformat() if newest else "",
+                  "recent365=",org in recent_orgs,
+                  "existing_area=",bool(cur.get("hiring_public_area")),
+                  "existing_public=",cur.get("public_count",0),
+                  "existing_jobs=",cur.get("jobs_count",0),
+                  "fields=","|".join(cur.get("public_fields") or []),
+                  "claims=","|".join(cur.get("claim_fields") or []),
+              )
+              for rec in rows_org[:4]:
+                  safe={
+                      k:v for k,v in rec.items()
+                      if k not in ("contract_conclusion_date","winner_decision_date")
+                  }
+                  print("  AWARD",json.dumps(safe,ensure_ascii=False,sort_keys=True))
+
+          # Net-new company-level scored-area contribution.
+          net_new_area={org for org in matched if not current.get(org,{}).get("hiring_public_area")}
+          net_new_public={org for org in matched if current.get(org,{}).get("public_count",0)==0}
+          net_new_recent_area={org for org in recent_orgs if not current.get(org,{}).get("hiring_public_area")}
+          print("net-new-hiring-public-area-companies=",len(net_new_area))
+          print("net-new-public-activity-companies=",len(net_new_public))
+          print("net-new-recent365-hiring-public-area-companies=",len(net_new_recent_area))
+          print("post-doffin-hiring-public-area-companies=",current_area+len(net_new_area))
+          print("post-doffin-public-activity-companies=",current_public+len(net_new_public))
+          print("absolute-area-coverage-gain-pct=",round(100*len(net_new_area)/1000,2))
+          print("absolute-public-activity-gain-pct=",round(100*len(net_new_public)/1000,2))
+          print("VIABILITY exact-award-companies=",len(matched))
+          print("VIABILITY recent365-award-companies=",len(recent_orgs))
+          print("VIABILITY net-new-area-companies=",len(net_new_area))
+          print("VIABILITY one-detail-query=",True)
+          print("VIABILITY zero-third-party-cost=",True)
+          PY
