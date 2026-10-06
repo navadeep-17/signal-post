@@ -1,0 +1,90 @@
+name: Research Structured Phone Current-Main Overlap
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-structured-phone-current-main-overlap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test audit
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_retained_structured_phone_recovery.py
+
+      - name: Download archived retained exact-site profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Materialize current main output contract read-only
+        run: |
+          git fetch --depth=1 origin main
+          mkdir -p out/current-main
+          git show origin/main:submission/final-release-1000-output.jsonl.gz > out/current-main/final-release-1000-output.jsonl.gz
+          test -s out/current-main/final-release-1000-output.jsonl.gz
+          sha256sum out/current-main/final-release-1000-output.jsonl.gz
+          python - <<'PY'
+          import gzip, json
+          from pathlib import Path
+          p=Path("out/current-main/final-release-1000-output.jsonl.gz")
+          rows=[]
+          with gzip.open(p,"rt",encoding="utf-8") as h:
+              for line in h:
+                  if line.strip(): rows.append(json.loads(line))
+          print("current-main-output-companies=",len(rows))
+          print("current-main-output-unique-orgs=",len({str(x.get("organisation_number") or "") for x in rows}))
+          print("current-main-registered-phone-companies=",sum(any(
+              isinstance(c,dict) and c.get("field")=="registered_phone" and c.get("availability")=="available" and c.get("value")
+              for c in x.get("claims") or []
+          ) for x in rows))
+          print("current-main-registered-mobile-companies=",sum(any(
+              isinstance(c,dict) and c.get("field")=="registered_mobile" and c.get("availability")=="available" and c.get("value")
+              for c in x.get("claims") or []
+          ) for x in rows))
+          PY
+
+      - name: Compare structured phone recovery to current main
+        run: |
+          mkdir -p out/structured-phone-current
+          uv run python scripts/audit_retained_structured_phone_recovery.py             --profiles-dir archived/final-release             --output-contract-gz out/current-main/final-release-1000-output.jsonl.gz             --report out/structured-phone-current/report.json             --audit out/structured-phone-current/audit.jsonl
+          cat out/structured-phone-current/report.json
+
+      - name: Delete current-main output copy
+        if: always()
+        run: rm -f out/current-main/final-release-1000-output.jsonl.gz
+
+      - name: Upload privacy-minimized comparison only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-structured-phone-current-main-overlap
+          retention-days: 30
+          path: |
+            out/structured-phone-current/report.json
+            out/structured-phone-current/audit.jsonl
