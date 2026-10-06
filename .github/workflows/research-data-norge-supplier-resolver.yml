@@ -1,0 +1,49 @@
+name: Research Data.norge Supplier Metadata Resolver
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-data-norge-supplier-resolver.yml
+      - scripts/resolve_data_norge_supplier_sources.py
+      - tests/test_resolve_data_norge_supplier_sources.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run resolver tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_resolve_data_norge_supplier_sources.py
+
+      - name: Resolve supplier-payment dataset metadata only
+        run: |
+          mkdir -p out/data-norge-supplier
+          uv run python scripts/resolve_data_norge_supplier_sources.py             --output-dir out/data-norge-supplier             --size 30             --max-resolve 24             --sleep-seconds 0.25
+          cat out/data-norge-supplier/report.json
+
+      - name: Upload metadata-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-data-norge-supplier-metadata
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/data-norge-supplier/report.json
+            out/data-norge-supplier/candidates.jsonl
