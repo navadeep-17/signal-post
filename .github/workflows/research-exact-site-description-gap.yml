@@ -1,0 +1,62 @@
+name: Research Exact-Site Description Gap
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-exact-site-description-gap.yml
+      - scripts/audit_retained_site_description_gap.py
+      - tests/test_audit_retained_site_description_gap.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test description-gap audit
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_retained_site_description_gap.py
+
+      - name: Restore archived final-release profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/description-gap
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Audit retained exact-site descriptions with zero network
+        run: |
+          uv run python scripts/audit_retained_site_description_gap.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/description-gap/report.json             --audit out/description-gap/audit.jsonl
+          cat out/description-gap/report.json
+          echo '=== privacy-minimized candidates ==='
+          cat out/description-gap/audit.jsonl
+
+      - name: Remove archived profiles
+        if: always()
+        run: rm -rf archived/final-release
+
+      - name: Upload privacy-minimized research evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-exact-site-description-gap
+          retention-days: 30
+          path: |
+            out/description-gap/report.json
+            out/description-gap/audit.jsonl
