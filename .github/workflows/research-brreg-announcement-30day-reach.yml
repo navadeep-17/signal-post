@@ -1,0 +1,97 @@
+name: Research BRREG Announcement 30-Day Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-announcement-30day-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test parser
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_brreg_announcements_reach.py
+
+      - name: Fetch 30 bounded single-day Foretaksregisteret pages
+        run: |
+          mkdir -p out/brreg-announcements/days
+          START='2026-09-05'
+          for I in $(seq 0 29); do
+            DAY=$(date -u -d "$START +$I day" +%d.%m.%Y)
+            FILE=$(date -u -d "$START +$I day" +%Y%m%d)
+            URL="https://w2.brreg.no/kunngjoring/kombisok.jsp?datoFra=$DAY&datoTil=$DAY&id_region=0&id_niva1=9&id_bransje1=0"
+            CODE="$(curl --silent --show-error --location --compressed               --user-agent 'Signalpost-research-source-screen/1.0'               --connect-timeout 10 --max-time 90               --write-out '%{http_code}'               "$URL" -o "out/brreg-announcements/days/$FILE.html" || true)"
+            echo "day=$DAY http=$CODE bytes=$(wc -c < "out/brreg-announcements/days/$FILE.html" 2>/dev/null || echo 0)"
+            test "$CODE" = "200"
+            test -s "out/brreg-announcements/days/$FILE.html"
+            sleep 0.15
+          done
+          echo "daily-files=$(find out/brreg-announcements/days -name '*.html' | wc -l)"
+          test "$(find out/brreg-announcements/days -name '*.html' | wc -l)" -eq 30
+
+      - name: Inspect daily response structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, json
+          stats=[]
+          for p in sorted(Path("out/brreg-announcements/days").glob("*.html")):
+              raw=p.read_bytes()
+              text=None
+              for enc in ("utf-8","iso-8859-1","latin-1"):
+                  try: text=raw.decode(enc); break
+                  except UnicodeDecodeError: pass
+              if text is None: raise SystemExit(f"decode failed: {p}")
+              trs=len(re.findall(r"<tr\b",text,re.I))
+              orgs=len(re.findall(r"(?<!\d)\d{3}\s\d{3}\s\d{3}(?!\d)",re.sub(r"<[^>]+>"," ",text)))
+              dates=len(set(re.findall(r"\b\d{2}\.\d{2}\.2026\b",text)))
+              stats.append({"day":p.stem,"bytes":len(raw),"tr":trs,"org_tokens":orgs,"date_tokens":dates})
+          print("source-days=",len(stats))
+          print("total-bytes=",sum(x["bytes"] for x in stats))
+          print("days-with-org-rows=",sum(x["org_tokens"]>0 for x in stats))
+          print("total-spaced-org-tokens=",sum(x["org_tokens"] for x in stats))
+          print("max-org-tokens-day=",max((x["org_tokens"] for x in stats),default=0))
+          print("min-org-tokens-day=",min((x["org_tokens"] for x in stats),default=0))
+          print("zero-org-days=",[x["day"] for x in stats if x["org_tokens"]==0])
+          print("DAILY_STATS",json.dumps(stats,separators=(",",":")))
+          PY
+
+      - name: Measure consumed-1000 exact reach and overlap
+        run: |
+          ARGS=()
+          for FILE in out/brreg-announcements/days/*.html; do
+            ARGS+=(--html "$FILE")
+          done
+          uv run python scripts/screen_brreg_announcements_reach.py             "${ARGS[@]}"             --companies submission/final-release-1000.jsonl             --production-output-gz submission/final-release-1000-output.jsonl.gz             --output-dir out/brreg-announcements/result
+          cat out/brreg-announcements/result/report.json
+
+      - name: Remove source HTML
+        if: always()
+        run: rm -rf out/brreg-announcements/days
+
+      - name: Upload bounded research evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-announcement-30day-reach
+          retention-days: 30
+          path: |
+            out/brreg-announcements/result/report.json
+            out/brreg-announcements/result/matched-companies.jsonl
