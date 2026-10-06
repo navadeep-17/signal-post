@@ -70,3 +70,35 @@ The first implementation is on isolated branch:
 experiment/v9-annual-domain-discovery
 
 The experiment must be evaluated only on the frozen consumed Gate-A 20 until a promotion decision is made.
+
+
+## Annual-report screen result — SHELVE
+
+The selected BRREG annual-report micro-screen completed on the frozen consumed Gate-A 20:
+
+- workflow: `37424227898` — PASS
+- head: `91ed58af60f2bd1a7fec06b29a9224a8168bee15`
+- annual reports selected: 15
+- candidate domains: 1
+- new verified websites: 0
+- conservative request charge: 34
+- third-party API cost: $0
+- runtime: 70.760 s
+
+The only candidate, `tellnorge.no` for STORELVA IDRETTSPARK AS, was independently fetched and rejected because the page explicitly identified another legal entity.
+
+Decision: **SHELVE annual-report domain extraction as a primary V9 website-nomination source.**
+
+## External search reconnaissance — useful but not provider-qualified
+
+External reconnaissance found plausible candidates that the unchanged verifier accepted for three frozen Gate-A organisations:
+
+- AURSNES KIOSK AS → `aursneskiosk.no`
+- FALEX FORVALTNING AS → `falex.no`
+- PREG BARNEHAGER ÅLESUND AS → `pregalesund.barnehage.no`
+
+The final consumed verifier calibration run `37426159410` passed and kept wrong/weak controls quarantined.
+
+This demonstrates that broader search-like nomination has real value, but it does **not** authorize a concrete provider because the reconnaissance path itself is not the evaluator-reproducible provider contract required by V9.
+
+Gate-A remains **RETUNE** at 3/20 machine-verifiable uplift versus the required 5/20 continuation gate. See `docs/V9_GATE_A_RETUNE.md`.
