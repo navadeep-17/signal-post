@@ -7,12 +7,13 @@ This directory separates current release guidance, qualification evidence and hi
 1. [`../README.md`](../README.md) — project overview and evaluator command.
 2. [`../SUBMISSION.md`](../SUBMISSION.md) — current submitted-vs-qualified revision status.
 3. [`Q8_RELEASE_QUALIFICATION.md`](Q8_RELEASE_QUALIFICATION.md) — final fresh 100-company machine + manual release gate.
-4. [`CONTINUATION_STATE.md`](CONTINUATION_STATE.md) — exact live handoff and next action.
-5. [`70_PLUS_IMPLEMENTATION_PLAN.md`](70_PLUS_IMPLEMENTATION_PLAN.md) — score-improvement roadmap and closure state.
-6. [`../submission/V8_EVALUATOR_PATH.md`](../submission/V8_EVALUATOR_PATH.md) — evaluator wrapper contract.
-7. [`../OUTPUT_CONTRACT.md`](../OUTPUT_CONTRACT.md) — claims/evidence/canonical output contract.
-8. [`REQUIREMENTS_MATRIX.md`](REQUIREMENTS_MATRIX.md) — challenge requirements mapping.
-9. [`SUBMISSION_SOURCE_RIGHTS.md`](SUBMISSION_SOURCE_RIGHTS.md) — source/licence/acquisition policy.
+4. [`../submission/v8-qualified-2026-10-06.json`](../submission/v8-qualified-2026-10-06.json) — machine-readable Q8 release qualification record.
+5. [`CONTINUATION_STATE.md`](CONTINUATION_STATE.md) — exact live handoff and next action.
+6. [`70_PLUS_IMPLEMENTATION_PLAN.md`](70_PLUS_IMPLEMENTATION_PLAN.md) — score-improvement roadmap and closure state.
+7. [`../submission/V8_EVALUATOR_PATH.md`](../submission/V8_EVALUATOR_PATH.md) — evaluator wrapper contract.
+8. [`../OUTPUT_CONTRACT.md`](../OUTPUT_CONTRACT.md) — claims/evidence/canonical output contract.
+9. [`REQUIREMENTS_MATRIX.md`](REQUIREMENTS_MATRIX.md) — challenge requirements mapping.
+10. [`SUBMISSION_SOURCE_RIGHTS.md`](SUBMISSION_SOURCE_RIGHTS.md) — source/licence/acquisition policy.
 
 ## Current release state
 
