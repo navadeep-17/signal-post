@@ -1,0 +1,139 @@
+name: V9 M5 Hiring Semantics Replay
+
+on:
+  push:
+    branches:
+      - experiment/v9-m5-hiring-semantics-integrated
+  pull_request:
+    branches:
+      - experiment/v9-integrated-candidate
+    paths:
+      - .github/workflows/v9-m5-hiring-semantics-replay.yml
+      - src/norway_company_agent/hiring_intent_contract.py
+      - src/norway_company_agent/job_surface_signal.py
+      - src/norway_company_agent/canonical_projection.py
+      - src/norway_company_agent/synthesis.py
+      - scripts/run_signalpost_v2.py
+      - scripts/replay_v9_hiring_semantics.py
+      - scripts/ui_v6/app_careers_signal.js
+      - tests/test_v9_m5_hiring_semantics.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  hiring-semantics-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact M5 challenger
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Record exact challenger SHA
+        run: |
+          mkdir -p out/v9-m5
+          git rev-parse HEAD | tee out/v9-m5/challenger-sha.txt
+          EXPECTED="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(cat out/v9-m5/challenger-sha.txt)" = "$EXPECTED"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Run focused M5 tests
+        run: |
+          uv run --with pytest pytest -q             tests/test_v9_m5_hiring_semantics.py             tests/test_c12_current_first_party_jobs.py             tests/test_c12_m4_hiring_signal_precision.py             tests/test_v7_m4b2_careers_signal_ui.py
+
+      - name: Download already-consumed frozen 1000 retained profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Reconstruct promoted M4 zero-request baseline
+        run: |
+          uv run python scripts/replay_v9_structured_contacts.py             --profiles-dir archived/final-release             --baseline-output submission/final-release-1000-output.jsonl.gz             --challenger-output out/v9-m5/m4-baseline-output.jsonl.gz             --report out/v9-m5/m4-baseline-report.json             --manual-audit out/v9-m5/m4-baseline-manual-audit.jsonl
+
+      - name: Verify reconstructed M4 baseline
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("out/v9-m5/m4-baseline-report.json").read_text())
+          assert report["companies"] == 1000, report
+          assert report["network_requests_added"] == 0, report
+          assert report["existing_contact_publications_lost"] == 0, report
+          assert report["non_contact_claims_changed"] == 0, report
+          assert report["contract_canonical_synthesis_errors"] == 0, report
+          PY
+
+      - name: Replay M5 hiring intent without network
+        run: |
+          uv run python scripts/replay_v9_hiring_semantics.py             --profiles-dir archived/final-release             --baseline-output out/v9-m5/m4-baseline-output.jsonl.gz             --challenger-output out/v9-m5/m5-challenger-output.jsonl.gz             --report out/v9-m5/m5-report.json             --manual-audit out/v9-m5/m5-manual-audit.jsonl
+
+      - name: Enforce M5 semantic and zero-request gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("out/v9-m5/m5-report.json").read_text())
+          assert report["companies"] == 1000, report
+          assert report["fresh_companies_used"] == 0, report
+          assert report["network_requests_added"] == 0, report
+          assert float(report["third_party_cost_usd"]) == 0.0, report
+          assert int(report["search_api_requests"]) == 0, report
+          assert report["lost_careers_surface_companies"] == 0, report
+          assert report["lost_specific_job_companies"] == 0, report
+          assert report["non_intent_claims_changed"] == 0, report
+          assert report["contract_canonical_synthesis_errors"] == 0, report
+          assert report["all_new_intent_evidence_complete"] is True, report
+          assert report["net_new_hiring_intent_companies"] >= 1, report
+          assert report["new_hiring_intent_claims"] >= 1, report
+
+          print("M5_STRUCTURAL_GATES=PASS")
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - name: Print all new M5 publications for manual audit
+        run: |
+          echo '--- M5 new hiring-intent publications ---'
+          cat out/v9-m5/m5-manual-audit.jsonl || true
+
+      - name: Hash replay evidence
+        run: |
+          sha256sum             out/v9-m5/challenger-sha.txt             out/v9-m5/m4-baseline-output.jsonl.gz             out/v9-m5/m5-challenger-output.jsonl.gz             out/v9-m5/m5-report.json             out/v9-m5/m5-manual-audit.jsonl             | tee out/v9-m5/sha256.txt
+
+      - name: Upload M5 consumed replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m5-hiring-semantics-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/v9-m5/challenger-sha.txt
+            out/v9-m5/m4-baseline-report.json
+            out/v9-m5/m5-report.json
+            out/v9-m5/m5-manual-audit.jsonl
+            out/v9-m5/m5-challenger-output.jsonl.gz
+            out/v9-m5/sha256.txt
