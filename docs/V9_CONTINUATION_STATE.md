@@ -100,3 +100,22 @@ The existing footer/contact email path remains intact and takes precedence when 
 M4 added a dedicated consumed-data contact audit and a PR workflow that compares the challenger against the frozen M2/M3 head on the already-consumed 100-company cohort. Promotion requires zero lost contact publications, complete evidence for every new contact, unchanged theoretical request ceiling, zero contact-network requests, and manual review of every new contact publication.
 
 No fresh cohort is authorized by M4.
+
+
+## M5 isolated implementation branch
+
+Branch: `experiment/v9-m5-hiring-semantics`
+
+Base at branch creation: M4 head `b83ade02fc83aed8341e20870ac926f6a69a22ee`.
+
+M5 makes the hiring hierarchy explicit without weakening the strict-job gate:
+
+1. `external.careers_page` / `hiring.careers_page` means only that the exact verified company exposes a recruitment/careers surface.
+2. `external.hiring_intent` / `hiring.company_authored_intent` requires explicit company-authored first-party recruitment language from retained exact-site evidence. Generic careers navigation and negative statements abstain. This level explicitly does **not** claim that a specific vacancy is currently open.
+3. `external.job_posting` / `hiring.job_posting` remains the strict specific-role level and requires the existing title, current/future deadline, target-employer match, and role/application URL checks.
+
+M5 adds no fetch. It only projects retained exact first-party evidence already acquired inside the existing V8 request theorem. Per-page source URLs and hashes are preserved so one page's hash is not used to support another page's hiring statement.
+
+A consumed-data M5 gate compares the same 100 companies against the frozen M4 baseline, validates the three semantic levels separately, rejects lost prior hiring publications, requires complete evidence for every new intent/job publication, preserves the theoretical request ceiling, and emits every new intent/job for manual precision review.
+
+No fresh cohort is authorized by M5.
