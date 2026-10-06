@@ -1,8 +1,8 @@
 # Final source, licence, acquisition and runtime declaration
 
-Updated: 2026-10-01
+Updated: 2026-10-06
 
-This document describes the current production submission path used by `scripts/run_signalpost_v2.py`. The filename of that wrapper is retained for compatibility with the previously submitted revision; the current evaluator path includes the subsequently qualified V3–V5 layers documented in `SUBMISSION.md`.
+This document describes the current production submission path used by `scripts/run_signalpost_v8.py`. V8 delegates through the certified V7/V2/V1 compatibility lineage; the older wrapper filenames are retained intentionally for reproducibility and immutable-bundle verification.
 
 Experimental scripts elsewhere in the repository are not enabled by the evaluator path and must not be interpreted as submission sources.
 
@@ -17,6 +17,7 @@ This is an engineering/source-rights declaration, not legal advice. When a sourc
 | BRREG normalized accounts | annual financial fields | Official REST API | BRREG open-data datasets under NLOD 2.0 | period-aware normalized financial claims and evidence | missing records/source errors remain explicit; values are not imputed |
 | BRREG annual-account copy | company-scope workforce evidence and conservative company-description evidence | Official BRREG account-copy endpoint; local PDF text extraction/OCR | Official BRREG service. Signalpost stores bounded extracted claim evidence/hash metadata and does not redistribute filing PDFs in the repository. | source URL, retrieval time, PDF SHA-256, reporting/effective year and bounded workforce/description claim spans | target org number must be recovered from the filing; group-only, ambiguous or conflicting text abstains |
 | BRREG Enhetsregister update feed | recent exact-org official registry-change history | Official REST API with exact `organisasjonsnummer` batching and `includeChanges=true` | BRREG open-data service / NLOD 2.0 attribution basis | event id, event date/type, allowlisted change path/value, source/retrieval URL, retrieval time, content hash and bounded summary | **official registry change only**; never presented as company-authored news, hiring, social activity or press release; unknown paths abstain |
+| BRREG Støtteregisteret complete CSV | recent official support-award facts | One shared official CSV snapshot per evaluator batch | Brønnøysundregistrene open data / NLOD 2.0 attribution basis | exact primary-recipient organisation number, award/effective date, bounded amount/interval fields with currency, source row key/number, row SHA-256, snapshot SHA-256, retrieval time and bounded evidence span | only the **primary recipient organisation number** authorizes target identity; specified recipient and granting authority are context-only; support is never relabelled as company-authored news/social/hiring activity |
 | Wikidata structured data | candidate discovery for an official website | Bounded WDQS batches keyed by Norwegian organisation number (P2333) and official website (P856) | Wikidata structured data is CC0 | candidate URL and lookup diagnostics sufficient for discovery | candidate only; independent company-page identity proof is required before website publication |
 | Verified company-owned public web pages | official-site proof and bounded description/contact/social/job/update evidence | bounded public HTTP retrieval with safe URL/redirect handling and robots behavior | No blanket content-reuse licence is assumed | source URL, retrieval time, hash, bounded factual claim span, normalized outbound URL/email and narrowly scoped role/update facts when strict gates pass | exact-company proof required; ambiguous/wrong-entity pages abstain; generic careers/news indexes, cross-domain pages and weak pages are not published as facts |
 
@@ -24,6 +25,7 @@ Official references:
 
 - BRREG open data: https://www.brreg.no/bruke-data-fra-bronnoysundregistrene/apne-data/
 - BRREG Enhetsregisteret documentation: https://data.brreg.no/enhetsregisteret/api/dokumentasjon/en/index.html
+- BRREG Støtteregisteret: https://data.brreg.no/stotteregisteret/
 - NLOD 2.0: https://data.norge.no/nlod/en/2.0
 - Wikidata licensing: https://www.wikidata.org/wiki/Wikidata:Licensing
 
@@ -148,15 +150,17 @@ Production policy:
 - third-party API spend: **$0.00**;
 - conservative request ceiling: **2,000 per 100 companies**.
 
-V5 request budgeting reserves the BRREG registry-change feed before running the base collector. For 100 companies:
+The current V8/V7 request theorem reserves both shared official-source requests before the immutable base collector runs. For 100 companies:
 
-- change-feed logical ceiling: 1 request;
-- conservative multiplier: 2;
-- reserved charge: 2;
-- base-runner maximum: 1,998;
-- combined theoretical ceiling: 2,000.
+1. V8 supplies a 2,000 conservative-request budget to V7.
+2. V7 reserves one shared Støtteregisteret request, conservative charge 2, and forwards 1,998 to V2.
+3. V2 reserves one BRREG change-feed request, conservative charge 2, and forwards 1,996 to immutable V1.
+4. V1's fixed company + shared Wikidata ceiling is 901 logical requests, leaving 97 bounded annual-report slots under the remaining conservative budget.
+5. V1 theoretical total is 998 logical / 1,996 conservative.
+6. Adding the change feed yields 999 logical / 1,998 conservative.
+7. Adding Støtteregisteret yields **1,000 logical / exactly 2,000 conservative**.
 
-The exact-production-head fresh 100 observed 1,382 conservative requests total and completed in 414.534 seconds.
+Fresh Q8 release qualification attempt #4 on 100 untouched companies observed **1,376 / 2,000** conservative request charge, completed in **629.722 seconds**, used **$0** third-party API spend and made **0 search API requests**. See `docs/Q8_RELEASE_QUALIFICATION.md`.
 
 ## Cache and retention declaration
 
@@ -182,7 +186,6 @@ The following experiments/ideas are not submission sources:
 - Hugging Face sentiment models;
 - guessed `.com` fallback;
 - broad additional guessed-domain variants beyond the qualified website-discovery order;
-- Støtteregisteret production enrichment after its fresh 0/20 exact-org screen;
 - Patentstyret/Doffin production connectors until credentialed exact-org screening is possible.
 
-Historical design documents may discuss those experiments. `SUBMISSION.md`, `submission/manifest.json`, this file, `docs/V5_BRREG_CHANGE_PRODUCTION.md` and the immutable release audit are authoritative for the submitted path.
+Historical design documents may discuss those experiments. `SUBMISSION.md`, `docs/Q8_RELEASE_QUALIFICATION.md`, `docs/PHASE7_STOTTEREGISTERET_PROMOTION.md`, `submission/manifest.json`, this file and the immutable release audits are authoritative for the qualified release path.
