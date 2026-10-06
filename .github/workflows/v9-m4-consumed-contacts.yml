@@ -2,8 +2,6 @@ name: V9 M4 Consumed Contact Gate
 
 on:
   pull_request:
-    branches:
-      - main
     paths:
       - .github/workflows/v9-m4-consumed-contacts.yml
       - src/norway_company_agent/company_site_contact.py
