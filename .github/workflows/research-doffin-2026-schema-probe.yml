@@ -1,0 +1,85 @@
+name: Research Doffin 2026 Bulk Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-2026-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download official DFØ 2026 Doffin CSV once
+        run: |
+          mkdir -p out
+          URL='https://adaapnedataprodst.blob.core.windows.net/kunngjoringer/2026/Kunngjoringer_2026.csv'
+          CODE="$(curl --silent --show-error --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            --connect-timeout 15 --max-time 120 \
+            --write-out '%{http_code}' "$URL" -o out/doffin-2026.csv || true)"
+          echo "http=$CODE"
+          test "$CODE" = "200"
+          test -s out/doffin-2026.csv
+          wc -c out/doffin-2026.csv
+          sha256sum out/doffin-2026.csv
+
+      - name: Inspect schema and exact-org-bearing fields
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv, re, json
+
+          path=Path('out/doffin-2026.csv')
+          raw=path.read_bytes()
+          print('prefix-bytes=',raw[:12])
+          text=raw.decode('utf-8-sig',errors='replace')
+          sample=text[:200000]
+          try:
+              dialect=csv.Sniffer().sniff(sample,delimiters=';,\t,')
+              delim=dialect.delimiter
+          except Exception:
+              delim=';'
+          print('delimiter=',repr(delim))
+
+          reader=csv.reader(text.splitlines(),delimiter=delim)
+          rows=[]
+          for i,row in enumerate(reader):
+              rows.append(row)
+              if i>=5: break
+          for i,row in enumerate(rows):
+              print('ROW',i,'cols=',len(row),json.dumps(row,ensure_ascii=False)[:30000])
+
+          headers=rows[0] if rows else []
+          print('\nHEADER COUNT',len(headers))
+          for i,h in enumerate(headers):
+              print(i,repr(h))
+
+          keywords=['winner','supplier','leverand','vinner','organisation','organization','orgnr','org.nr','registration','contract','award','result','tildel']
+          print('\nLIKELY IDENTITY/AWARD HEADERS')
+          for i,h in enumerate(headers):
+              if any(k in h.lower() for k in keywords):
+                  print(i,repr(h))
+
+          org_re=re.compile(r'(?<!\d)\d{9}(?!\d)')
+          print('\nNINE-DIGIT VALUES IN FIRST DATA ROWS')
+          for rix,row in enumerate(rows[1:],1):
+              found=[]
+              for cix,val in enumerate(row):
+                  nums=org_re.findall(val)
+                  if nums:
+                      found.append((cix,headers[cix] if cix<len(headers) else '',nums,val[:300]))
+              print('row',rix,found)
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -f out/doffin-2026.csv
