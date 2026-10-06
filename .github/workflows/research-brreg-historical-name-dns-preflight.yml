@@ -1,11 +1,6 @@
 name: Research BRREG Historical-Name DNS Preflight
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-historical-name-dns-preflight.yml
   workflow_dispatch:
 
 permissions:
