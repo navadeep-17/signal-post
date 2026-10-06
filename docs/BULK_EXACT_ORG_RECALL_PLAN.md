@@ -541,13 +541,144 @@ yield needed to displace existing request paths under Signalpost's full request 
 Reconsider only for targeted/on-demand official-record research or if eInnsyn exposes a
 batch/bulk exact-org retrieval mechanism later.
 
+## R10 — zero-request structured company-site contact recovery
+
+Status: **QUALIFIED ON FROZEN CONSUMED 1000 / PROMOTION CANDIDATE / KEEP ISOLATED**.
+
+After the JSON-LD email recovery qualified, the retained exact-site snapshots were audited for
+another explicit structured contact field: schema.org `telephone`.
+
+The recovery boundary is deliberately narrow:
+
+- the website must already be exact-verified and publishable;
+- the telephone must come from an individually identified schema.org Organization node;
+- that node must identify the exact target either by exact structured organisation number or,
+  with no conflicting structured organisation number, by all normalized target legal-name tokens;
+- the phone value must be in an explicit structured `telephone` field;
+- only conservative Norwegian numbers that normalize to `+47` plus eight digits are accepted;
+- no free-text phone mining and no cross-entity inheritance;
+- the source page/hash/retrieval time remain the already-retained exact company-site evidence;
+- no network request is added.
+
+Implementation on this research branch:
+
+- `src/norway_company_agent/company_site_phone.py`;
+- phone observation/claim projection in `src/norway_company_agent/external_contract.py`;
+- canonical `contact_phone -> website.contact_phone` projection;
+- `scripts/replay_jsonld_phone_recovery.py`;
+- focused phone/contract/canonical regression tests.
+
+Full frozen-1000 replay:
+
+- workflow run: **37437599303**;
+- artifact ID: **11399737205**;
+- artifact ZIP SHA-256: `00dc992cde558f92c9f6742517a1b720c5374362c1d4e35ce31cf3b8db071d6f`;
+- focused regressions: **14 passed**;
+- before external contact-phone companies: **0**;
+- after: **19/1000**;
+- **+19 contact-phone companies / +19 claims / +1.9 percentage points**;
+- exact structured-org-number identity on 4 recovered nodes;
+- remaining accepted nodes passed the no-conflicting-org + legal-name-token node gate;
+- network requests added: **0**;
+- third-party API cost added: **$0**;
+- lost existing organisations: **0**;
+- observation errors: **0**;
+- output-contract errors: **0**;
+- canonical errors: **0**;
+- synthesis errors: **0**;
+- raw phone numbers are excluded from the research report/audit; only fingerprints are retained there.
+
+Full branch regression:
+
+- workflow run: **37437717684**;
+- result: **602 tests passed + 5 subtests passed**.
+
+Email + phone were then replayed as one contact bundle to avoid double-counting company coverage:
+
+- workflow run: **37437925331**;
+- artifact ID: **11399841888**;
+- artifact ZIP SHA-256: `a68ab8704cb5934daa26c7c1b67968f6eee370a879f539430316b9bc9911acf6`;
+- focused tests: **31 passed**;
+- baseline companies with any external contact: **53**;
+- challenger: **60**;
+- **net-new any-contact companies: +7/1000 = +0.7 percentage points**;
+- email: +5 companies / +7 claims;
+- phone: +19 companies / +19 claims;
+- new-email/new-phone overlap: 4 companies;
+- non-managed claim mutations: **0**;
+- observation/contract/canonical/synthesis errors: **0**;
+- logical requests added: **0**;
+- third-party API cost added: **$0**;
+- promotion gate: **PASS**.
+
+Decision: structured email and phone recovery are legitimate zero-request enrichment candidates.
+They are not the primary path to 65+ because Builderr's explicit recall gaps are website/social/
+hiring/dated-news coverage, but the phone path is safe enough to preserve for later coordinated
+production promotion. Do not merge it from this isolated research track.
+
+## R11 — BRREG public-announcement exact-org activity screen
+
+Status: **EXACT / REQUEST ECONOMICS TOO WEAK / RIGHTS MAPPING UNRESOLVED / SHELVE**.
+
+BRREG's public Foretaksregisteret announcement search was tested because it can expose dated
+official legal/company events with exact organisation numbers. These events are kept strictly
+typed as registry/legal events and are never relabelled as company-authored news.
+
+Identity boundary:
+
+- exact 9-digit organisation number in the BRREG announcement row only;
+- rows carrying multiple organisation numbers are rejected;
+- dates are inherited only from the BRREG date header in the same response;
+- no company-name identity matching.
+
+Measured source behavior:
+
+- one day (01.10.2026): **1,462** announcement org rows;
+- two-day range (30.09–01.10): **3,670** org rows and **9/1000** consumed target companies;
+- three days or more in the tested high-volume window returns BRREG's own limit message:
+  **"Antall treff overstiger 5000. Vennligst begrens søket."**
+- therefore a safe broad shared-query span is at most roughly two days in this window.
+
+The frozen 30-day single-day screen:
+
+- workflow run: **37425714146**;
+- artifact ID: **11394727301**;
+- 30 days / 30 requests;
+- 26,356 parsed announcement rows;
+- **33/1000** exact consumed target companies;
+- 40 target announcement rows;
+- current frozen production registry-change overlap: 0.
+
+A zero-network comparator then simulated the same 30 days as fifteen two-day bins:
+
+- workflow run: **37438482035**;
+- artifact ID: **11400366029**;
+- artifact ZIP SHA-256: `78d099e8737ea6202a2602c6a715fd1555b74883a2df741b66096be46bd0686e`;
+- source requests required: **15**;
+- unique target companies: **33**;
+- **2.2 unique companies per request**;
+- maximum target companies in one two-day request: **9**;
+- minimum: **0**;
+- requests with zero target hits: **6/15**.
+
+Rights boundary remains unresolved for persistent reuse of the legacy public HTML announcement
+surface. BRREG's general open datasets use NLOD, but this research did not establish that the
+specific HTML announcement-search output is an NLOD distribution.
+
+Decision: **SHELVE for broad production**. Exactness is useful, but 2.2 unique companies/request
+is not strong enough to displace the current score-critical request paths, and the rights mapping
+is still incomplete. Revisit only if BRREG exposes a bulk/open distribution of announcements or
+a materially more efficient query surface.
+
 ## Current direction
 
-1. Preserve the JSON-LD contact recovery as the current zero-request promotion candidate; do not merge it into production from this isolated research track.
-2. Peppol website discovery is now a measured **DROP**: 47 net-new candidates produced only 1 independently verified website after 87 logical site requests.
-3. Treat the rights-clean official-activity union as measured and shelved for the immediate 65+/70+ objective; another collection of similarly narrow activity registries is unlikely to close the recall gap.
-4. Continue only with either (a) a genuinely broad rights-safe exact-org source, or (b) zero-extra-request facts already retained by production that can be surfaced without semantic relabeling.
-5. Workforce snapshots remain size/workforce evidence, **not active hiring**. BRREG registry changes remain official registry events, **not company-authored news**.
-6. Do not reopen Nkom unchanged, OSM exact-org website discovery, the current Finanstilsynet pagination strategy, Patentstyret broad per-company lookup, or Peppol website nomination without a materially different retrieval signal.
-7. Keep SGregister/DSB and any source with unresolved persistent-reuse rights out of production proposals regardless of raw coverage.
-8. Keep this entire track isolated from production and fresh evaluator cohorts until a candidate demonstrates materially better consumed-cohort value than the already-measured paths.
+1. Optimize explicitly for Builderr's measured external recall gaps: **company website, social profile, hiring signal and dated news**. The latest official 49.99 evaluator feedback reported 0% dated news, 0% hiring and 0% social on the submitted revision.
+2. Preserve structured JSON-LD email and phone recovery as qualified **zero-request** promotion candidates, but do not confuse contact enrichment with the main recall path and do not merge from this isolated branch.
+3. Peppol website discovery remains a measured **DROP**: 47 net-new candidates produced only 1 independently verified website after 87 logical site requests.
+4. BRREG public announcements are now measured **SHELVE**: exact but about 2.2 unique companies/request over a 30-day equivalent window, with an explicit >5000-result cap beyond roughly two days and unresolved HTML reuse mapping.
+5. The rights-clean official-activity union remains shelved for the immediate 65+/70+ objective; another set of similarly narrow official activity registries is unlikely to close the recall gap.
+6. Prefer the next experiment to be a **zero-network evaluator-family recovery** from already-retained exact-site evidence, especially a defensible hiring/careers or dated-news fact, before adding another live source.
+7. Workforce snapshots remain size/workforce evidence, **not active hiring**. BRREG registry changes remain official registry events, **not company-authored news**.
+8. Do not reopen Nkom unchanged, OSM exact-org website discovery, the current Finanstilsynet pagination strategy, Patentstyret broad per-company lookup, Peppol website nomination, eInnsyn broad per-company lookup, or BRREG announcements unchanged.
+9. Keep SGregister/DSB and any source with unresolved persistent-reuse rights out of production proposals regardless of raw coverage.
+10. Keep this entire track isolated from production and fresh evaluator cohorts until a candidate demonstrates materially better consumed-cohort value than the already-measured paths.
