@@ -7,7 +7,10 @@ on:
       - experiment/v9-openai-websearch-provider-v2
     paths:
       - src/norway_company_agent/v9_openai_websearch_v2.py
+      - src/norway_company_agent/v9_openai_gate_a.py
+      - scripts/screen_v9_openai_websearch_gate_a.py
       - tests/test_v9_openai_websearch_v2.py
+      - tests/test_v9_openai_gate_a.py
       - src/norway_company_agent/v9_discovery.py
       - src/norway_company_agent/v9_provider_gate.py
       - docs/V9_OPENAI_WEBSEARCH_PROVIDER_V2.md
@@ -41,6 +44,7 @@ jobs:
         run: |
           uv run --with pytest pytest -q \
             tests/test_v9_openai_websearch_v2.py \
+            tests/test_v9_openai_gate_a.py \
             tests/test_v9_discovery.py \
             tests/test_v9_provider_gate.py \
             tests/test_search_discovery.py \
