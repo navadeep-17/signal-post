@@ -1,0 +1,141 @@
+name: Research Støtteregisteret Retained-Field Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-support-registry-retained-field-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --locked
+
+      - name: Download one current official Støtteregisteret snapshot
+        run: |
+          mkdir -p out
+          URL='https://stotte.brreg.no/nb/oppslag/stoettetildeling/totalbestand/csv'
+          HTTP="$(curl --silent --show-error --location --retry 0             --user-agent 'Signalpost-research-source-screen/1.0'             --connect-timeout 15 --max-time 600             --write-out '%{http_code}'             "$URL" -o out/support.csv || true)"
+          echo "support-http=$HTTP"
+          test "$HTTP" = "200"
+          test -s out/support.csv
+          wc -c out/support.csv
+          sha256sum out/support.csv
+
+      - name: Inspect schema and exact-recipient retained-field reach
+        env:
+          PYTHONPATH: src
+        run: |
+          uv run python - <<'PY'
+          import csv, json, re
+          from pathlib import Path
+          from norway_company_agent.support_registry import (
+              _dialect, _encoding, _extract_org_numbers, _primary_recipient_org_header,
+              _normalize_header,
+          )
+
+          targets={
+              str(json.loads(line)['organisation_number'])
+              for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          }
+          assert len(targets)==1000
+          path=Path('out/support.csv')
+          encoding=_encoding(path)
+          dialect=_dialect(path,encoding)
+
+          contact_markers=('hjemmeside','website','webside','internett','nettadresse','url','domene','epost','e post','email','mail','telefon','mobil','kontakt')
+          with path.open('r',encoding=encoding,errors='strict',newline='') as h:
+              reader=csv.DictReader(h,dialect=dialect)
+              headers=[x for x in (reader.fieldnames or []) if x]
+              recipient=_primary_recipient_org_header(headers)
+              if not recipient:
+                  raise SystemExit('primary recipient org header missing')
+
+              candidates=[]
+              for header in headers:
+                  norm=_normalize_header(header)
+                  if any(marker in norm for marker in contact_markers):
+                      candidates.append(header)
+
+              print('header-count=',len(headers))
+              print('primary-recipient-header=',recipient)
+              print('candidate-contact-web-headers=',json.dumps(candidates,ensure_ascii=False))
+
+              target_rows=0
+              target_companies=set()
+              per_header={h:set() for h in candidates}
+              nonempty_shapes={h:{'rows':0,'urlish':0,'emailish':0,'phoneish':0} for h in candidates}
+              rows_scanned=0
+
+              for row in reader:
+                  rows_scanned+=1
+                  hits=_extract_org_numbers(row.get(recipient)).intersection(targets)
+                  if not hits:
+                      continue
+                  target_rows+=1
+                  target_companies.update(hits)
+                  for header in candidates:
+                      value=' '.join(str(row.get(header) or '').split())
+                      if not value:
+                          continue
+                      per_header[header].update(hits)
+                      shape=nonempty_shapes[header]
+                      shape['rows']+=1
+                      low=value.casefold()
+                      if 'http://' in low or 'https://' in low or re.search(r'\b[a-z0-9.-]+\.(?:no|com|net|org|io|co)\b',low):
+                          shape['urlish']+=1
+                      if '@' in value:
+                          shape['emailish']+=1
+                      if len(re.sub(r'\D','',value))>=8:
+                          shape['phoneish']+=1
+
+          report={
+              'screen_type':'support_registry_collected_vs_emitted_web_contact_fields',
+              'rows_scanned':rows_scanned,
+              'cohort_companies':1000,
+              'target_rows':target_rows,
+              'target_companies_any_row':len(target_companies),
+              'header_count':len(headers),
+              'candidate_contact_web_headers':candidates,
+              'companies_by_candidate_header':{h:len(v) for h,v in per_header.items()},
+              'value_shape_counts_by_header':nonempty_shapes,
+              'candidate_headers_with_any_target_company':sum(bool(v) for v in per_header.values()),
+              'external_requests':1,
+              'incremental_production_source_requests_if_reused':0,
+              'production_publication_enabled':False,
+              'reuse_rights_status':'NLOD',
+              'raw_contact_values_retained':False,
+              'matched_org_lists_retained':False,
+          }
+          Path('out/report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True))
+          PY
+
+      - name: Remove snapshot
+        if: always()
+        run: rm -f out/support.csv
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-support-registry-retained-field-probe
+          retention-days: 30
+          path: out/report.json
