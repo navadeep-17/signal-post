@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   resolve:
@@ -31,10 +32,25 @@ jobs:
           uv sync --locked
           uv run --with pytest pytest -q tests/test_resolve_data_norge_supplier_sources.py
 
-      - name: Resolve supplier-payment dataset metadata only
+      - name: Download frozen broad-catalogue metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/data-norge-broad
+          gh run download 37418587359 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name research-data-norge-broad-miner \
+            --dir archived/data-norge-broad
+          test -s archived/data-norge-broad/candidates.jsonl
+
+      - name: Resolve supplier-like datasets through Resource Service only
         run: |
           mkdir -p out/data-norge-supplier
-          uv run python scripts/resolve_data_norge_supplier_sources.py             --output-dir out/data-norge-supplier             --size 30             --max-resolve 24             --sleep-seconds 0.25
+          uv run python scripts/resolve_data_norge_supplier_sources.py \
+            --output-dir out/data-norge-supplier \
+            --candidate-file archived/data-norge-broad/candidates.jsonl \
+            --max-resolve 24 \
+            --sleep-seconds 0.25
           cat out/data-norge-supplier/report.json
 
       - name: Upload metadata-only evidence
