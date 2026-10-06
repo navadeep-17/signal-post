@@ -1,0 +1,100 @@
+name: Research DSB Elvirksomhet Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_dsb_elvirksomhet_reach.py
+      - tests/test_screen_dsb_elvirksomhet_reach.py
+      - .github/workflows/research-dsb-elvirksomhet-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run DSB exact-org tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_dsb_elvirksomhet_reach.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          PY
+
+      - name: Download DSB full Excel export once
+        run: |
+          curl --fail --location --compressed \
+            --header 'Accept: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://elvirksomhetsregisteret.dsb.no/api/v1/electricianbusinesses/excel' \
+            --output out/elvirksomheter.xlsx
+          test -s out/elvirksomheter.xlsx
+          wc -c out/elvirksomheter.xlsx
+          sha256sum out/elvirksomheter.xlsx
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('out/elvirksomheter.xlsx')
+          if p.read_bytes()[:4] != b'PK\x03\x04':
+              raise SystemExit('DSB response is not an XLSX/ZIP payload')
+          PY
+
+      - name: Screen consumed 1000 and deterministic 100
+        run: |
+          uv run python scripts/screen_dsb_elvirksomhet_reach.py \
+            --source-xlsx out/elvirksomheter.xlsx \
+            --companies submission/final-release-1000.jsonl \
+            --output-dir out/dsb-1000
+          uv run python scripts/screen_dsb_elvirksomhet_reach.py \
+            --source-xlsx out/elvirksomheter.xlsx \
+            --companies out/consumed-100.jsonl \
+            --output-dir out/dsb-100
+          echo '=== consumed 1000 ==='
+          cat out/dsb-1000/report.json
+          echo '=== consumed 100 ==='
+          cat out/dsb-100/report.json
+
+      - name: Remove source workbook before artifact upload
+        if: always()
+        run: rm -f out/elvirksomheter.xlsx
+
+      - name: Upload bounded research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-dsb-elvirksomhet-reach
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/dsb-1000/report.json
+            out/dsb-1000/matched-companies.jsonl
+            out/dsb-100/report.json
+            out/dsb-100/matched-companies.jsonl
