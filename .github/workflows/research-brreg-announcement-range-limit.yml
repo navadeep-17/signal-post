@@ -1,11 +1,6 @@
 name: Research BRREG Announcement Range Limit
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-announcement-range-limit.yml
   workflow_dispatch:
 
 permissions:
