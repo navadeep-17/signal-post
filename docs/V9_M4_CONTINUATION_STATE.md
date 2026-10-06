@@ -51,3 +51,28 @@ Before any integration decision:
 8. Record PROMOTE / RETUNE / SHELVE / DROP.
 
 No fresh cohort is authorized from this branch.
+
+
+## Completed consumed gate
+
+Exact tested code head before documentation-only audit commit:
+`64eb9b66046f36a1c089b96e865f9bfdb3d9d425`
+
+- Baseline CI: `37463696609` — **PASS**
+- M4 frozen-1000 replay: `37463696625` — **PASS**
+- artifact: `11413326913`
+- artifact digest: `sha256:c6b240439a0144b0860c251da13a721e0c8fd658077782e0bddafd6c6a40ad6c`
+- companies: **1000**
+- contact-email companies: **53 -> 58**
+- contact-phone companies: **0 -> 19**
+- any-external-contact companies: **53 -> 60**
+- net-new contact claims: **26**
+- existing contact publications lost: **0**
+- non-contact claims changed: **0**
+- network requests added: **0**
+- third-party cost: **$0**
+- contract/canonical/synthesis errors: **0**
+
+Manual precision audit: **26/26 reviewed, 0 wrong-company, 0 ambiguous structured-node publications**. See `docs/V9_M4_MANUAL_PRECISION_AUDIT.md`.
+
+Decision: **PROMOTE** the narrow M4 behavior into the later integrated V9 candidate. Do not merge this standalone branch into V8/main.
