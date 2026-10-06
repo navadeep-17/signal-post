@@ -1,0 +1,128 @@
+name: Research Frozen1000 Zero-Network Social Replay
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-frozen1000-zero-network-social-replay.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run existing zero-network social regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_v6e_zero_network_social_recovery.py             tests/test_company_site_social.py
+
+      - name: Restore archived final-release profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/social-replay
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+          find archived/final-release -name profiles.jsonl -print0             | sort -z             | xargs -0 cat > out/social-replay/profiles.jsonl
+          test "$(wc -l < out/social-replay/profiles.jsonl)" -eq 1000
+
+      - name: Replay V6e recovery with zero source requests
+        run: |
+          uv run python scripts/run_v6e_zero_network_social_recovery.py             --profiles out/social-replay/profiles.jsonl             --observations out/social-replay/recovered.jsonl             --report out/social-replay/raw-report.json
+
+      - name: Compare with frozen current social claims and retain aggregates only
+        run: |
+          uv run python - <<'PY'
+          import gzip, json
+          from collections import Counter
+          from pathlib import Path
+
+          baseline=set()
+          with gzip.open("submission/final-release-1000-output.jsonl.gz","rt",encoding="utf-8") as h:
+              for line in h:
+                  if not line.strip(): continue
+                  row=json.loads(line)
+                  org=str(row.get("organisation_number") or "")
+                  if any(
+                      isinstance(c,dict)
+                      and c.get("field")=="external.profile_handle"
+                      and c.get("availability")=="available"
+                      for c in row.get("claims") or []
+                  ):
+                      baseline.add(org)
+
+          recovered=[
+              json.loads(line)
+              for line in Path("out/social-replay/recovered.jsonl").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          recovered_orgs={str(x.get("organisation_number") or "") for x in recovered}
+          overlap=baseline & recovered_orgs
+          net_new=recovered_orgs-baseline
+          raw=json.loads(Path("out/social-replay/raw-report.json").read_text(encoding="utf-8"))
+
+          report={
+              "screen_type":"frozen1000_zero_network_social_recovery_replay",
+              "companies":1000,
+              "baseline_social_companies":len(baseline),
+              "recovered_social_observations":len(recovered),
+              "recovered_social_companies":len(recovered_orgs),
+              "overlap_with_baseline_social_companies":len(overlap),
+              "net_new_social_companies":len(net_new),
+              "net_new_social_company_reach_pct":round(100*len(net_new)/1000,3),
+              "post_replay_social_companies":len(baseline|recovered_orgs),
+              "post_replay_social_reach_pct":round(100*len(baseline|recovered_orgs)/1000,3),
+              "platform_counts":dict(sorted(Counter(str(x.get("platform") or "unknown") for x in recovered).items())),
+              "eligible_exact_verified_sites":raw.get("eligible_exact_verified_sites"),
+              "logical_requests_added":0,
+              "conservative_request_charge_added":0,
+              "third_party_api_cost_usd":0.0,
+              "validation_error_count":len(raw.get("validation_errors") or []),
+              "website_identity_created":0,
+              "privacy_boundary":{
+                  "raw_profile_urls_retained":False,
+                  "organisation_number_lists_retained":False,
+                  "aggregate_counts_only":True,
+              },
+              "notes":[
+                  "Recovery uses only already-retained exact homepage URL/hash and deterministic social-handle identity.",
+                  "No social-platform page is fetched.",
+                  "Secondary pages cannot nominate candidates.",
+                  "This workflow does not mutate production output."
+              ],
+          }
+          Path("out/social-replay/report.json").write_text(
+              json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8"
+          )
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+
+      - name: Remove raw recovered data and archived profiles
+        if: always()
+        run: |
+          rm -rf archived/final-release
+          rm -f out/social-replay/profiles.jsonl                 out/social-replay/recovered.jsonl                 out/social-replay/raw-report.json
+
+      - name: Upload aggregate report only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-frozen1000-zero-network-social-replay
+          retention-days: 30
+          path: out/social-replay/report.json
