@@ -216,7 +216,6 @@ jobs:
             shared/out/consumed-100.jsonl
             shared/out/brreg-enheter.sha256
             shared/out/baseline-report.json
-            shared/out/challenger-report.jsonl
             shared/out/challenger-report.json
             shared/out/baseline-output.jsonl
             shared/out/challenger-output.jsonl
