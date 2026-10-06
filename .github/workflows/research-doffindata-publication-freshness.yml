@@ -1,0 +1,168 @@
+name: Research Doffindata Publication Freshness
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffindata-publication-freshness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Measure notice-publication freshness for consumed exact winners
+        run: |
+          python - <<'PY'
+          import base64, copy, datetime as dt, json, re, uuid
+          from pathlib import Path
+          from urllib.parse import urlparse,parse_qs
+          from urllib.request import Request,urlopen
+          from urllib.error import HTTPError
+
+          REPORT="1e4ba2c1-d15e-41c3-8cba-6166c3812f1a"
+          TOKEN_URL="https://api.doffin.no/webclient/api/v2/notices-api/getEmbedToken?reportId="+REPORT
+          UA="Signalpost-research-source-screen/1.0"
+          TODAY=dt.date(2026,10,6)
+          CUTOFF=TODAY-dt.timedelta(days=365)
+
+          companies=[]
+          for line in Path("submission/final-release-1000.jsonl").read_text(encoding="utf-8").splitlines():
+              if line.strip():
+                  x=json.loads(line); org=str(x.get("organisation_number") or "")
+                  if re.fullmatch(r"\d{9}",org): companies.append((org,x.get("name") or ""))
+          targets={x[0] for x in companies}; names=dict(companies)
+
+          def req(url,headers=None,data=None,timeout=45):
+              h={"User-Agent":UA,"Accept":"application/json"}
+              if headers:h.update(headers)
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(",",":")).encode();h["Content-Type"]="application/json"
+              r=Request(url,data=body,headers=h)
+              try:
+                  with urlopen(r,timeout=timeout) as x: raw=x.read();status=x.status
+              except HTTPError as e: raw=e.read();status=e.code
+              try:o=json.loads(raw.decode("utf-8-sig")) if raw else {}
+              except Exception:o={}
+              return status,o,raw
+
+          st,embed,_=req(TOKEN_URL)
+          if st!=200:raise SystemExit("embed unavailable")
+          token=embed.get("accessToken") or ""; eu=(embed.get("embedUrl") or [""])[0]
+          q=parse_qs(urlparse(eu).query); cfg=q.get("config",[""])[0];cfg+="="*((4-len(cfg)%4)%4)
+          cluster=json.loads(base64.b64decode(cfg).decode()).get("clusterUrl","").rstrip("/")
+          def hdr():
+              return {"Authorization":f"EmbedToken {token}","ActivityId":str(uuid.uuid4()),"RequestId":str(uuid.uuid4()),"X-PowerBI-HostEnv":"Embed for Customers","Origin":"https://app.powerbi.com","Referer":"https://app.powerbi.com/"}
+
+          st,model,_=req(f"{cluster}/explore/reports/{REPORT}/modelsAndExploration?preferReadOnlySession=true&skipQueryData=true",hdr())
+          if st!=200:raise SystemExit("model unavailable")
+          exp=model.get("exploration") or {}; report=exp.get("report") or {}; model_id=report.get("modelId"); db=(report.get("model") or {}).get("dbName")
+          st,schema,_=req(f"{cluster}/explore/reports/{REPORT}/conceptualschema?userPreferredLocale=nb-NO",hdr())
+          if st!=200:raise SystemExit("schema unavailable")
+          entities=((schema.get("schema") or {}).get("Entities") or [])
+          base=next((e for e in entities if e.get("Name")=="base_notices"),{})
+          props=[p.get("Name") for p in base.get("Properties") or [] if p.get("Name")]
+          candidates=sorted(p for p in props if any(k in p.lower() for k in ("publ","dispatch","sent","notice_date","timestamp","created")))
+          print("base-dateish-candidates=",candidates)
+          # Prefer a true publication timestamp; otherwise don't manufacture recency.
+          preferred=[
+              "publication_datetime","publication_date","publicationDate",
+              "publication_datetime_notice","published_at","publication_time",
+              "notice_publication_date","publication_timestamp","dispatch_date",
+          ]
+          pub=next((p for p in preferred if p in props),None)
+          if not pub:
+              pub=next((p for p in candidates if "publ" in p.lower()),None)
+          print("selected-publication-property=",pub or "")
+          if not pub:
+              print("VIABILITY publication-date-available=False")
+              raise SystemExit(0)
+
+          native=None; vid=None
+          for sec in exp.get("sections") or []:
+              for vis in sec.get("visualContainers") or []:
+                  qr=vis.get("query")
+                  if not qr:continue
+                  try:o=json.loads(qr) if isinstance(qr,str) else qr
+                  except Exception:continue
+                  txt=json.dumps(o,ensure_ascii=False)
+                  if "winner_eeig_official_name_nor" not in txt:continue
+                  sels=[]
+                  for cc in o.get("Commands") or []:
+                      sq=cc.get("SemanticQueryDataShapeCommand") or {}; sels+=((sq.get("Query") or {}).get("Select") or [])
+                  if len(sels)==1:
+                      native=o
+                      try:vc=json.loads(vis.get("config") or "{}")
+                      except Exception:vc={}
+                      vid=vc.get("name");break
+              if native:break
+          if not native:raise SystemExit("native missing")
+          exact=copy.deepcopy(native); cmd=exact["Commands"][0]["SemanticQueryDataShapeCommand"]; query=cmd["Query"]
+          desired=[("e","winner_eu_registration_number","org"),("e","winner_eeig_official_name_nor","name"),("e","doffin_identifier","doffin"),("e","contract_conclusion_date","conclusion"),("e","winner_decision_date","decision"),("b",pub,"publication")]
+          query["From"]=[{"Name":"e","Entity":"enriched_notice_lot_settled_contracts_with_winners_and_contract_values","Type":0},{"Name":"b","Entity":"base_notices","Type":0},{"Name":"b1","Entity":"base_notice_lot_results","Type":0}]
+          query["Select"]=[]
+          for src,prop,label in desired:
+              ent="enriched_notice_lot_settled_contracts_with_winners_and_contract_values" if src=="e" else "base_notices"
+              query["Select"].append({"Column":{"Expression":{"SourceRef":{"Source":src}},"Property":prop},"Name":ent+"."+prop,"NativeReferenceName":label})
+          w=list(query.get("Where") or []);w.append({"Condition":{"In":{"Expressions":[{"Column":{"Expression":{"SourceRef":{"Source":"e"}},"Property":"winner_eu_registration_number"}}],"Values":[[{"Literal":{"Value":"'"+org+"'"}}] for org in sorted(targets)]}}});query["Where"]=w
+          cmd["Binding"]={"Primary":{"Groupings":[{"Projections":list(range(len(desired)))}]},"DataReduction":{"DataVolume":6,"Primary":{"Window":{"Count":2000}}},"IncludeEmptyGroups":False,"Version":1}
+          cmd["ExecutionMetricsKind"]=1
+          item={"Query":exact}
+          if db:item["ApplicationContext"]={"DatasetId":db,"Sources":[{"ReportId":REPORT,"VisualId":vid or "signalpost-pubdate"}]}
+          st,resp,raw=req(cluster+"/explore/querydata?synchronous=true",hdr(),{"version":"1.0.0","queries":[item],"cancelQueries":[],"modelId":model_id})
+          print("query-http=",st,"bytes=",len(raw))
+          if st!=200:raise SystemExit("query failed")
+
+          ds=((((resp.get("results") or [{}])[0].get("result") or {}).get("data") or {}).get("dsr") or {}).get("DS",[{}])[0]
+          vd=ds.get("ValueDicts") or {}; rows=[]
+          for ph in ds.get("PH") or []:
+              for k,v in ph.items():
+                  if k.startswith("DM") and isinstance(v,list):rows+=v
+          specs=None;prev=[];decoded=[]
+          for row in rows:
+              if row.get("S"):specs=row["S"];prev=[None]*len(specs)
+              if not specs:continue
+              R=int(row.get("R") or 0);N=int(row.get("Ø") or 0);C=list(row.get("C") or []);ci=0;vals=[]
+              for i,spec in enumerate(specs):
+                  if R&(1<<i):v=prev[i]
+                  elif N&(1<<i):v=None
+                  else:
+                      v=C[ci] if ci<len(C) else None;ci+=1;dn=spec.get("DN")
+                      if dn and isinstance(v,int) and 0<=v<len(vd.get(dn) or []):v=(vd.get(dn) or [])[v]
+                  vals.append(v)
+              prev=vals;decoded.append(vals)
+
+          def d(v):
+              if isinstance(v,(int,float)) and v>10**11:return dt.datetime.fromtimestamp(v/1000,dt.timezone.utc).date()
+              if isinstance(v,str):
+                  m=re.search(r"(\d{4}-\d{2}-\d{2})",v)
+                  if m:
+                      try:return dt.date.fromisoformat(m.group(1))
+                      except ValueError:pass
+              return None
+          recent=set();allorg=set();basis={}
+          for vals in decoded:
+              if not vals:continue
+              org=str(vals[0] or "").strip().strip("'")
+              if org not in targets:continue
+              allorg.add(org)
+              dates=[("conclusion",d(vals[3] if len(vals)>3 else None)),("decision",d(vals[4] if len(vals)>4 else None)),("publication",d(vals[5] if len(vals)>5 else None))]
+              good=[x for x in dates if x[1] and CUTOFF<=x[1]<=TODAY]
+              if good:
+                  recent.add(org); mx=max(good,key=lambda x:x[1])
+                  if org not in basis or mx[1]>basis[org][1]:basis[org]=mx
+          print("all-exact-winner-companies=",len(allorg))
+          print("recent365-any-official-date=",len(recent))
+          for org in sorted(recent):
+              print("RECENT",org,names.get(org,""),"basis=",basis[org][0],"date=",basis[org][1].isoformat())
+          print("VIABILITY publication-date-available=True")
+          print("VIABILITY recent365-with-publication=",len(recent))
+          PY
