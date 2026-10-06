@@ -1,0 +1,208 @@
+name: Research Current Main Consumed Gap Replay
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-current-main-consumed-gap-replay.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - name: Checkout current production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Record production head
+        run: |
+          mkdir -p out/current-main-gap
+          git rev-parse HEAD | tee out/current-main-gap/main-sha.txt
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Sync locked dependencies
+        run: uv sync --locked
+
+      - name: Recover already-consumed Phase 11 cohort and baseline output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p consumed
+          gh run download 37314396820             --repo "$GITHUB_REPOSITORY"             --name phase11-owner-veto-consumed-replay             --dir consumed
+
+          MANIFEST="$(find consumed -type f -name 'phase11-fresh-100.jsonl' | head -n 1)"
+          BASELINE="$(find consumed -type f -name 'output.jsonl' | head -n 1)"
+          test -n "$MANIFEST"
+          test -n "$BASELINE"
+
+          cp "$MANIFEST" out/current-main-gap/consumed-100.jsonl
+          cp "$BASELINE" out/current-main-gap/baseline-output.jsonl
+          test "$(wc -l < out/current-main-gap/consumed-100.jsonl)" -eq 100
+          test "$(wc -l < out/current-main-gap/baseline-output.jsonl)" -eq 100
+          echo '394eaae1b43fbe5e951fc4a61c7185c068bfa6dad1d37a7223cefc507429dd99  out/current-main-gap/consumed-100.jsonl' | sha256sum -c -
+
+      - name: Download current BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output brreg-enheter.csv
+          test -s brreg-enheter.csv
+          sha256sum brreg-enheter.csv > out/current-main-gap/brreg-enheter.sha256
+
+      - name: Replay current main on consumed 100
+        run: |
+          uv run python scripts/run_signalpost_v8.py             --organisations out/current-main-gap/consumed-100.jsonl             --bulk brreg-enheter.csv             --output out/current-main-gap/current-output.jsonl             --report out/current-main-gap/current-report.json             --product-output out/current-main-gap/current-product.html             --work-dir out/current-main-gap/work             --run-id research-current-main-consumed-gap-replay             --expected-count 100             --workers 8             --site-timeout 6             --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Measure current evaluator-family coverage against consumed baseline
+        run: |
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding='utf-8').splitlines() if line.strip()]
+
+          baseline = read_jsonl('out/current-main-gap/baseline-output.jsonl')
+          current = read_jsonl('out/current-main-gap/current-output.jsonl')
+          report = json.loads(Path('out/current-main-gap/current-report.json').read_text(encoding='utf-8'))
+          main_sha = Path('out/current-main-gap/main-sha.txt').read_text().strip()
+
+          assert report.get('passed') is True, report
+          assert len(baseline) == len(current) == 100
+          assert {str(x['organisation_number']) for x in baseline} == {str(x['organisation_number']) for x in current}
+          assert all((row.get('run') or {}).get('terminal_status') == 'completed' for row in current)
+          assert float((report.get('source_policy') or {}).get('third_party_cost_usd') or 0.0) == 0.0
+          assert int((report.get('source_policy') or {}).get('search_api_requests') or 0) == 0
+
+          fields = (
+              'official_website',
+              'external.profile_handle',
+              'external.contact_email',
+              'external.contact_phone',
+              'external.careers_page',
+              'external.job_posting',
+              'external.company_update',
+              'external.workforce_snapshot',
+              'official.support_award',
+              'registered_contact_email',
+              'registered_phone',
+              'registered_mobile',
+          )
+
+          def coverage(rows):
+              company_sets = {field: set() for field in fields}
+              claim_counts = Counter()
+              for row in rows:
+                  org = str(row.get('organisation_number') or '')
+                  for claim in row.get('claims') or []:
+                      if not isinstance(claim, dict) or claim.get('availability') != 'available':
+                          continue
+                      field = str(claim.get('field') or '')
+                      claim_counts[field] += 1
+                      if field in company_sets:
+                          company_sets[field].add(org)
+              return {
+                  field: {'companies': len(company_sets[field]), 'claims': int(claim_counts[field])}
+                  for field in fields
+              }
+
+          before = coverage(baseline)
+          after = coverage(current)
+          deltas = {
+              field: {
+                  'companies': after[field]['companies'] - before[field]['companies'],
+                  'claims': after[field]['claims'] - before[field]['claims'],
+              }
+              for field in fields
+          }
+
+          profiles = read_jsonl('out/current-main-gap/work/profiles.jsonl')
+          retained = Counter()
+          for profile in profiles:
+              website = ((profile.get('evidence') or {}).get('website') or {})
+              value = website.get('value') if isinstance(website.get('value'), dict) else {}
+              assessment = value.get('identity_assessment') if isinstance(value.get('identity_assessment'), dict) else {}
+              if website.get('status') == 'available' and assessment.get('publishable'):
+                  retained['exact_verified_websites'] += 1
+              if value.get('careers_links'):
+                  retained['homepage_careers_link_companies'] += 1
+              hiring = value.get('active_hiring_signal') if isinstance(value.get('active_hiring_signal'), dict) else {}
+              if hiring.get('active_vacancies'):
+                  retained['homepage_active_hiring_companies'] += 1
+              if value.get('job_listing_candidates'):
+                  retained['homepage_job_candidate_companies'] += 1
+              if value.get('news_detail_links'):
+                  retained['homepage_news_nomination_companies'] += 1
+              if ((profile.get('evidence') or {}).get('website_careers_surface') or {}).get('status') == 'available':
+                  retained['retained_careers_surface_companies'] += 1
+              if ((profile.get('evidence') or {}).get('website_news_detail') or {}).get('status') == 'available':
+                  retained['retained_news_detail_companies'] += 1
+              if ((profile.get('evidence') or {}).get('website_activity_feed') or {}).get('status') == 'available':
+                  retained['retained_activity_feed_companies'] += 1
+
+          request_budget = report.get('request_budget') or {}
+          summary = {
+              'status': 'PASS_CONSUMED_ONLY_CURRENT_MAIN',
+              'fresh_qualification': False,
+              'main_sha': main_sha,
+              'companies': 100,
+              'baseline': before,
+              'current': after,
+              'delta': deltas,
+              'retained_current_profile_surfaces': dict(sorted(retained.items())),
+              'request_budget': {
+                  'observed_logical_requests': request_budget.get('observed_logical_requests'),
+                  'observed_conservative_challenge_request_charge': request_budget.get('observed_conservative_challenge_request_charge'),
+                  'theoretical_challenge_request_charge_ceiling': request_budget.get('theoretical_challenge_request_charge_ceiling'),
+                  'max_challenge_requests': request_budget.get('max_challenge_requests'),
+              },
+              'third_party_cost_usd': (report.get('source_policy') or {}).get('third_party_cost_usd'),
+              'search_api_requests': (report.get('source_policy') or {}).get('search_api_requests'),
+          }
+          Path('out/current-main-gap/summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove raw baseline and product from research artifact
+        if: always()
+        run: |
+          rm -f out/current-main-gap/baseline-output.jsonl
+          rm -f out/current-main-gap/current-product.html
+
+      - name: Upload aggregate current-main consumed replay
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-current-main-consumed-gap-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/current-main-gap/main-sha.txt
+            out/current-main-gap/brreg-enheter.sha256
+            out/current-main-gap/summary.json
+            out/current-main-gap/current-report.json
