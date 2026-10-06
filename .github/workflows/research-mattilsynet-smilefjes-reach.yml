@@ -1,0 +1,96 @@
+name: Research Mattilsynet Smilefjes Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_mattilsynet_smilefjes_reach.py
+      - tests/test_screen_mattilsynet_smilefjes_reach.py
+      - .github/workflows/research-mattilsynet-smilefjes-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run strict Smilefjes parser tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_mattilsynet_smilefjes_reach.py
+
+      - name: Recreate shared deterministic consumed 100
+        run: |
+          mkdir -p out
+          uv run python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path('submission/final-release-1000.jsonl').read_text(encoding='utf-8').splitlines() if line.strip()]
+          assert len(rows) == 1000
+          seed = 'bulk-exact-org-r1-v1|'
+          rows.sort(key=lambda row: hashlib.sha256((seed + str(row['organisation_number'])).encode()).hexdigest())
+          selected = rows[:100]
+          Path('out/consumed-100.jsonl').write_text(
+              ''.join(json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n' for row in selected),
+              encoding='utf-8',
+          )
+          assert len({str(row['organisation_number']) for row in selected}) == 100
+          PY
+
+      - name: Download current complete Smilefjes CSV once
+        run: |
+          curl --fail --location --compressed \
+            --header 'Accept: text/csv,*/*' \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://smilefjes.mattilsynet.no/api/tilsyn.csv' \
+            --output out/tilsyn.csv
+          test -s out/tilsyn.csv
+          wc -c out/tilsyn.csv
+          sha256sum out/tilsyn.csv
+
+      - name: Screen consumed 1000 and deterministic 100
+        run: |
+          uv run python scripts/screen_mattilsynet_smilefjes_reach.py \
+            --source-csv out/tilsyn.csv \
+            --companies submission/final-release-1000.jsonl \
+            --today 2026-10-06 \
+            --output-dir out/smilefjes-1000
+          uv run python scripts/screen_mattilsynet_smilefjes_reach.py \
+            --source-csv out/tilsyn.csv \
+            --companies out/consumed-100.jsonl \
+            --today 2026-10-06 \
+            --output-dir out/smilefjes-100
+          echo '=== consumed 1000 ==='
+          cat out/smilefjes-1000/report.json
+          echo '=== consumed 100 ==='
+          cat out/smilefjes-100/report.json
+
+      - name: Remove source CSV before artifact upload
+        if: always()
+        run: rm -f out/tilsyn.csv
+
+      - name: Upload bounded research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-mattilsynet-smilefjes-reach
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/consumed-100.jsonl
+            out/smilefjes-1000/report.json
+            out/smilefjes-1000/matched-companies.jsonl
+            out/smilefjes-100/report.json
+            out/smilefjes-100/matched-companies.jsonl
