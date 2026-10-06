@@ -23,6 +23,7 @@ from .domain_discovery import (
 from .evidence import evidence
 from .homepage_careers_signal import extract_careers_links
 from .homepage_news_signal import extract_news_detail_links
+from .first_party_feed import advertised_feed_links
 from .job_surface_signal import extract_homepage_hiring_signal, extract_job_listing_candidates
 from .identity import apply_website_identity_gate
 from .website import (
@@ -384,6 +385,7 @@ def fetch_bounded_homepage(
                 soup=soup,
                 homepage_content_sha256=digest,
             ),
+            "activity_feed_links": advertised_feed_links(final_url, soup),
             "structured_organisations": _jsonld_organisations(structured),
             "content_sha256": digest,
             "extraction_state": _extraction_state(text, soup),
