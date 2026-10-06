@@ -22,6 +22,7 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
     validate_canonical_projection,
 )
 from norway_company_agent.first_party_activity import project_first_party_activity_claims  # noqa: E402
+from norway_company_agent.hiring_intent_contract import project_company_authored_hiring_intent  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
 from norway_company_agent.synthesis import (  # noqa: E402
     SYNTHESIS_SCHEMA_VERSION,
@@ -184,8 +185,9 @@ def main() -> None:
             raise SystemExit(f"V2 retained profile missing for {org}")
         with_registry = project_v2_registry_claims(row, profile)
         with_activity = project_first_party_activity_claims(with_registry, profile)
+        with_hiring_intent = project_company_authored_hiring_intent(with_activity, profile)
         with_registry_changes = project_registry_change_claims(
-            with_activity,
+            with_hiring_intent,
             change_events_by_org.get(org, []),
         )
         item = project_canonical_profile(with_registry_changes)
@@ -233,6 +235,24 @@ def main() -> None:
         }
     )
 
+    hiring_intent_claims = sum(
+        1
+        for row in projected
+        for claim in (row.get("claims") or [])
+        if isinstance(claim, dict)
+        and claim.get("field") == "external.hiring_intent"
+        and claim.get("availability") == "available"
+    )
+    hiring_intent_companies = sum(
+        any(
+            isinstance(claim, dict)
+            and claim.get("field") == "external.hiring_intent"
+            and claim.get("availability") == "available"
+            for claim in (row.get("claims") or [])
+        )
+        for row in projected
+    )
+
     registry_change_claims = sum(
         1
         for row in projected
@@ -260,6 +280,18 @@ def main() -> None:
         "job_requirement": "specific retained company-owned role page + job detail marker + explicit apply action",
         "company_update_requirement": "specific retained company-owned news/update page + explicit publication date",
     }
+    report["canonical_projection"]["company_authored_hiring_intent_projection"] = {
+        "network_requests_added": 0,
+        "claim_field": "external.hiring_intent",
+        "canonical_type": "hiring_intent",
+        "canonical_field": "hiring.company_authored_intent",
+        "published_claims": hiring_intent_claims,
+        "companies_with_published_claims": hiring_intent_companies,
+        "requirement": (
+            "exact verified company homepage + explicit positive homepage vacancy-count phrase; "
+            "careers surface alone is insufficient; no specific vacancy is asserted"
+        ),
+    }
     report["registry_change_feed"] = {
         **change_metrics,
         "network_requests_added": observed_change_requests,
@@ -282,6 +314,8 @@ def main() -> None:
     report.setdefault("source_policy", {})["brreg_registry_change_feed_enabled"] = True
     report["source_policy"]["brreg_registry_change_feed_mode"] = "official_api_exact_org_batched"
     report["source_policy"]["brreg_registry_change_feed_third_party_cost_usd"] = 0.0
+    report["source_policy"]["company_authored_hiring_intent_enabled"] = True
+    report["source_policy"]["hiring_semantics_network_requests"] = 0
 
     checks = report.setdefault("checks", {})
     base_budget_valid = bool(checks.get("budget_valid"))
