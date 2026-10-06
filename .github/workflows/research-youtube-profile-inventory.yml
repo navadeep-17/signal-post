@@ -1,0 +1,45 @@
+name: Research Verified YouTube Profile Inventory
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/inventory_verified_youtube_profiles.py
+      - tests/test_inventory_verified_youtube_profiles.py
+      - .github/workflows/research-youtube-profile-inventory.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run inventory tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_inventory_verified_youtube_profiles.py
+
+      - name: Inventory frozen exact YouTube handles
+        run: |
+          mkdir -p out/youtube
+          uv run python scripts/inventory_verified_youtube_profiles.py             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/youtube/report.json
+          cat out/youtube/report.json
+
+      - name: Upload aggregate inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-youtube-profile-inventory
+          retention-days: 30
+          path: out/youtube/report.json
