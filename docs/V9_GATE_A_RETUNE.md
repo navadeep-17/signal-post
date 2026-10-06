@@ -419,6 +419,71 @@ All observed subunit names collapsed to the parent legal name after removing leg
 Decision: **DROP the full subunit-alias website screen.** The diagnostic prevented wasting up to forty guessed-domain fetches without weakening identity or consuming fresh data.
 
 
+## Source screen 10 — NAV Arbeidsplassen job-feed employer homepage
+
+A consumed-only screen tested NAV's official Arbeidsplassen vacancy feed as a structured, exact-employer discovery source. NAV documents the feed as free to use, provides a rotating public experiment token, and exposes employer organisation number and optional homepage in detailed vacancy records. Signalpost retained neither vacancy descriptions nor personal contact data, and NAV metadata remained nomination-only.
+
+Isolated branch:
+
+`experiment/v9-nav-job-feed-discovery`
+
+Final screen:
+
+- workflow: `37452513974` — **PASS**
+- head: `b71c3af0c53dd76e9bada9508780793ae38c90e7`
+- artifact ID: `11407745223`
+- artifact digest: `sha256:6d46fc1561e1f6c0c9fc9fe17b728fd0999f1ea5b36569a369eba40b29705bed`
+- feed pages fetched: **38**
+- feed items scanned: **368,773**
+- feed scan truncated: **false**
+- exact normalized legal-name header matches: **4**
+- detailed entries fetched: **4**
+- parents with homepage candidates: **0**
+- candidate URLs nominated: **0**
+- machine-verified organisations: **0 / 20**
+- logical requests: **43**
+- conservative request charge: **86**
+- bytes: **181,424,771**
+- runtime: **73.446 s**
+- third-party API cost: **$0**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+All four exact-name header matches belonged to the already-known PREG BARNEHAGER ÅLESUND path; the detailed entries exposed no usable employer homepage for a new Gate-A company.
+
+Decision: **SHELVE as a primary Gate-A website source.** The feed is reproducible and rights-compatible but too sparse for this frozen cohort.
+
+## Source screen 11 — EU TED exact-org procurement metadata
+
+A consumed-only screen tested the official EU TED Search API. Each frozen Gate-A organisation number was searched directly, and winner/buyer/business website fields were eligible for nomination only when the same notice lane contained the exact target organisation number. TED metadata was never used as company publication evidence.
+
+Isolated branch:
+
+`experiment/v9-ted-orgnr-discovery`
+
+Final screen:
+
+- workflow: `37453267479` — **PASS**
+- head: `8afdd43ac4395a4abf4fe4c4023558b5c2836944`
+- artifact ID: `11408181057`
+- artifact digest: `sha256:4de1faf958827b3fcf3228800514e52a88c5e14f37b31724408ea48578ba1253`
+- TED search requests: **20**
+- exact-identifier notices: **0**
+- parents with candidates: **0**
+- candidate URLs nominated: **0**
+- machine-verified organisations: **0 / 20**
+- logical requests: **20**
+- conservative request charge: **40**
+- bytes: **1,620**
+- runtime: **30.433 s**
+- third-party API cost: **$0**
+- authentication: **none**
+- production publications: **0**
+- fresh qualification credit: **none**
+
+Decision: **SHELVE for this Gate-A cohort.** The source is evaluator-reproducible and precise but produced no exact-identifier procurement records for the frozen companies.
+
+
 ## Provider state
 
 The generic V9 provider gate is implemented on the V9 integration branch. It requires an explicit evaluator-reproducible provider/key path, permitted rights/use, bounded searches, and declared cost before any live provider experiment is enabled.
