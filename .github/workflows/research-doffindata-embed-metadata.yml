@@ -18,49 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve public report-service base from frontend
-        run: |
-          mkdir -p out
-          curl --fail --location --compressed --user-agent 'Signalpost-research-source-screen/1.0' \
-            'https://www.doffin.no/' -o out/index.html
-          python - <<'PY'
-          from pathlib import Path
-          from urllib.parse import urljoin
-          import re,subprocess
-
-          html=Path('out/index.html').read_text(encoding='utf-8',errors='replace')
-          refs=re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']',html,re.I)
-          bundle=None
-          for ref in refs:
-              url=urljoin('https://www.doffin.no/',ref)
-              cp=subprocess.run([
-                  'curl','--silent','--show-error','--location','--compressed',
-                  '--user-agent','Signalpost-research-source-screen/1.0',
-                  '--write-out','%{http_code}',url,'--output','out/bundle.js'
-              ],capture_output=True,text=True)
-              if cp.returncode==0 and cp.stdout.strip()=='200':
-                  s=Path('out/bundle.js').read_text(encoding='utf-8',errors='replace')
-                  if 'getEmbedToken?reportId=' in s:
-                      bundle=s
-                      print('bundle-url=',url)
-                      break
-          if bundle is None:
-              raise SystemExit('report bundle not found')
-
-          target=bundle.find('getEmbedToken?reportId=')
-          prefix=bundle[max(0,target-250000):target]
-          # Resolve the nearest simple assignment to Hl.
-          matches=list(re.finditer(r'(?<![A-Za-z0-9_$])Hl=([\'\x60])([^\'\x60]+)\1',prefix))
-          if not matches:
-              raise SystemExit('Hl literal assignment not found')
-          base=matches[-1].group(2)
-          print('report-service-base=',base)
-          Path('out/report-base.txt').write_text(base,encoding='utf-8')
-          PY
-
       - name: Fetch public supplier-report embed metadata without exposing token
         run: |
-          BASE="$(cat out/report-base.txt)"
+          mkdir -p out
+          BASE='https://api.doffin.no/webclient/api/v2/notices-api'
           REPORT='1e4ba2c1-d15e-41c3-8cba-6166c3812f1a'
           CODE="$(curl --silent --show-error --location --compressed \
             --user-agent 'Signalpost-research-source-screen/1.0' \
@@ -76,7 +37,8 @@ jobs:
           from pathlib import Path
           from urllib.parse import urlparse
 
-          data=json.loads(Path('out/embed.json').read_text(encoding='utf-8'))
+          p=Path('out/embed.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
           print('response-keys=',sorted(data))
           token=data.get('accessToken')
           urls=data.get('embedUrl') or []
@@ -86,20 +48,20 @@ jobs:
           if not isinstance(urls,list):
               urls=[urls]
           for i,url in enumerate(urls):
-              if not url: continue
+              if not url:
+                  continue
               parsed=urlparse(url)
               print('embed-url',i,'scheme=',parsed.scheme,'host=',parsed.hostname,'path=',parsed.path)
-              # Query names are useful contract metadata; values are not printed.
               print('embed-query-keys=',sorted({part.split('=',1)[0] for part in parsed.query.split('&') if part}))
-          # Never print or upload the embed token.
-          Path('out/embed.json').unlink(missing_ok=True)
+          # Never print, persist in artifacts, or expose the token.
+          p.unlink(missing_ok=True)
           PY
 
-      - name: Probe embed URL shell anonymously
+      - name: Probe public embed shell without token
         run: |
-          BASE="$(cat out/report-base.txt)"
+          BASE='https://api.doffin.no/webclient/api/v2/notices-api'
           REPORT='1e4ba2c1-d15e-41c3-8cba-6166c3812f1a'
-          curl --silent --show-error --location --compressed \
+          curl --fail --location --compressed \
             --user-agent 'Signalpost-research-source-screen/1.0' \
             --header 'Accept: application/json' \
             "${BASE}/getEmbedToken?reportId=${REPORT}" -o out/embed.json
@@ -108,9 +70,10 @@ jobs:
           from pathlib import Path
           data=json.loads(Path('out/embed.json').read_text(encoding='utf-8'))
           urls=data.get('embedUrl') or []
-          if isinstance(urls,str): urls=[urls]
-          if not urls: raise SystemExit('no embed URL')
-          # Fetch only the public embed shell; token is not sent.
+          if isinstance(urls,str):
+              urls=[urls]
+          if not urls:
+              raise SystemExit('no embed URL')
           cp=subprocess.run([
               'curl','--silent','--show-error','--location','--compressed',
               '--user-agent','Signalpost-research-source-screen/1.0',
