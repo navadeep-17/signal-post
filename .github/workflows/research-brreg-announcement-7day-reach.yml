@@ -1,0 +1,84 @@
+name: Research BRREG Announcement 7-Day Reach
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_brreg_announcements_reach.py
+      - tests/test_screen_brreg_announcements_reach.py
+      - .github/workflows/research-brreg-announcement-7day-reach.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test BRREG announcement parser
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_brreg_announcements_reach.py
+
+      - name: Fetch one shared seven-day Foretaksregisteret range
+        run: |
+          mkdir -p out/brreg-announcements
+          URL='https://w2.brreg.no/kunngjoring/kombisok.jsp?datoFra=25.09.2026&datoTil=01.10.2026&id_region=0&id_niva1=9&id_bransje1=0'
+          CODE="$(curl --silent --show-error --location --compressed             --user-agent 'Signalpost-research-source-screen/1.0'             --connect-timeout 10 --max-time 120             --write-out '%{http_code}'             "$URL" -o out/brreg-announcements/week.html || true)"
+          echo "http=$CODE"
+          test "$CODE" = "200"
+          test -s out/brreg-announcements/week.html
+          wc -c out/brreg-announcements/week.html
+          sha256sum out/brreg-announcements/week.html
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("out/brreg-announcements/week.html")
+          raw=p.read_bytes()
+          text=None
+          for enc in ("utf-8","iso-8859-1","latin-1"):
+              try:
+                  text=raw.decode(enc); break
+              except UnicodeDecodeError:
+                  pass
+          if text is None: raise SystemExit("decode failed")
+          low=text.casefold()
+          # Diagnostic only: detect common truncation/pagination language.
+          for needle in ("neste side","neste","side 2","maks","maksimalt","første 1000","første 5000","forste 5000"):
+              print("marker",needle,"=",needle in low)
+          print("tr-count=",len(re.findall(r"<tr\\b",text,re.I)))
+          print("date-header-count=",len(set(re.findall(r"\\b\\d{2}\\.\\d{2}\\.2026\\b",text))))
+          PY
+
+      - name: Compare exact announcements with current production registry-change coverage
+        run: |
+          uv run python scripts/screen_brreg_announcements_reach.py             --html out/brreg-announcements/week.html             --companies submission/final-release-1000.jsonl             --production-output-gz submission/final-release-1000-output.jsonl.gz             --output-dir out/brreg-announcements/result
+          cat out/brreg-announcements/result/report.json
+
+      - name: Remove source HTML
+        if: always()
+        run: rm -f out/brreg-announcements/week.html
+
+      - name: Upload bounded research evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-announcement-7day-reach
+          retention-days: 30
+          path: |
+            out/brreg-announcements/result/report.json
+            out/brreg-announcements/result/matched-companies.jsonl
