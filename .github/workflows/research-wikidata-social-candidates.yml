@@ -1,11 +1,6 @@
 name: Research Wikidata Social Candidate Coverage
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-wikidata-social-candidates.yml
   workflow_dispatch:
 
 permissions:
