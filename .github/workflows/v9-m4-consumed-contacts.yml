@@ -11,7 +11,7 @@ on:
       - src/norway_company_agent/external_contract.py
       - src/norway_company_agent/canonical_projection.py
       - src/norway_company_agent/v9_contact_audit.py
-      - scripts/run_signalpost_final.py
+      - scripts/run_signalpost_v9.py
       - scripts/audit_v9_zero_request_contacts.py
       - tests/test_company_site_contact.py
       - tests/test_company_site_phone.py
@@ -122,7 +122,7 @@ jobs:
       - name: Replay M4 challenger on same consumed 100
         run: |
           cd challenger
-          uv run python scripts/run_signalpost_v8.py \
+          uv run python scripts/run_signalpost_v9.py \
             --organisations ../shared/out/consumed-100.jsonl \
             --bulk ../shared/brreg-enheter.csv \
             --output ../shared/out/challenger-output.jsonl \
