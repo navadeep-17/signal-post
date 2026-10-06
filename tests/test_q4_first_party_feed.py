@@ -7,9 +7,46 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import norway_company_agent.h1g_hyphenated_no_recall as h1g  # noqa: E402
-from norway_company_agent.first_party_feed import feed_candidate_urls, parse_company_feed  # noqa: E402
+from bs4 import BeautifulSoup  # noqa: E402
+from norway_company_agent.first_party_feed import (  # noqa: E402
+    advertised_feed_links,
+    feed_candidate_urls,
+    parse_company_feed,
+)
 from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates  # noqa: E402
 
+
+
+
+def test_homepage_advertised_feed_links_are_rss_atom_and_same_site_only() -> None:
+    soup = BeautifulSoup(
+        """
+        <html><head>
+          <link rel="alternate" type="application/atom+xml" href="/updates.atom">
+          <link rel="alternate" type="application/rss+xml; charset=utf-8" href="https://news.example.no/rss">
+          <link rel="alternate" type="application/rss+xml" href="https://other.no/feed">
+          <link rel="alternate" type="text/html" href="/news/">
+        </head></html>
+        """,
+        "lxml",
+    )
+    assert advertised_feed_links("https://www.example.no/", soup) == [
+        "https://www.example.no/updates.atom",
+        "https://news.example.no/rss",
+    ]
+
+
+def test_homepage_feed_nomination_is_bounded() -> None:
+    soup = BeautifulSoup(
+        "<html><head>"
+        + "".join(
+            f'<link rel="alternate" type="application/rss+xml" href="/feed-{i}.xml">'
+            for i in range(8)
+        )
+        + "</head></html>",
+        "lxml",
+    )
+    assert len(advertised_feed_links("https://example.no/", soup, limit=2)) == 2
 
 def test_feed_candidates_are_bounded_and_same_origin() -> None:
     urls = feed_candidate_urls("https://www.example.no/about", limit=2)
@@ -168,7 +205,10 @@ def test_verified_site_uses_only_spare_two_request_slot_for_feed(monkeypatch) ->
     monkeypatch.setattr(
         h1g,
         "fetch_verified_activity_feed",
-        lambda verified_url, timeout: (_feed_record(), {"requests": 2, "bytes": 900, "latencies_ms": [20]}),
+        lambda verified_url, candidate_url=None, timeout=6.0: (
+            _feed_record(),
+            {"requests": 2, "bytes": 900, "latencies_ms": [20]},
+        ),
     )
 
     enriched, result = h1g.evaluate_hyphenated_no_fallback(
@@ -227,3 +267,31 @@ def test_feed_projection_cites_feed_snapshot_and_exposes_identity_proof() -> Non
     repeated = project_first_party_feed_updates(projected, profile)
     assert len(repeated["claims"]) == 1
     assert len(repeated["evidence"]) == 1
+
+
+def test_verified_site_prefers_homepage_advertised_feed_without_extra_requests(monkeypatch) -> None:
+    profile = _verified_profile()
+    profile["evidence"]["website"]["value"]["activity_feed_links"] = [
+        "https://www.pubspill.no/atom.xml"
+    ]
+    seen = {}
+
+    def fake_feed(verified_url, *, candidate_url=None, timeout=6.0):
+        seen["verified_url"] = verified_url
+        seen["candidate_url"] = candidate_url
+        return _feed_record(), {"requests": 2, "bytes": 900, "latencies_ms": [20]}
+
+    monkeypatch.setattr(h1g, "fetch_verified_activity_feed", fake_feed)
+    _, result = h1g.evaluate_hyphenated_no_fallback(
+        profile,
+        timeout=5.0,
+        base_site_logical_requests=2,
+    )
+
+    assert seen == {
+        "verified_url": "https://www.pubspill.no/",
+        "candidate_url": "https://www.pubspill.no/atom.xml",
+    }
+    assert result["activity_feed_candidate_source"] == "homepage_advertised_rss_atom"
+    assert result["requests_added"] == 2
+    assert result["post_site_logical_requests"] == 4
