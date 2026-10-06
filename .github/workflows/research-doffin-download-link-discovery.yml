@@ -1,0 +1,75 @@
+name: Research Doffin Official Download Link Discovery
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-download-link-discovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch DFØ official dataset page
+        run: |
+          mkdir -p out
+          URL='https://dfo.no/nokkeltall-og-statistikk/innkjop-i-offentlig-sektor/kunngjoringer-av-konkurranse-pa-doffin'
+          CODE="$(curl --silent --show-error --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            --connect-timeout 15 --max-time 90 \
+            --write-out '%{http_code}' "$URL" -o out/page.html || true)"
+          echo "http=$CODE bytes=$(wc -c < out/page.html 2>/dev/null || echo 0)"
+          test "$CODE" = "200"
+
+      - name: Extract current dataset links and surrounding text
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, html
+
+          s=Path('out/page.html').read_text(encoding='utf-8',errors='replace')
+          print('page-bytes=',len(s))
+
+          hrefs=re.findall(r'href=["\']([^"\']+)["\']',s,re.I)
+          candidates=[]
+          for href in hrefs:
+              url=urljoin('https://dfo.no/',html.unescape(href))
+              low=url.lower()
+              if any(k in low for k in ['kunngjor','doffin','csv','xlsx','zip','blob.core.windows.net']):
+                  candidates.append(url)
+          print('\n=== CANDIDATE LINKS ===')
+          for url in sorted(set(candidates)):
+              print(url)
+
+          print('\n=== YEAR WINDOWS ===')
+          plain=re.sub(r'<[^>]+>',' ',s)
+          plain=html.unescape(re.sub(r'\s+',' ',plain))
+          for year in ['2026','2025','2024','2023','2022']:
+              pos=0
+              count=0
+              while count<15:
+                  idx=plain.find(year,pos)
+                  if idx<0: break
+                  print(year,plain[max(0,idx-450):min(len(plain),idx+900)])
+                  pos=idx+4
+                  count+=1
+
+          print('\n=== RAW URL-LIKE STRINGS ===')
+          urls=sorted(set(re.findall(r'https?://[^"\'<>\\s]+',s)))
+          for url in urls:
+              if any(k in url.lower() for k in ['blob.core.windows.net','kunngjor','doffin','.csv','.xlsx','.zip']):
+                  print(html.unescape(url)[:2000])
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
