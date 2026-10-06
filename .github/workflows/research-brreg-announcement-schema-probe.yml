@@ -1,0 +1,105 @@
+name: Research BRREG Announcement Schema Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-brreg-announcement-schema-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch one bounded Foretaksregisteret announcement day
+        run: |
+          mkdir -p out
+          URL='https://w2.brreg.no/kunngjoring/kombisok.jsp?datoFra=01.10.2026&datoTil=01.10.2026&id_region=0&id_niva1=9&id_bransje1=0'
+          CODE="$(curl --silent --show-error --location --compressed             --user-agent 'Signalpost-research-source-screen/1.0'             --connect-timeout 10 --max-time 60             --write-out '%{http_code}'             "$URL" -o out/day.html || true)"
+          echo "http=$CODE"
+          test "$CODE" = "200"
+          wc -c out/day.html
+          sha256sum out/day.html
+
+      - name: Inspect table contract without retaining names
+        run: |
+          python - <<'PY'
+          from html import unescape
+          from pathlib import Path
+          import re, json
+
+          raw=Path('out/day.html').read_bytes()
+          text=None
+          used=None
+          for enc in ('utf-8','iso-8859-1','latin-1'):
+              try:
+                  text=raw.decode(enc); used=enc; break
+              except UnicodeDecodeError:
+                  pass
+          if text is None:
+              raise SystemExit('decode failed')
+          print('encoding=',used)
+          print('html-bytes=',len(raw))
+
+          # Print only structural form/query clues.
+          forms=re.findall(r'<form\b[^>]*?(?:action=["\']([^"\']*)["\'])?[^>]*>',text,re.I)
+          print('form-actions=',forms[:20])
+          names=sorted(set(re.findall(r'\bname=["\']([^"\']+)["\']',text,re.I)))
+          print('form-field-names=',names[:120])
+
+          # Parse TR/TD cells using bounded regex suitable for this stable server-rendered table.
+          trs=re.findall(r'<tr\b[^>]*>(.*?)</tr>',text,re.I|re.S)
+          rows=[]
+          org_re=re.compile(r'(?<!\d)(\d{3}[ .]?\d{3}[ .]?\d{3}|\d{9})(?!\d)')
+          date_re=re.compile(r'\b\d{2}\.\d{2}\.\d{4}\b')
+          link_re=re.compile(r'href=["\']([^"\']+)["\']',re.I)
+          tag_re=re.compile(r'<[^>]+>')
+          for tr in trs:
+              cells=re.findall(r'<td\b[^>]*>(.*?)</td>',tr,re.I|re.S)
+              if not cells:
+                  continue
+              clean=[]
+              links=[]
+              for cell in cells:
+                  links.extend(link_re.findall(cell))
+                  value=unescape(tag_re.sub(' ',cell))
+                  value=re.sub(r'\s+',' ',value).strip()
+                  clean.append(value)
+              joined=' | '.join(clean)
+              orgs=sorted({re.sub(r'\D','',m) for m in org_re.findall(joined) if len(re.sub(r'\D','',m))==9})
+              dates=sorted(set(date_re.findall(joined)))
+              if orgs or dates:
+                  rows.append({
+                    'cell_count':len(clean),
+                    'org_count':len(orgs),
+                    'date_count':len(dates),
+                    'orgs':orgs[:3],
+                    'dates':dates[:3],
+                    'links':[x for x in links if 'kunngjor' in x.lower()][:4],
+                    # Do not retain business names; only length/shape.
+                    'cell_lengths':[len(x) for x in clean],
+                  })
+
+          print('table-row-count=',len(trs))
+          print('candidate-data-row-count=',len(rows))
+          print('rows-with-exact-org=',sum(bool(r['orgs']) for r in rows))
+          print('rows-with-date=',sum(bool(r['dates']) for r in rows))
+          for i,row in enumerate(rows[:12]):
+              print('ROW',i,json.dumps(row,ensure_ascii=False))
+
+          # Page-navigation clues only.
+          hrefs=sorted(set(unescape(x) for x in re.findall(r'href=["\']([^"\']+)["\']',text,re.I)))
+          pageish=[h for h in hrefs if any(k in h.lower() for k in ('side=','page=','offset=','start=','neste','kombisok'))]
+          print('pagination-links=',pageish[:80])
+          PY
+
+      - name: Remove source payload
+        if: always()
+        run: rm -rf out
