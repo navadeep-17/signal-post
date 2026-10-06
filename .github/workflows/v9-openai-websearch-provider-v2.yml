@@ -10,6 +10,7 @@ on:
       - tests/test_v9_openai_websearch_v2.py
       - src/norway_company_agent/v9_discovery.py
       - src/norway_company_agent/v9_provider_gate.py
+      - docs/V9_OPENAI_WEBSEARCH_PROVIDER_V2.md
       - .github/workflows/v9-openai-websearch-provider-v2.yml
 
 permissions:
