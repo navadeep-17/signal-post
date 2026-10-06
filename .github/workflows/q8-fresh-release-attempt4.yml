@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: q8-fresh-release-attempt4
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   qualify-fresh-v8-100:
