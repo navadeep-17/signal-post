@@ -1,0 +1,67 @@
+name: Research BRREG Email-Domain Shadow Verification
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/screen_brreg_email_domain_shadow.py
+      - tests/test_screen_brreg_email_domain_shadow.py
+      - .github/workflows/research-brreg-email-domain-shadow.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test shadow corroboration helpers
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_brreg_email_domain_shadow.py
+
+      - name: Download archived consumed profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'final-release-chunk-*' \
+            --dir archived/final-release
+          COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
+          echo "profiles-files=$COUNT"
+          test "$COUNT" -eq 10
+
+      - name: Run bounded strong-domain shadow replay
+        run: |
+          mkdir -p out/brreg-email-shadow
+          uv run python scripts/screen_brreg_email_domain_shadow.py \
+            --profiles-dir archived/final-release \
+            --production-output-gz submission/final-release-1000-output.jsonl.gz \
+            --output-dir out/brreg-email-shadow \
+            --timeout 6 \
+            --workers 6
+          cat out/brreg-email-shadow/report.json
+          echo "manual-audit-rows=$(wc -l < out/brreg-email-shadow/shadow-manual-audit.jsonl)"
+
+      - name: Upload bounded research evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-brreg-email-domain-shadow
+          retention-days: 30
+          path: |
+            out/brreg-email-shadow/report.json
+            out/brreg-email-shadow/shadow-manual-audit.jsonl
