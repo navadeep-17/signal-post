@@ -1,0 +1,47 @@
+name: Research Zero-Request Recovery Audit
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-zero-request-recovery-audit.yml
+      - scripts/audit_zero_request_recovery.py
+      - tests/test_audit_zero_request_recovery.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test offline audit
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_zero_request_recovery.py
+
+      - name: Audit frozen 1000 output with zero network requests
+        run: |
+          mkdir -p out/zero-request
+          uv run python scripts/audit_zero_request_recovery.py \
+            --output-contract-gz submission/final-release-1000-output.jsonl.gz \
+            --report out/zero-request/report.json
+          cat out/zero-request/report.json
+
+      - name: Upload aggregate report
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-zero-request-recovery-audit
+          retention-days: 30
+          path: out/zero-request/report.json
