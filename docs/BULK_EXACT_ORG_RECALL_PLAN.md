@@ -70,76 +70,100 @@ Decision: do not build a TED production path for the current random-company obje
 
 ## R2 — Peppol Directory bulk screen
 
-Status: **PARSER READY / LIVE COVERAGE SCREEN DEFERRED BY OFFICIAL EXPORT RATE LIMIT / RIGHTS STILL UNRESOLVED**.
+Status: **MATERIAL WEBSITE-CANDIDATE LIFT / PRODUCTION BLOCKED ON DIRECTORY-DATA RIGHTS**.
 
 Implementation:
 
-- `scripts/screen_peppol_exact_org_reach.py`;
-- `tests/test_screen_peppol_exact_org_reach.py`;
-- `.github/workflows/research-peppol-exact-org-screen.yml` (manual-only).
+- privacy-minimized parser: `scripts/screen_peppol_exact_org_reach.py`;
+- aggregate coverage test: `tests/test_screen_peppol_exact_org_reach.py`;
+- aggregate coverage workflow: `.github/workflows/research-peppol-aggregate-coverage.yml` (manual-only after result freeze);
+- overlap comparator: `scripts/screen_peppol_website_overlap.py`;
+- overlap test: `tests/test_screen_peppol_website_overlap.py`;
+- overlap workflow: `.github/workflows/research-peppol-website-overlap.yml` (manual-only after result freeze).
 
-Verified upstream format from the official Peppol Directory implementation:
+Verified upstream format:
 
 - gzip-compressed BusinessCard export;
 - ISO-8859-1 text;
 - semicolon-separated CSV;
-- columns include Participant ID, Names, Websites, Contact email and Registration date;
 - Norwegian exact participant scheme: `0192:<9-digit orgnr>`;
-- export documentation limits a given export file to two downloads per IP per 24 hours by default.
+- website is an optional Business Entity field;
+- current export documentation says responses should be cached for 24 hours;
+- the 2026-05-18 Directory changelog states per-IP/per-file export rate limiting defaults to **3 requests per 24 hours**.
 
-Observed source snapshot during format qualification:
+### R2.1 — aggregate exact-org coverage
 
-- compressed bytes: **357,195,380**;
-- SHA-256: `619d92a63fdbfa202351c0564ad1687b61d88b686c57effbfddaf26c27886ffb`.
+Successful run: **37409836333**.
 
-The first live coverage attempt downloaded successfully but failed only because the initial parser assumed comma separation. The official implementation proved the separator is `;`; the parser and fixture tests are now corrected and green. We deliberately did not issue a third same-day download.
+Frozen aggregate-only artifact:
 
-Promotion still requires:
+- artifact ID: **11388863383**;
+- ZIP SHA-256: `6dc8619ca94cf1597b8ea06c86fa64aad539da511d93d6d37fbf65a875972dcb`.
 
-1. one clean exact-0192 coverage run after the rate-limit window;
-2. meaningful website-candidate reach;
-3. explicit directory-data reuse-rights clearance before any production proposal;
-4. independent Signalpost website verification for every candidate.
+Source snapshot:
 
-## R2.1 — Peppol aggregate exact-org coverage rerun
-
-Status: **MEASURED / HIGH IDENTITY REACH, LOW WEBSITE TRANSFER / RIGHTS UNRESOLVED / DO NOT PROMOTE**.
-
-A privacy-minimized rerun was completed after the export window reopened:
-
-- workflow run: **37409836333**;
-- aggregate artifact: **11388863383**;
-- artifact digest: `6dc8619ca94cf1597b8ea06c86fa64aad539da511d93d6d37fbf65a875972dcb`;
-- export HTTP: **200**;
-- compressed export bytes: **358,316,202**;
-- export SHA-256: `3eb4cbf888f7117e87d638c1adcebb8b6efa72442f4eccfb64a770fe1852b06a`;
+- HTTP: **200**;
+- compressed bytes: **358,316,202**;
+- SHA-256: `3eb4cbf888f7117e87d638c1adcebb8b6efa72442f4eccfb64a770fe1852b06a`;
 - source rows: **9,016,262**;
-- Norwegian exact-`0192` rows: **388,726**;
+- Norwegian `0192` rows: **388,726**;
 - malformed `0192` rows: **13**.
 
-Consumed cohorts:
+Reach:
 
-| Cohort | Exact Peppol participant | Participant reach | Website-value companies | Website-value reach |
-|---|---:|---:|---:|---:|
-| consumed 100 | 64 | 64.0% | 7 | 7.0% |
-| consumed 1000 | 595 | 59.5% | 78 | 7.8% |
+- deterministic consumed 100: **64/100** exact Peppol participants; **7/100** with a website candidate;
+- consumed 1000: **595/1000 = 59.5%** exact Peppol participants;
+- consumed 1000 website candidates: **78/1000 = 7.8%**.
 
-The rerun deliberately retained **aggregate counts only**:
+Privacy/data-minimisation boundary for this screen:
 
-- no contact fields retained;
-- no raw names retained;
-- no raw website URLs retained;
-- no matched organisation-number lists retained;
-- bulk source deleted before artifact upload.
+- contact fields are not retained;
+- raw names are not retained;
+- raw websites are not retained;
+- matched organisation-number lists are not retained;
+- only aggregate counts are frozen.
 
-Interpretation:
+### R2.2 — website overlap versus current production
 
-- Peppol is a strong exact-org **identity-presence** source, but Signalpost already has exact BRREG identity for essentially every target.
-- The only potentially useful missing-family field observed here is website presence, and its **absolute ceiling is 78/1000 before overlap, independent verification, redirects, identity vetoes or request-budget effects**.
-- Therefore it cannot be treated as a 59.5% website-discovery breakthrough.
-- Directory-data reuse rights remain unresolved for Signalpost's product purpose; privacy/terms concerns also make contact-field use inappropriate for this path.
+Successful run: **37410381982**.
 
-Decision: **do not integrate Peppol into production and do not collect its contact fields**. Revisit only if an explicit permitted-use/licence basis is established and a rights-safe aggregate/net-new website experiment can justify the request budget.
+Frozen aggregate-only artifact:
+
+- artifact ID: **11389135786**;
+- ZIP SHA-256: `9f9fa7d7c1b644739f2bd2c30e6fdcc552286d15edcf33ec8f80bc67f1654bfd`.
+
+Measured against the frozen current 1000-company production output:
+
+- current verified website companies: **107/1000 = 10.7%**;
+- Peppol exact participant companies: **595/1000 = 59.5%**;
+- current verified websites among Peppol participants: **94**;
+- Peppol website-candidate companies: **78/1000 = 7.8%**;
+- Peppol website candidates already covered by current verified websites: **31**;
+- **net-new Peppol website candidates: 47/1000 = 4.7%**;
+- upper-bound post-candidate website companies before independent verification: **154/1000 = 15.4%**.
+
+This is the first source in the bulk-recall track with a potentially material website-discovery lift. The 47 candidates are still only discovery candidates; none count as Signalpost websites until the existing exact-company verification boundary independently succeeds.
+
+### R2.3 — rights decision
+
+Technical usefulness is **proven**; production reuse is **not yet cleared**.
+
+Official material establishes that:
+
+- Peppol Directory is publicly searchable;
+- an automated public REST API is intentionally provided;
+- full XML/JSON/CSV exports are intentionally provided;
+- Business Cards are published voluntarily by SMP providers;
+- the Peppol Directory specification explicitly discusses reuse of the described components in scenarios unrelated to Peppol.
+
+However, the reviewed official material does **not** state an explicit open-data licence for the live Directory dataset itself. The Apache 2.0 statement on the Directory site applies to the **software**, not automatically to directory data. The specification's CC BY-NC-ND notice applies to the specification document, not automatically to the live dataset. The current Directory privacy policy further says that any personal data in the Directory may only be used as necessary for correct/effective/secure Peppol Network operation and limits permitted recipients.
+
+Therefore:
+
+- do not retain or publish Peppol contact data;
+- do not treat public availability or software licensing as a dataset reuse licence;
+- do not promote Peppol website candidates to production until the non-personal directory-data reuse position is explicitly documented/cleared;
+- if clearance is obtained, use Peppol only as candidate nomination and keep Signalpost's independent exact-company website verification unchanged.
 
 ## R3 — Data.norge source miner / registry union
 
