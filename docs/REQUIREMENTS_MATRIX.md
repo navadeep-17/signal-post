@@ -13,7 +13,7 @@ Updated: 2026-10-06
 - fresh artifact: `11386579108`
 - official Builderr score for this revision: **OPEN**
 
-The public qualification line is 65/100 overall. Score weights are recall/coverage 50, precision/evidence 30, synthesis 12 and UX 8.
+The public qualification line is 65/100 overall. Score weights are recall/coverage 50, precision/evidence 30, synthesis 12 and UX 8. These weighted dimensions are **not separate qualification thresholds**.
 
 | Requirement | Current evidence | Status |
 |---|---|---|
