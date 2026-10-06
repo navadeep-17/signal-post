@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/screen_brreg_email_domain_shadow_yield.py
       - tests/test_screen_brreg_email_domain_shadow_yield.py
+      - src/norway_company_agent/identity.py
       - .github/workflows/research-brreg-email-domain-shadow-yield.yml
   workflow_dispatch:
 
@@ -32,17 +33,14 @@ jobs:
       - name: Run candidate-selection tests
         run: |
           uv sync --locked
-          PYTHONPATH=src uv run --with pytest pytest -q tests/test_screen_brreg_email_domain_shadow_yield.py
+          PYTHONPATH=src uv run --with pytest pytest -q             tests/test_screen_brreg_email_domain_shadow_yield.py             tests/test_identity_org_conflict.py
 
       - name: Download archived exact-registry profiles
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p archived/final-release
-          gh run download 35246833190 \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'final-release-chunk-*' \
-            --dir archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
           COUNT="$(find archived/final-release -name profiles.jsonl | wc -l)"
           echo "profiles-files=$COUNT"
           test "$COUNT" -eq 10
@@ -52,12 +50,7 @@ jobs:
           PYTHONPATH: src
         run: |
           mkdir -p out/brreg-email-domain-shadow
-          uv run python scripts/screen_brreg_email_domain_shadow_yield.py \
-            --profiles-dir archived/final-release \
-            --output-contract-gz submission/final-release-1000-output.jsonl.gz \
-            --report out/brreg-email-domain-shadow/report.json \
-            --workers 6 \
-            --timeout 8
+          uv run python scripts/screen_brreg_email_domain_shadow_yield.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/brreg-email-domain-shadow/report.json             --workers 6             --timeout 8
           cat out/brreg-email-domain-shadow/report.json
 
       - name: Upload aggregate result only
