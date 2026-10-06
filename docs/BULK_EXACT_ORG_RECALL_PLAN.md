@@ -70,7 +70,7 @@ Decision: do not build a TED production path for the current random-company obje
 
 ## R2 — Peppol Directory bulk screen
 
-Status: **MATERIAL WEBSITE-CANDIDATE LIFT / PRODUCTION BLOCKED ON DIRECTORY-DATA RIGHTS**.
+Status: **DROP FOR PRODUCTION WEBSITE DISCOVERY — CANDIDATE REACH DID NOT SURVIVE EXACT VERIFICATION**.
 
 Implementation:
 
@@ -164,6 +164,36 @@ Therefore:
 - do not treat public availability or software licensing as a dataset reuse licence;
 - do not promote Peppol website candidates to production until the non-personal directory-data reuse position is explicitly documented/cleared;
 - if clearance is obtained, use Peppol only as candidate nomination and keep Signalpost's independent exact-company website verification unchanged.
+
+### R2.4 — exact website-verification transfer
+
+The apparent 47-company net-new candidate upper bound was tested with the existing
+Signalpost exact-company website verifier before any production consideration.
+
+Successful verification-yield run: **37412285620**.
+
+Frozen privacy-minimized artifact:
+
+- artifact ID: **11389623173**;
+- ZIP SHA-256: `100c8bca27ead0b2e75caf899c29a6b1fcd0f80af35572ead9a6e0bb7469529d`.
+
+Measured result:
+
+- net-new Peppol website candidates attempted: **47**;
+- logical site requests spent on independent verification: **87**;
+- exact publishable websites recovered: **1/47 = 2.13%**;
+- current website coverage: **107/1000**;
+- post-verification website coverage: **108/1000**;
+- net-new verified-site reach: **1/1000 = 0.1%**;
+- candidates with explicit wrong-organisation-number evidence: **10**;
+- transient fetch outcomes included blocked/source-error candidates;
+- raw candidate URLs and page content were not persisted by the frozen result.
+
+Decision: **DROP Peppol for the production website-discovery path**. The exact-org
+participant join is broad, but Directory website values do not transfer reliably to the
+target legal entity under Signalpost's precision boundary. This is a measured verification
+failure, not merely a rights deferral. Do not spend more source or site requests on this
+candidate family unchanged.
 
 ## R3 — Data.norge source miner / registry union
 
@@ -291,12 +321,88 @@ Rights note:
 
 Decision: retain Doffin as a possible later exact activity connector, but **do not promote it alone** for the score-critical path.
 
+## R6 — zero-request retained website recovery
+
+Status: **JSON-LD CONTACT RECOVERY QUALIFIED ON CONSUMED 1000 / RESEARCH-BRANCH PROMOTION CANDIDATE**.
+
+The first aggregate audit over the frozen 1000 output showed:
+
+- verified websites: **107/1000**;
+- current external contact-email companies: **53/1000**;
+- verified websites without an external contact-email claim: **54**;
+- structured Organization.description recovery: **0** safe candidates.
+
+Archived final-release run **35246833190** still retained the ten chunk-level
+`profiles.jsonl` files, allowing a zero-provider-request replay over the original exact-site
+snapshots.
+
+A loose retained-evidence audit found 8 additional same-domain email candidates. We then
+tightened the rule so that a schema.org Organization node is accepted only when that
+individual node:
+
+1. explicitly carries the exact target organisation number; or
+2. has no conflicting structured organisation number and its own legal/name field contains
+   every normalized target legal-name token.
+
+The email must be in an explicit schema field named `email` (including nested
+ContactPoint.email), must match the verified website registered domain, and still requires
+the already-passed exact website identity gate. Free-text JSON-LD and cross-domain contacts
+are ignored.
+
+Implementation:
+
+- `src/norway_company_agent/company_site_contact.py` — research-branch extension only;
+- expanded `tests/test_company_site_contact.py`;
+- `scripts/replay_jsonld_contact_recovery.py`;
+- `.github/workflows/research-jsonld-contact-recovery-replay.yml`.
+
+Replay run: **37418125650**.
+
+Frozen replay artifact:
+
+- artifact ID: **11391073124**;
+- ZIP SHA-256: `4baee50f604547217da8a6f4a997b34fe3ce90833dbae02ca4a4b93ba94920e1`.
+
+Measured replay result:
+
+- before contact companies: **53/1000**;
+- after contact companies: **58/1000**;
+- before contact claims: **57**;
+- after contact claims: **64**;
+- **7 net-new contact-email companies / 7 net-new claims**;
+- zero network requests;
+- zero third-party cost;
+- zero lost existing contacts;
+- zero observation-validation errors;
+- zero output-contract errors;
+- zero canonical-projection errors;
+- zero synthesis errors;
+- all seven recovered structured nodes used the target legal-name match gate;
+- raw email addresses were not retained in the research audit.
+
+The seven privacy-minimized audit rows were exact-site records for LEAN TECH AS, ENTALPY AS,
+TØLLEFSENHJØRNET AS, KINGS BAY AS, SLITASJETEKNIKK AS, TRUCKTECH AS and PROZO NORGE AS.
+Every recovered email domain matched the already-verified website registered domain.
+
+Full branch regression run **37418275911** passed after the contact change.
+
+Decision: this is a **small but legitimate zero-request promotion candidate** because it adds
+0.5 percentage points of company-level contact coverage without weakening website identity
+or consuming request budget. Keep it isolated until production-line ownership is explicitly
+coordinated; do not merge from this research chat into work happening elsewhere.
+
+Description recovery was separately checked and remains **DROP**: the existing website
+extractor already retains meta/OG description, and the archived profiles contained **0**
+additional safe schema.org Organization.description candidates among the missing cases.
+Do not synthesize company descriptions from arbitrary homepage prose.
+
 ## Current direction
 
-1. Treat the rights-clean official-activity union as measured and shelved for the immediate 65+/70+ objective; do not spend more time adding similarly narrow registries one by one.
-2. Peppol is now measured: 59.5% exact participant presence but only 7.8% website-value presence. Treat it as **not a breakthrough** unless rights are explicitly cleared and net-new verified-site transfer can be shown.
-3. Prioritize a genuinely new rights-safe source or a zero-extra-request reuse of data already being fetched. Prefer changes that improve website/contact/social/jobs/activity family coverage across materially more companies.
-4. Do not reopen Nkom unchanged (tested export URLs returned 404), OSM exact-org website discovery (1/1000 exact hit, 0 website candidates), or the current Finanstilsynet strategy (2/1000 exact hits in the five-page sample and no recent registrations).
-5. Keep SGregister/DSB and any other source with unresolved reuse rights out of the rights-clean production proposal even if raw coverage is attractive.
-6. Before another external download, audit existing production requests for **zero-extra-request field recovery** (for example structured identifiers/properties already returned by sources) because the theoretical 2,000/100 request ceiling is already full.
-7. Keep this entire track isolated from production and from fresh evaluator cohorts until a candidate demonstrates a material consumed-cohort lift that justifies explicit request-budget reallocation.
+1. Preserve the JSON-LD contact recovery as the current zero-request promotion candidate; do not merge it into production from this isolated research track.
+2. Peppol website discovery is now a measured **DROP**: 47 net-new candidates produced only 1 independently verified website after 87 logical site requests.
+3. Treat the rights-clean official-activity union as measured and shelved for the immediate 65+/70+ objective; another collection of similarly narrow activity registries is unlikely to close the recall gap.
+4. Continue only with either (a) a genuinely broad rights-safe exact-org source, or (b) zero-extra-request facts already retained by production that can be surfaced without semantic relabeling.
+5. Workforce snapshots remain size/workforce evidence, **not active hiring**. BRREG registry changes remain official registry events, **not company-authored news**.
+6. Do not reopen Nkom unchanged, OSM exact-org website discovery, the current Finanstilsynet pagination strategy, Patentstyret broad per-company lookup, or Peppol website nomination without a materially different retrieval signal.
+7. Keep SGregister/DSB and any source with unresolved persistent-reuse rights out of production proposals regardless of raw coverage.
+8. Keep this entire track isolated from production and fresh evaluator cohorts until a candidate demonstrates materially better consumed-cohort value than the already-measured paths.
