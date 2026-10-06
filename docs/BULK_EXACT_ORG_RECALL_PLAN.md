@@ -101,6 +101,46 @@ Promotion still requires:
 3. explicit directory-data reuse-rights clearance before any production proposal;
 4. independent Signalpost website verification for every candidate.
 
+## R2.1 — Peppol aggregate exact-org coverage rerun
+
+Status: **MEASURED / HIGH IDENTITY REACH, LOW WEBSITE TRANSFER / RIGHTS UNRESOLVED / DO NOT PROMOTE**.
+
+A privacy-minimized rerun was completed after the export window reopened:
+
+- workflow run: **37409836333**;
+- aggregate artifact: **11388863383**;
+- artifact digest: `6dc8619ca94cf1597b8ea06c86fa64aad539da511d93d6d37fbf65a875972dcb`;
+- export HTTP: **200**;
+- compressed export bytes: **358,316,202**;
+- export SHA-256: `3eb4cbf888f7117e87d638c1adcebb8b6efa72442f4eccfb64a770fe1852b06a`;
+- source rows: **9,016,262**;
+- Norwegian exact-`0192` rows: **388,726**;
+- malformed `0192` rows: **13**.
+
+Consumed cohorts:
+
+| Cohort | Exact Peppol participant | Participant reach | Website-value companies | Website-value reach |
+|---|---:|---:|---:|---:|
+| consumed 100 | 64 | 64.0% | 7 | 7.0% |
+| consumed 1000 | 595 | 59.5% | 78 | 7.8% |
+
+The rerun deliberately retained **aggregate counts only**:
+
+- no contact fields retained;
+- no raw names retained;
+- no raw website URLs retained;
+- no matched organisation-number lists retained;
+- bulk source deleted before artifact upload.
+
+Interpretation:
+
+- Peppol is a strong exact-org **identity-presence** source, but Signalpost already has exact BRREG identity for essentially every target.
+- The only potentially useful missing-family field observed here is website presence, and its **absolute ceiling is 78/1000 before overlap, independent verification, redirects, identity vetoes or request-budget effects**.
+- Therefore it cannot be treated as a 59.5% website-discovery breakthrough.
+- Directory-data reuse rights remain unresolved for Signalpost's product purpose; privacy/terms concerns also make contact-field use inappropriate for this path.
+
+Decision: **do not integrate Peppol into production and do not collect its contact fields**. Revisit only if an explicit permitted-use/licence basis is established and a rights-safe aggregate/net-new website experiment can justify the request budget.
+
 ## R3 — Data.norge source miner / registry union
 
 Status: **MINER IMPLEMENTED; FIRST SOURCE FAMILY SCREENED; CONTINUE SOURCE DISCOVERY**.
@@ -230,8 +270,9 @@ Decision: retain Doffin as a possible later exact activity connector, but **do n
 ## Current direction
 
 1. Treat the rights-clean official-activity union as measured and shelved for the immediate 65+/70+ objective; do not spend more time adding similarly narrow registries one by one.
-2. Prioritize sources that can materially improve **website/contact or broad company-level activity coverage**, because those can affect substantially more evaluator companies.
-3. The next highest-upside unresolved screen is the corrected Peppol exact-`0192` export because it can expose exact-org website candidates at broad scale. Run the coverage screen when the official export limit permits, but keep personal/contact data out of any production proposal unless its permitted-use basis is explicit.
-4. Peppol website values, if useful, remain **candidates only** and must pass Signalpost's existing independent exact-company website verification before publication.
+2. Peppol is now measured: 59.5% exact participant presence but only 7.8% website-value presence. Treat it as **not a breakthrough** unless rights are explicitly cleared and net-new verified-site transfer can be shown.
+3. Prioritize a genuinely new rights-safe source or a zero-extra-request reuse of data already being fetched. Prefer changes that improve website/contact/social/jobs/activity family coverage across materially more companies.
+4. Do not reopen Nkom unchanged (tested export URLs returned 404), OSM exact-org website discovery (1/1000 exact hit, 0 website candidates), or the current Finanstilsynet strategy (2/1000 exact hits in the five-page sample and no recent registrations).
 5. Keep SGregister/DSB and any other source with unresolved reuse rights out of the rights-clean production proposal even if raw coverage is attractive.
-6. Keep this entire track isolated from production and from fresh evaluator cohorts until a candidate demonstrates a material consumed-cohort lift that justifies explicit request-budget reallocation.
+6. Before another external download, audit existing production requests for **zero-extra-request field recovery** (for example structured identifiers/properties already returned by sources) because the theoretical 2,000/100 request ceiling is already full.
+7. Keep this entire track isolated from production and from fresh evaluator cohorts until a candidate demonstrates a material consumed-cohort lift that justifies explicit request-budget reallocation.
