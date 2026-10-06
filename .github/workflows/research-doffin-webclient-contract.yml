@@ -1,0 +1,101 @@
+name: Research Doffin Webclient Contract Extraction
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-webclient-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch live frontend bundle
+        run: |
+          mkdir -p out/js
+          curl --fail --location --compressed \
+            --user-agent 'Signalpost-research-source-screen/1.0' \
+            'https://www.doffin.no/' -o out/index.html
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess, hashlib
+
+          html=Path('out/index.html').read_text(encoding='utf-8',errors='replace')
+          refs=sorted(set(re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']',html,re.I)))
+          print('script-count=',len(refs))
+          for ref in refs:
+              url=urljoin('https://www.doffin.no/',ref)
+              dest=Path('out/js')/(hashlib.sha256(url.encode()).hexdigest()[:12]+'.js')
+              cp=subprocess.run([
+                  'curl','--silent','--show-error','--location','--compressed',
+                  '--user-agent','Signalpost-research-source-screen/1.0',
+                  '--write-out','%{http_code}',url,'--output',str(dest)
+              ],capture_output=True,text=True)
+              print('asset',cp.stdout.strip(),url,dest)
+              if cp.returncode or cp.stdout.strip()!='200':
+                  dest.unlink(missing_ok=True)
+          PY
+
+      - name: Extract only anonymous webclient service code
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          for p in Path('out/js').glob('*.js'):
+              s=p.read_text(encoding='utf-8',errors='replace')
+              if 'api.doffin.no/webclient/api/v2' not in s:
+                  continue
+              print('BUNDLE',p,'bytes=',len(s))
+
+              for needle in [
+                  'https://api.doffin.no/webclient/api/v2/',
+                  'webclient/api/v2/notice',
+                  'baseURL:Hl',
+                  'Mu=',
+                  'Nu=',
+                  'Fu=',
+              ]:
+                  pos=[m.start() for m in re.finditer(re.escape(needle),s)]
+                  print('\n===',needle,'count=',len(pos),'===')
+                  for idx in pos[:12]:
+                      print(s[max(0,idx-3500):min(len(s),idx+9000)])
+                      print('\n---')
+
+              print('\n=== axios calls using Mu / Nu ===')
+              patterns=[
+                  r'Mu\.(?:get|post|put|delete|patch)\([^;]{0,2400}',
+                  r'Nu\.(?:get|post|put|delete|patch)\([^;]{0,2400}',
+                  r'\.(?:get|post)\(Fu\(\[[^\]]{0,1200}\]\)[^;]{0,1800}',
+              ]
+              seen=set()
+              for pat in patterns:
+                  for m in re.finditer(pat,s):
+                      val=m.group(0)
+                      if val in seen:
+                          continue
+                      seen.add(val)
+                      print(val[:5000])
+                      print('---')
+
+              print('\n=== likely endpoint literals ===')
+              lits=set(re.findall(r'["\']([^"\']{1,220})["\']',s))
+              for lit in sorted(lits):
+                  low=lit.lower()
+                  if any(k in low for k in ['notice','search','query','award','supplier','winner','contract']):
+                      if lit.startswith('/') or len(lit)<100:
+                          print(lit)
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
