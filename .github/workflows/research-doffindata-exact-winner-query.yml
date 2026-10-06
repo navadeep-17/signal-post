@@ -202,8 +202,41 @@ jobs:
           # Inspect DSR response generically. Only print bounded non-sensitive public result data.
           text=json.dumps(exact_resp,ensure_ascii=False)
           orgs=sorted(set(ORG_RE.findall(text)))
+          print("exact-response-type=",type(exact_resp).__name__)
+          if isinstance(exact_resp,list):
+              print("exact-response-list-count=",len(exact_resp))
+              if exact_resp:
+                  print("exact-response-first-type=",type(exact_resp[0]).__name__)
+                  if isinstance(exact_resp[0],dict):
+                      print("exact-response-first-keys=",sorted(exact_resp[0])[:100])
+          elif isinstance(exact_resp,dict):
+              print("exact-response-dict-keys=",sorted(exact_resp)[:100])
+          print("exact-response-sample=",text[:30000])
           print("nine-digit-values-count=",len(orgs))
           print("nine-digit-values-sample=",orgs[:80])
+
+          # Find identifier-like public scalar values even when Power BI dictionary-encodes them.
+          interesting=[]
+          def scalar_scan(obj,path="root",depth=0):
+              if depth>14:return
+              if isinstance(obj,dict):
+                  for k,v in obj.items():
+                      scalar_scan(v,f"{path}.{k}",depth+1)
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj[:500]):
+                      scalar_scan(v,f"{path}[{i}]",depth+1)
+              elif isinstance(obj,str):
+                  low=obj.lower()
+                  if (
+                      any(ch.isdigit() for ch in obj)
+                      or "winner" in low or "leverand" in low
+                      or "org" in low or "contract" in low
+                  ):
+                      interesting.append((path,obj))
+          scalar_scan(exact_resp)
+          print("interesting-scalar-count=",len(interesting))
+          for path,value in interesting[:300]:
+              print("SCALAR",path,"=",repr(value[:1000]))
 
           def walk(obj,path="root",depth=0):
               if depth>12:return
