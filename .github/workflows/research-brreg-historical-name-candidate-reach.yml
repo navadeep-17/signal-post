@@ -1,11 +1,6 @@
 name: Research BRREG Historical-Name Candidate Reach
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-historical-name-candidate-reach.yml
   workflow_dispatch:
 
 permissions:
