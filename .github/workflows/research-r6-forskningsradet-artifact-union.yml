@@ -1,0 +1,98 @@
+name: Research R6 Forskningsradet Artifact Union
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-r6-forskningsradet-artifact-union.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run artifact-union tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_compare_bulk_exact_org_union.py
+
+      - name: Download frozen research artifacts only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/r6/landbruk out/r6/arbeid out/r6/sgregister out/r6/dsb out/r6/forskningsradet
+          gh run download 37345868675 --repo "$GITHUB_REPOSITORY" --name research-landbruk-support-reach --dir out/r6/landbruk
+          gh run download 37347436734 --repo "$GITHUB_REPOSITORY" --name research-arbeidstilsynet-registry-union --dir out/r6/arbeid
+          gh run download 37347732285 --repo "$GITHUB_REPOSITORY" --name research-sgregister-bulk-reach --dir out/r6/sgregister
+          gh run download 37402490263 --repo "$GITHUB_REPOSITORY" --name research-dsb-elvirksomhet-reach --dir out/r6/dsb
+          gh run download 37404722383 --repo "$GITHUB_REPOSITORY" --name research-forskningsradet-project-reach --dir out/r6/forskningsradet
+
+      - name: Compare R4 plus Forskningsradet
+        run: |
+          uv run python scripts/compare_bulk_exact_org_union.py \
+            --source landbruk=out/r6/landbruk/landbruk/matched-companies.jsonl \
+            --source arbeidstilsynet=out/r6/arbeid/arbeidstilsynet/matched-companies-1000.jsonl \
+            --source sgregister=out/r6/sgregister/sgregister/matched-companies-1000.jsonl \
+            --source forskningsradet=out/r6/forskningsradet/forskningsradet-1000/matched-companies.jsonl \
+            --source-report landbruk=out/r6/landbruk/landbruk/report.json \
+            --source-report arbeidstilsynet=out/r6/arbeid/arbeidstilsynet/report.json \
+            --source-report sgregister=out/r6/sgregister/sgregister/report.json \
+            --source-report forskningsradet=out/r6/forskningsradet/forskningsradet-1000/report.json \
+            --original-requests landbruk=1 \
+            --original-requests arbeidstilsynet=2 \
+            --original-requests sgregister=1 \
+            --original-requests forskningsradet=1 \
+            --cohort-size 1000 \
+            --consumed-100 out/r6/sgregister/consumed-100.jsonl \
+            --output-dir out/r6-union-r4-nfr
+          echo '=== R4 + Forskningsradet ==='
+          cat out/r6-union-r4-nfr/report.json
+
+      - name: Compare R4 plus DSB plus Forskningsradet
+        run: |
+          uv run python scripts/compare_bulk_exact_org_union.py \
+            --source landbruk=out/r6/landbruk/landbruk/matched-companies.jsonl \
+            --source arbeidstilsynet=out/r6/arbeid/arbeidstilsynet/matched-companies-1000.jsonl \
+            --source sgregister=out/r6/sgregister/sgregister/matched-companies-1000.jsonl \
+            --source dsb=out/r6/dsb/dsb-1000/matched-companies.jsonl \
+            --source forskningsradet=out/r6/forskningsradet/forskningsradet-1000/matched-companies.jsonl \
+            --source-report landbruk=out/r6/landbruk/landbruk/report.json \
+            --source-report arbeidstilsynet=out/r6/arbeid/arbeidstilsynet/report.json \
+            --source-report sgregister=out/r6/sgregister/sgregister/report.json \
+            --source-report dsb=out/r6/dsb/dsb-1000/report.json \
+            --source-report forskningsradet=out/r6/forskningsradet/forskningsradet-1000/report.json \
+            --original-requests landbruk=1 \
+            --original-requests arbeidstilsynet=2 \
+            --original-requests sgregister=1 \
+            --original-requests dsb=1 \
+            --original-requests forskningsradet=1 \
+            --cohort-size 1000 \
+            --consumed-100 out/r6/sgregister/consumed-100.jsonl \
+            --output-dir out/r6-union-r4-dsb-nfr
+          echo '=== R4 + DSB + Forskningsradet ==='
+          cat out/r6-union-r4-dsb-nfr/report.json
+
+      - name: Upload frozen R6 union evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-r6-forskningsradet-artifact-union
+          retention-days: 30
+          path: |
+            out/r6-union-r4-nfr/report.json
+            out/r6-union-r4-nfr/union-companies.jsonl
+            out/r6-union-r4-dsb-nfr/report.json
+            out/r6-union-r4-dsb-nfr/union-companies.jsonl
