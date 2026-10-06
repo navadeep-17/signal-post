@@ -1,0 +1,54 @@
+name: Research Retained Hiring-News Audit
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-retained-hiring-news-audit.yml
+      - scripts/audit_retained_first_party_surfaces.py
+      - tests/test_audit_retained_first_party_surfaces.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Test retained-surface audit
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_audit_retained_first_party_surfaces.py
+
+      - name: Download archived exact-site profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Audit hiring and dated-news surfaces with zero source requests
+        run: |
+          mkdir -p out/retained-surfaces
+          uv run python scripts/audit_retained_first_party_surfaces.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/retained-surfaces/report.json
+          cat out/retained-surfaces/report.json
+
+      - name: Upload aggregate audit only
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-retained-hiring-news-audit
+          retention-days: 30
+          path: out/retained-surfaces/report.json
