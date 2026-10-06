@@ -1,0 +1,47 @@
+name: Research Wikidata Social Candidate Coverage
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-wikidata-social-candidates.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run network-free tests
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_screen_wikidata_social_candidates.py
+
+      - name: Screen exact-org online-account candidate coverage
+        run: |
+          mkdir -p out/wikidata-social
+          uv run python scripts/screen_wikidata_social_candidates.py             --companies submission/final-release-1000.jsonl             --baseline-output submission/final-release-1000-output.jsonl.gz             --output out/wikidata-social/report.json             --batch-size 100             --timeout 15
+          cat out/wikidata-social/report.json
+
+      - name: Upload aggregate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-wikidata-social-candidates
+          retention-days: 30
+          if-no-files-found: warn
+          path: out/wikidata-social/report.json
