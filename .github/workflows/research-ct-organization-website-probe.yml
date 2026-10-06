@@ -1,0 +1,78 @@
+name: Research CT Organization Website Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-ct-organization-website-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe crt.sh exact organizationName on public evaluator example
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import json
+          import subprocess
+          import urllib.parse
+          from pathlib import Path
+
+          legal_name="ELOPAK ASA"
+          params={
+              "O":legal_name,
+              "match":"=",
+              "exclude":"expired",
+              "deduplicate":"Y",
+              "output":"json",
+          }
+          url="https://crt.sh/?"+urllib.parse.urlencode(params)
+          cp=subprocess.run([
+              "curl","--silent","--show-error","--location","--compressed",
+              "--user-agent","Signalpost-research-source-screen/1.0",
+              "--connect-timeout","10","--max-time","60",
+              "--write-out","%{http_code}",
+              url,"--output","out/response.json"
+          ],capture_output=True,text=True)
+          print("http=",cp.stdout.strip(),"rc=",cp.returncode)
+          raw=Path("out/response.json").read_bytes() if Path("out/response.json").exists() else b""
+          print("bytes=",len(raw))
+          if cp.returncode or cp.stdout.strip()!="200":
+              raise SystemExit("crt.sh organization probe failed")
+          try:
+              data=json.loads(raw.decode("utf-8")) if raw else []
+          except Exception:
+              print(raw[:4000].decode("utf-8",errors="replace"))
+              raise
+          print("records=",len(data) if isinstance(data,list) else -1)
+          domains=set()
+          fields=set()
+          for row in data if isinstance(data,list) else []:
+              if not isinstance(row,dict): continue
+              fields.update(row.keys())
+              for key in ("common_name","name_value"):
+                  value=row.get(key)
+                  if isinstance(value,str):
+                      for part in value.replace("\\n","\n").splitlines():
+                          part=part.strip().casefold().lstrip("*.")
+                          if "." in part and " " not in part:
+                              domains.add(part)
+          print("fields=",sorted(fields))
+          print("unique-domain-identities=",len(domains))
+          print("contains-elopak.com=",any(d=="elopak.com" or d.endswith(".elopak.com") for d in domains))
+          for domain in sorted(domains)[:100]:
+              print("DOMAIN",domain)
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
