@@ -113,6 +113,7 @@ jobs:
                       safe_walk(v, f"{path}[{i}]", depth + 1)
 
           # Decode URL config only when it is ordinary encoded JSON/base64.
+          config_cluster = ""
           for key in ("config", "settings"):
               for raw_value in query.get(key, [])[:2]:
                   candidates = [raw_value, unquote(raw_value)]
@@ -133,6 +134,10 @@ jobs:
                       if decoded is not None:
                           print("decoded-embed-config-key=", key)
                           safe_walk(decoded, "embedConfig")
+                          if isinstance(decoded, dict):
+                              v = decoded.get("clusterUrl") or decoded.get("resolvedCluster")
+                              if isinstance(v, str) and urlish.match(v):
+                                  config_cluster = v.rstrip("/")
                           break
 
           # Decode JWT-like payload locally and expose only model/cluster/report-style claims.
@@ -158,51 +163,75 @@ jobs:
                   "Referer": "https://app.powerbi.com/",
               }
 
-          cluster_candidates = []
-          # First reproduce the report shell's cluster-resolution request against app.powerbi.com.
+          if not config_cluster:
+              raise SystemExit("embed config did not expose clusterUrl")
+          print("config-cluster-host=", urlparse(config_cluster).hostname)
+
+          # Resolve from the redirect cluster first. If it does not yield JSON, the
+          # redirect cluster itself is still a valid model-call candidate.
+          cluster_hosts = [config_cluster]
           for prefix in ("EmbedToken", "Bearer"):
               status, obj, raw, ctype = request_json(
-                  "https://app.powerbi.com/metadata/cluster",
+                  config_cluster + "/metadata/cluster",
                   headers=pbi_headers(prefix),
               )
-              print("cluster-probe-prefix=", prefix, "http=", status, "bytes=", len(raw))
-              if isinstance(obj, dict):
-                  print("cluster-response-keys=", sorted(obj)[:80])
+              print(
+                  "redirect-cluster-probe-prefix=", prefix,
+                  "http=", status,
+                  "bytes=", len(raw),
+                  "content-type=", ctype.split(";")[0],
+              )
+              if isinstance(obj, dict) and obj:
+                  print("redirect-cluster-response-keys=", sorted(obj)[:80])
                   for k in ("clusterUrl", "backendUrl"):
                       v = obj.get(k)
                       if isinstance(v, str) and urlish.match(v):
-                          print("cluster-"+k+"=", v)
-                          cluster_candidates.append((prefix, v.rstrip("/")))
-              if cluster_candidates:
+                          print("resolved-"+k+"-host=", urlparse(v).hostname)
+                          cluster_hosts.insert(0, v.rstrip("/"))
+
+          cluster_hosts = list(dict.fromkeys(cluster_hosts))
+          print("cluster-host-candidate-count=", len(cluster_hosts))
+          for host in cluster_hosts:
+              print("cluster-host-candidate=", urlparse(host).hostname)
+
+          # Try the exact shell-documented report call, selecting the first
+          # host/auth combination that returns JSON successfully.
+          selected = None
+          model_obj = {}
+          model_raw = b""
+          for host in cluster_hosts:
+              for auth_prefix in ("EmbedToken", "Bearer"):
+                  model_url = (
+                      f"{host}/explore/reports/{REPORT}/modelsAndExploration"
+                      "?preferReadOnlySession=true&skipQueryData=true"
+                  )
+                  st, obj, raw, ct = request_json(
+                      model_url,
+                      headers=pbi_headers(auth_prefix),
+                      timeout=45,
+                  )
+                  print(
+                      "models-probe-host=", urlparse(host).hostname,
+                      "auth-prefix=", auth_prefix,
+                      "http=", st,
+                      "bytes=", len(raw),
+                      "content-type=", ct.split(";")[0],
+                  )
+                  if st == 200 and isinstance(obj, dict) and obj:
+                      selected = (auth_prefix, host)
+                      status, model_obj, model_raw, ctype = st, obj, raw, ct
+                      break
+              if selected:
                   break
 
-          # Also admit a safely exposed cluster URL from decoded metadata if present.
-          # (The exact token itself is never printed or persisted.)
-          cluster_candidates = list(dict.fromkeys(cluster_candidates))
-          if not cluster_candidates:
-              raise SystemExit("could not resolve public Power BI cluster")
+          if not selected:
+              raise SystemExit("modelsAndExploration request failed on all public embed candidates")
 
-          prefix, cluster = cluster_candidates[0]
+          prefix, cluster = selected
           print("selected-auth-prefix=", prefix)
           print("selected-cluster-host=", urlparse(cluster).hostname)
-
-          model_url = (
-              f"{cluster}/explore/reports/{REPORT}/modelsAndExploration"
-              "?preferReadOnlySession=true&skipQueryData=true"
-          )
-          status, model_obj, model_raw, ctype = request_json(
-              model_url,
-              headers=pbi_headers(prefix),
-              timeout=45,
-          )
           print("models-http=", status, "bytes=", len(model_raw))
-          if isinstance(model_obj, dict):
-              print("models-top-keys=", sorted(model_obj)[:100])
-          if status != 200:
-              # Print only bounded non-secret error shape.
-              if isinstance(model_obj, dict):
-                  print("models-error-keys=", sorted(model_obj)[:80])
-              raise SystemExit("modelsAndExploration request failed")
+          print("models-top-keys=", sorted(model_obj)[:100])
 
           # Extract only IDs, model/report structure, and field/name strings relevant to exact-org procurement.
           dataset_ids = set()
