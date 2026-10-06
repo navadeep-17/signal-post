@@ -1,0 +1,62 @@
+name: Research Combined Zero-Network Enrichment Gate
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - scripts/gate_zero_network_enrichment_bundle.py
+      - tests/test_zero_network_enrichment_bundle.py
+      - .github/workflows/research-zero-network-enrichment-bundle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run focused regressions
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_zero_network_enrichment_bundle.py             tests/test_company_site_contact.py             tests/test_v6e_zero_network_social_recovery.py             tests/test_company_site_social.py             tests/test_canonical_projection.py
+
+      - name: Restore archived final-release profiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p archived/final-release out/zero-network-bundle
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --pattern 'final-release-chunk-*'             --dir archived/final-release
+          test "$(find archived/final-release -name profiles.jsonl | wc -l)" -eq 10
+
+      - name: Gate combined zero-network enrichment
+        run: |
+          uv run python scripts/gate_zero_network_enrichment_bundle.py             --profiles-dir archived/final-release             --output-contract-gz submission/final-release-1000-output.jsonl.gz             --report out/zero-network-bundle/report.json
+          cat out/zero-network-bundle/report.json
+
+      - name: Remove archived/raw profile material
+        if: always()
+        run: rm -rf archived/final-release
+
+      - name: Upload aggregate result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-combined-zero-network-enrichment-gate
+          retention-days: 30
+          path: out/zero-network-bundle/report.json
