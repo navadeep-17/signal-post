@@ -233,25 +233,42 @@ def discover(
     max_resolve: int,
     timeout: float,
     sleep_seconds: float,
+    candidate_file: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     discovered: dict[str, dict[str, Any]] = {}
     matched_queries: dict[str, set[str]] = {}
 
     search_requests = 0
-    for query in QUERIES:
-        hits = search(query, size=size, timeout=timeout)
-        search_requests += 1
-        for hit in hits:
-            if not candidate_hit(hit):
+    if candidate_file is not None:
+        for line in candidate_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
                 continue
-            dataset_id = hit_id(hit)
+            hit = json.loads(line)
+            if not isinstance(hit, dict) or not candidate_hit(hit):
+                continue
+            dataset_id = str(hit.get("dataset") or hit.get("dataset_id") or "").strip()
             if not dataset_id:
                 continue
             discovered.setdefault(dataset_id, hit)
-            matched_queries.setdefault(dataset_id, set()).add(query)
+            queries = hit.get("matched_queries") or ["frozen_broad_catalogue"]
+            matched_queries.setdefault(dataset_id, set()).update(str(q) for q in queries)
+    else:
+        for query in QUERIES:
+            hits = search(query, size=size, timeout=timeout)
+            search_requests += 1
+            for hit in hits:
+                # The query itself is supplier-specific, but retain a semantic
+                # guard when searchable hit fields are present.
+                if hit_text(hit).strip() and not candidate_hit(hit):
+                    continue
+                dataset_id = hit_id(hit)
+                if not dataset_id:
+                    continue
+                discovered.setdefault(dataset_id, hit)
+                matched_queries.setdefault(dataset_id, set()).add(query)
 
-    # Resolve strongest search hits deterministically. Search ranking is preserved by
-    # insertion order; this remains metadata-only and bounded.
+    # Resolve strongest candidates deterministically. When consuming the frozen
+    # broad-catalogue artifact, its prior source-selection order is preserved.
     ids = list(discovered)[:max_resolve]
     rows: list[dict[str, Any]] = []
     resolve_errors: list[dict[str, str]] = []
@@ -278,7 +295,8 @@ def discover(
     )
     report = {
         "screen_type": "data_norge_supplier_dataset_metadata_resolution",
-        "queries": list(QUERIES),
+        "queries": list(QUERIES) if candidate_file is None else ["frozen_broad_catalogue"],
+        "candidate_file": str(candidate_file) if candidate_file is not None else None,
         "search_requests": search_requests,
         "candidate_search_hits": len(discovered),
         "resource_requests": len(ids),
@@ -311,6 +329,7 @@ def main() -> int:
     ap.add_argument("--max-resolve", type=int, default=20)
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--sleep-seconds", type=float, default=0.25)
+    ap.add_argument("--candidate-file", type=Path)
     args = ap.parse_args()
 
     if args.size < 1 or args.size > 100:
@@ -325,6 +344,7 @@ def main() -> int:
         max_resolve=args.max_resolve,
         timeout=args.timeout,
         sleep_seconds=args.sleep_seconds,
+        candidate_file=args.candidate_file,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "candidates.jsonl").write_text(
