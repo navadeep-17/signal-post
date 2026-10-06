@@ -1,11 +1,6 @@
 name: Research BRREG Historical-Name Survivor Verification
 
 on:
-  push:
-    branches:
-      - research/bulk-exact-org-recall
-    paths:
-      - .github/workflows/research-brreg-historical-name-survivor.yml
   workflow_dispatch:
 
 permissions:
