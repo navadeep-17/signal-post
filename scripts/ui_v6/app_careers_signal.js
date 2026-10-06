@@ -1,3 +1,5 @@
+const spCareersSurfaceLabel='Careers surface found.'
+const spCareersOnlyBoundary='A verified company-owned careers page is published, but the current evidence does not establish an active vacancy.'
 function spCareersFacts(x){return facts(x,'careers_page')}
 function spHiringIntentFacts(x){return facts(x,'hiring_intent')}
 function spJobFacts(x){return facts(x,'job_posting')}
