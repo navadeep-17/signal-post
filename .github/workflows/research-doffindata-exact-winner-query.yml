@@ -21,7 +21,7 @@ jobs:
       - name: Query public report for exact winner identifiers
         run: |
           python - <<'PY'
-          import base64, copy, json, re, uuid
+          import base64, copy, gzip, json, re, uuid, zlib
           from urllib.parse import urlparse, parse_qs
           from urllib.request import Request, urlopen
           from urllib.error import HTTPError
@@ -47,8 +47,37 @@ jobs:
                       raw=x.read(); status=x.status; ctype=x.headers.get("Content-Type","")
               except HTTPError as e:
                   raw=e.read(); status=e.code; ctype=e.headers.get("Content-Type","") if e.headers else ""
-              try: obj=json.loads(raw.decode()) if raw else {}
-              except Exception: obj={}
+              wire_raw=raw
+              # Power BI may return compressed JSON even when a minimal urllib client
+              # did not explicitly negotiate it. Normalize transport before parsing.
+              if raw.startswith(b"\\x1f\\x8b"):
+                  try: raw=gzip.decompress(raw)
+                  except Exception: pass
+              elif len(raw)>=2 and raw[0] == 0x78:
+                  try: raw=zlib.decompress(raw)
+                  except Exception: pass
+              decoded=""
+              try: decoded=raw.decode("utf-8-sig")
+              except Exception:
+                  try: decoded=raw.decode("utf-8",errors="replace")
+                  except Exception: decoded=""
+              # Strip the standard anti-XSSI prefix when present.
+              stripped=decoded.lstrip()
+              if stripped.startswith(")]}'"):
+                  nl=stripped.find("\\n")
+                  stripped=stripped[nl+1:] if nl>=0 else stripped[4:]
+              try:
+                  obj=json.loads(stripped) if stripped else {}
+              except Exception as exc:
+                  obj={}
+                  print(
+                      "json-parse-failed status=",status,
+                      "wire-bytes=",len(wire_raw),
+                      "decoded-bytes=",len(raw),
+                      "wire-prefix-hex=",wire_raw[:24].hex(),
+                      "decoded-prefix=",repr(decoded[:240]),
+                      "error=",type(exc).__name__,
+                  )
               return status,obj,raw,ctype
 
           st,embed,_,_=req(TOKEN_URL)
