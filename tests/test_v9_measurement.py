@@ -6,7 +6,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from norway_company_agent.v9_measurement import compare_company_family_coverage  # noqa: E402
+from norway_company_agent.v9_measurement import (  # noqa: E402
+    compare_company_family_coverage,
+    publication_diff,
+)
 
 
 def row(org: str, fields: list[str], *, requests: int = 1) -> dict:
@@ -67,3 +70,21 @@ def test_compare_rejects_non_identical_cohorts() -> None:
         assert "organisation sets differ" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_publication_diff_carries_referenced_evidence() -> None:
+    baseline = [row("111111111", [])]
+    challenger = [row("111111111", ["official_website"])]
+    challenger[0]["evidence"] = [
+        {
+            "id": "e:official_website",
+            "source_url": "https://example.no/",
+            "retrieved_at": "2026-10-06T00:00:00Z",
+            "claim_span": "verified website",
+        }
+    ]
+    audit = publication_diff(baseline, challenger)
+    assert len(audit["added"]) == 1
+    assert audit["lost"] == []
+    assert audit["added"][0]["field"] == "official_website"
+    assert audit["added"][0]["evidence"][0]["source_url"] == "https://example.no/"
