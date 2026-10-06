@@ -165,7 +165,32 @@ uv run python scripts/verify_submission_bundle.py
 
 The frozen V1 submission verifier remains immutable.
 
-## 9. References
+## 9. Preserved compatibility and publication boundaries
+
+The current V8 evaluator continues to delegate through the certified compatibility path, including `scripts/run_signalpost_v2.py`. The immutable certified 1,000-company projection still contains **19,951** canonical facts with zero canonical validation errors, including **3,932** current individual role facts.
+
+Historical strict-activity diagnostics remain preserved as compatibility evidence:
+
+| Historical V2 diagnostic | Result |
+|---|---:|
+| Strict job-posting facts | **0** |
+| Strict dated company-update facts | **0** |
+
+Those historical zeroes are abstentions from the certified baseline, not claims that current companies have no jobs or updates. Current production may publish newer first-party activity only when its stricter evidence rules pass.
+
+A strict job posting requires the same verified company-owned site, a role/job **detail URL**, a specific title, a job-detail marker, and an **explicit apply/application action**.
+
+A strict dated company update requires the same verified company-owned site, a specific article/update **detail URL**, a non-generic title, and an **explicit publication date**.
+
+A **generic careers** page remains a careers signal rather than proof of an active vacancy. A company-declared social profile means only that the verified company page declared that URL; Signalpost does not infer a current **follower** count from it. A retained contact email does not establish **mailbox deliverability**.
+
+The evaluator workspace preserves descriptive **Compare companies** behavior without ranking companies.
+
+Server-side secrets required: **none**.
+
+The last known public Builderr result remains **65/100** until the newly qualified revision is explicitly submitted and evaluated. Recall/coverage, precision/evidence, synthesis and UX are score dimensions; they are **not separate qualification thresholds**.
+
+## 10. References
 
 - `README.md`
 - `docs/Q8_RELEASE_QUALIFICATION.md`
