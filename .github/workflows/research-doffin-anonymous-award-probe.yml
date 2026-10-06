@@ -1,0 +1,174 @@
+name: Research Doffin Anonymous Award Probe
+
+on:
+  push:
+    branches:
+      - research/bulk-exact-org-recall
+    paths:
+      - .github/workflows/research-doffin-anonymous-award-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe known notice details anonymously
+        run: |
+          mkdir -p out
+          BASE='https://api.doffin.no/webclient/api/v2/notices-api'
+          for ID in 2025-103230 2026-114260; do
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' \
+              --connect-timeout 10 --max-time 30 \
+              --write-out '%{http_code}' "${BASE}/notices/${ID}" \
+              -o "out/notice-${ID}.json" || true)"
+            echo "=== NOTICE ${ID} http=${CODE} ==="
+            python - "${ID}" <<'PY'
+          import json,re,sys
+          from pathlib import Path
+          ident=sys.argv[1]
+          p=Path(f'out/notice-{ident}.json')
+          text=p.read_text(encoding='utf-8',errors='replace') if p.exists() else ''
+          print('bytes=',len(text))
+          try:
+              data=json.loads(text)
+          except Exception:
+              print(text[:12000]); raise SystemExit
+          print('top-type=',type(data).__name__)
+          if isinstance(data,dict):
+              print('top-keys=',sorted(data))
+          orgs=sorted(set(re.findall(r'(?<!\d)\d{9}(?!\d)',text)))
+          print('nine-digit-values=',orgs)
+          def walk(value,path=''):
+              if isinstance(value,dict):
+                  for k,v in value.items():
+                      pth=f'{path}.{k}' if path else k
+                      if any(term in k.lower() for term in ['winner','supplier','organization','organisation','registration','award','contract','tenderer','party']):
+                          snippet=json.dumps(v,ensure_ascii=False,sort_keys=True)
+                          print('FIELD',pth,'=',snippet[:12000])
+                      walk(v,pth)
+              elif isinstance(value,list):
+                  for i,v in enumerate(value[:80]):
+                      walk(v,f'{path}[{i}]')
+          walk(data)
+          PY
+          done
+
+      - name: Probe anonymous search by exact known winner org number
+        run: |
+          URL='https://api.doffin.no/webclient/api/v2/search-api/search'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          base={
+            'numHitsPerPage':20,
+            'page':1,
+            'sortBy':'RELEVANCE',
+            'facets':{
+              'cpvCodesLabel':{'checkedItems':[]},
+              'cpvCodesId':{'checkedItems':[]},
+              'type':{'checkedItems':[]},
+              'status':{'checkedItems':[]},
+              'contractNature':{'checkedItems':[]},
+              'procurementStrategicLabels':{'checkedItems':[]},
+              'publicationDate':{'from':None,'to':None},
+              'location':{'checkedItems':[]},
+              'buyer':{'checkedItems':[]},
+              'winner':{'checkedItems':[]}
+            }
+          }
+          for name,term in [
+            ('org','913168100'),
+            ('winner-name','KONS AS'),
+            ('known-notice','2025-103230'),
+          ]:
+              payload={**base,'searchString':term}
+              Path(f'out/search-{name}.json').write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8')
+          PY
+
+          for NAME in org winner-name known-notice; do
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' \
+              --header 'Content-Type: application/json' \
+              --connect-timeout 10 --max-time 30 \
+              --data-binary "@out/search-${NAME}.json" \
+              --write-out '%{http_code}' "$URL" \
+              -o "out/search-${NAME}.response.json" || true)"
+            echo "=== SEARCH ${NAME} http=${CODE} ==="
+            python - "${NAME}" <<'PY'
+          import json,re,sys
+          from pathlib import Path
+          name=sys.argv[1]
+          text=Path(f'out/search-{name}.response.json').read_text(encoding='utf-8',errors='replace')
+          print('bytes=',len(text))
+          try: data=json.loads(text)
+          except Exception:
+              print(text[:12000]); raise SystemExit
+          print('keys=',sorted(data) if isinstance(data,dict) else type(data).__name__)
+          if isinstance(data,dict):
+              for key in ['numHitsTotal','numHitsPerPage','page','totalHits']:
+                  if key in data: print(key,'=',data[key])
+              print('activeFacets=',json.dumps(data.get('activeFacets'),ensure_ascii=False,sort_keys=True)[:16000])
+              results=data.get('notices') or data.get('results') or data.get('items') or []
+              print('result-count=',len(results))
+              for i,row in enumerate(results[:5]):
+                  print('RESULT',i,json.dumps(row,ensure_ascii=False,sort_keys=True)[:16000])
+          print('nine-digit-values=',sorted(set(re.findall(r'(?<!\d)\d{9}(?!\d)',text)))[:100])
+          PY
+          done
+
+      - name: Probe winner suggestions for org and name
+        run: |
+          URL='https://api.doffin.no/webclient/api/v2/search-api/search/suggest'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          facets={
+            'cpvCodesLabel':{'checkedItems':[]},
+            'cpvCodesId':{'checkedItems':[]},
+            'type':{'checkedItems':[]},
+            'status':{'checkedItems':[]},
+            'contractNature':{'checkedItems':[]},
+            'procurementStrategicLabels':{'checkedItems':[]},
+            'publicationDate':{'from':None,'to':None},
+            'location':{'checkedItems':[]},
+            'buyer':{'checkedItems':[]},
+            'winner':{'checkedItems':[]}
+          }
+          for name,term in [('org','913168100'),('name','KONS')]:
+              Path(f'out/suggest-{name}.json').write_text(
+                json.dumps({'searchString':term,'facets':facets},separators=(',',':')),
+                encoding='utf-8'
+              )
+          PY
+          for NAME in org name; do
+            CODE="$(curl --silent --show-error --location --compressed \
+              --user-agent 'Signalpost-research-source-screen/1.0' \
+              --header 'Accept: application/json' --header 'Content-Type: application/json' \
+              --data-binary "@out/suggest-${NAME}.json" \
+              --write-out '%{http_code}' "$URL" -o "out/suggest-${NAME}.response.json" || true)"
+            echo "=== SUGGEST ${NAME} http=${CODE} ==="
+            python - "${NAME}" <<'PY'
+          import json,sys
+          from pathlib import Path
+          name=sys.argv[1]
+          text=Path(f'out/suggest-{name}.response.json').read_text(encoding='utf-8',errors='replace')
+          print('bytes=',len(text))
+          try:
+              print(json.dumps(json.loads(text),ensure_ascii=False,indent=2)[:24000])
+          except Exception:
+              print(text[:12000])
+          PY
+          done
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf out
