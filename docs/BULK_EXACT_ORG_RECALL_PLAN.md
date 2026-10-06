@@ -443,10 +443,14 @@ Measured frozen-1000 result:
 - canonical-projection errors: **0**;
 - synthesis errors: **0**.
 
-Decision: this is the **strongest low-risk promotion candidate produced by the isolated
-research track** because it improves evaluator-visible external coverage while consuming no
-new request budget and without weakening exact-company identity. It remains research-only in
-this chat; no merge to `main` is authorized.
+Production-overlap correction: the zero-network **social** recovery is already present on
+current `main`. Therefore the combined run is a valuable compatibility/composition proof, but
+the only genuinely new production candidate in this bundle is the stricter JSON-LD contact
+recovery: **+5 newly covered contact companies / +7 contact claims at zero requests**.
+
+Decision: preserve the JSON-LD contact extension as the current genuinely new low-risk
+promotion candidate. Do not double-count the +10 social-company lift as new production value,
+and do not merge anything to `main` from this isolated chat without explicit coordination.
 
 ## R8 — supplier-payment ledger metadata investigation
 
