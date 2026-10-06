@@ -43,9 +43,10 @@ jobs:
       PYTHONUNBUFFERED: "1"
 
     steps:
-      - name: Checkout V9 challenger
+      - name: Checkout exact V9 challenger head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: challenger
           fetch-depth: 1
 
@@ -62,6 +63,8 @@ jobs:
           git -C baseline rev-parse HEAD | tee shared/out/baseline-main-sha.txt
           git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
           test "$(cat shared/out/baseline-main-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+          EXPECTED_CHALLENGER="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(cat shared/out/challenger-sha.txt)" = "$EXPECTED_CHALLENGER"
 
       - uses: actions/setup-python@v5
         with:
@@ -164,7 +167,9 @@ jobs:
           uv run python scripts/measure_v9_company_family_coverage.py \
             --baseline ../shared/out/baseline-output.jsonl \
             --challenger ../shared/out/challenger-output.jsonl \
-            --report ../shared/out/m1-family-transfer.json
+            --report ../shared/out/m1-family-transfer.json \
+            --new-publications ../shared/out/m2-new-publications.jsonl \
+            --lost-publications ../shared/out/m2-lost-publications.jsonl
 
       - name: Audit M3 multi-family unlock from new sites
         run: |
@@ -208,8 +213,10 @@ jobs:
           print("STRUCTURAL_GATES=PASS")
           print("new_verified_website_companies=", unlock["new_verified_website_companies"])
           print("net_new_company_family_edges=", unlock["net_new_company_family_edges_from_new_sites"])
-          print("challenger_conservative_request_charge=", family["challenger"]["conservative_request_charge"])
-          print("baseline_conservative_request_charge=", family["baseline"]["conservative_request_charge"])
+          print("challenger_reported_conservative_request_charge=", family["challenger"]["reported_conservative_request_charge"])
+          print("baseline_reported_conservative_request_charge=", family["baseline"]["reported_conservative_request_charge"])
+          print("new_publications=", family.get("new_publications"))
+          print("lost_publications=", family.get("lost_publications"))
           PY
 
       - name: Remove product HTML before archive
@@ -234,5 +241,7 @@ jobs:
             shared/out/baseline-output.jsonl
             shared/out/challenger-output.jsonl
             shared/out/m1-family-transfer.json
+            shared/out/m2-new-publications.jsonl
+            shared/out/m2-lost-publications.jsonl
             shared/out/m3-site-unlock.json
             shared/out/m3-manual-audit.jsonl
