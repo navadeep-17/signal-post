@@ -22,6 +22,7 @@ V9_BLOCKED_DISCOVERY_HOSTS = {
 }
 
 MAX_V9_CANDIDATES = 3
+MIN_V9_NOMINATION_SCORE = 0.35
 
 
 def _digits(value: Any) -> str:
@@ -91,6 +92,27 @@ def _sanitize_result_for_scoring(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _v9_nomination_decision(scored: dict[str, Any]) -> tuple[bool, str]:
+    """Widen *nomination* recall without widening publication identity.
+
+    V8's older search scorer intentionally used a relatively strict crawl gate. V9 has a
+    different contract: provider output is only an untrusted URL nomination and every
+    candidate must still survive a fresh independent fetch plus the unchanged exact-company
+    verifier. Therefore full legal-name result evidence, exact organisation-number evidence,
+    or a modest combined transient score may justify spending one bounded verification fetch
+    even when the provider result is not strong enough to resemble publication evidence.
+    """
+    if scored.get("publishable_candidate") and scored.get("status") == "accepted_for_crawl":
+        return True, "legacy_strong_crawl_gate"
+    if scored.get("org_match"):
+        return True, "exact_org_in_transient_result"
+    if scored.get("full_name_title_match"):
+        return True, "full_legal_name_in_transient_title"
+    if float(scored.get("score") or 0.0) >= MIN_V9_NOMINATION_SCORE:
+        return True, "bounded_transient_score"
+    return False, "insufficient_nomination_evidence"
+
+
 def nominate_v9_candidate_urls(
     profile: dict[str, Any],
     results: Iterable[dict[str, Any]],
@@ -99,9 +121,10 @@ def nominate_v9_candidate_urls(
 ) -> dict[str, Any]:
     """Return at most three untrusted URLs for independent fetch.
 
-    Provider titles/snippets/query text may influence transient ranking through the
-    existing search crawl gate, but none of that text is returned. The output is explicitly
-    nomination-only and cannot authorize publication.
+    Provider titles/snippets/query text may influence transient ranking, but none of that
+    text is returned or allowed to authorize publication. V9 intentionally permits a
+    broader *nomination* gate than the historical H1b crawl gate because independent
+    fetched-page identity remains the only publication authority.
 
     Candidates are de-duplicated by registered domain. Social, directory, marketplace,
     review and other obvious non-first-party hosts are rejected before nomination.
@@ -138,10 +161,7 @@ def nominate_v9_candidate_urls(
             continue
 
         scored = score_search_candidate(profile, _sanitize_result_for_scoring(raw))
-        accepted_for_fetch = bool(
-            scored.get("publishable_candidate")
-            and scored.get("status") == "accepted_for_crawl"
-        )
+        accepted_for_fetch, nomination_reason = _v9_nomination_decision(scored)
         item = {
             "url": normalized,
             "registered_domain": registered_domain,
@@ -149,7 +169,7 @@ def nominate_v9_candidate_urls(
             "host_name_match": bool(scored.get("host_name_match")),
             "rank": scored.get("rank"),
             "accepted_for_independent_fetch": accepted_for_fetch,
-            "reasons": list(scored.get("reasons") or []),
+            "nomination_reason": nomination_reason,
         }
         assessed.append(item)
 
@@ -173,7 +193,7 @@ def nominate_v9_candidate_urls(
                     "url": item["url"],
                     "registered_domain": domain,
                     "status": "rejected",
-                    "reason": "insufficient_nomination_evidence",
+                    "reason": item["nomination_reason"],
                     "score": item["score"],
                 }
             )
@@ -208,7 +228,7 @@ def nominate_v9_candidate_urls(
                 "url": item["url"],
                 "registered_domain": domain,
                 "status": "nominated_for_independent_fetch",
-                "reason": "passed_transient_candidate_gate",
+                "reason": item["nomination_reason"],
                 "score": item["score"],
             }
         )
