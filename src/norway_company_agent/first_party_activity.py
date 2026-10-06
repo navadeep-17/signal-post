@@ -308,7 +308,13 @@ def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, li
     final_url = str(value.get("final_url") or website.get("source_url") or "").strip()
     if not final_url:
         return None, []
-    pages = [page for page in (value.get("pages") or []) if isinstance(page, dict)]
+    pages = []
+    for page in value.get("pages") or []:
+        if not isinstance(page, dict):
+            continue
+        retained = dict(page)
+        retained.setdefault("retrieved_at", website.get("retrieved_at"))
+        pages.append(retained)
 
     detail = ((profile.get("evidence") or {}).get("website_news_detail") or {})
     detail_value = detail.get("value") or {}
@@ -328,6 +334,7 @@ def _website_context(profile: dict[str, Any]) -> tuple[dict[str, Any] | None, li
         if page_url.rstrip("/") in nominated and _same_verified_site(page_url, final_url):
             retained = dict(page)
             retained["c12_homepage_news_nomination"] = True
+            retained.setdefault("retrieved_at", detail.get("retrieved_at") or website.get("retrieved_at"))
             pages.append(retained)
     return {"record": website, "final_url": final_url}, pages
 
@@ -417,6 +424,8 @@ def extract_strict_first_party_facts(profile: dict[str, Any]) -> dict[str, list[
                         "published_date": published_date,
                         "date_extraction_method": method,
                         "date_evidence": raw,
+                        "date_extraction_method": method,
+                        "retrieved_at": page.get("retrieved_at") or context["record"].get("retrieved_at"),
                         "content_sha256": content_hash,
                         "evidence_span": (
                             f"{title}; published date {published_date}; "
@@ -509,10 +518,11 @@ def project_first_party_activity_claims(
             "id": evidence_id,
             "source_url": item["url"],
             "source_class": "company_owned",
-            "retrieved_at": retrieved_at,
+            "retrieved_at": item.get("retrieved_at") or retrieved_at,
             "effective_at": item["published_date"],
             "content_sha256": item.get("content_sha256"),
             "claim_span": item["evidence_span"],
+            "extraction_method": item.get("date_extraction_method"),
         }
         claims.append(
             {
