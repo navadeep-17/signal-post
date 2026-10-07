@@ -1,0 +1,185 @@
+name: V9 M13b Replacement Holdout Freeze
+
+on:
+  push:
+    branches:
+      - experiment/v9-m13b-replacement-search-holdout
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m13b-replacement-holdout-freeze
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+  PRIOR_SEARCH_GATE_A_SHA256: f2177abd0bd0d6202f9fe47fd00b8def06b21c01fdf4c864c1f3b68f80b160d5
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: code
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked environment
+        run: |
+          cd code
+          uv sync --locked
+
+      - name: Run replacement-holdout regression
+        run: |
+          cd code
+          uv run --with pytest pytest -q tests/test_v9_m13b_replacement_cohort.py
+
+      - name: Verify immutable source artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10508036929" --jq .digest)" = \
+            'sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11393772677" --jq .digest)" = \
+            'sha256:b7dd01b666470d155d2c70274bb8d1cb2695abc9d2f331d6a41eafe447c023f8'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            'sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11478129358" --jq .digest)" = \
+            'sha256:fb33af0c411848cb2f9a8a37610dc8953afe12e1c9c19d5636767002a0e12f69'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11482816122" --jq .digest)" = \
+            'sha256:e89e9f2d7294dea39168743e246ac680ed32dc9e5aad7039f01ff7ee54ff90fb'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11483268561" --jq .digest)" = \
+            'sha256:3e25ab6b869eaf87d7e213d00378e19a4413dd0dcf01ad0058a942324213ae32'
+
+      - name: Recover frozen consumed source and prior search-development set
+        run: |
+          set -euo pipefail
+          mkdir -p shared/source shared/pr137 shared/m10 shared/m13 shared/m14 shared/m14b
+
+          gh run download 35246833190 --repo "$GITHUB_REPOSITORY" \
+            --name final-release-manifest-1000 --dir shared/source
+          SOURCE="$(find shared/source -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" shared/consumed-1000.jsonl
+          test "$(wc -l < shared/consumed-1000.jsonl)" -eq 1000
+          test "$(sha256sum shared/consumed-1000.jsonl | awk '{print $1}')" = "$FROZEN_CONSUMED_SOURCE_SHA256"
+
+          gh run download 37421325313 --repo "$GITHUB_REPOSITORY" \
+            --name v9-consumed-baseline --dir shared/pr137
+          PRIOR_SEARCH="$(find shared/pr137 -type f -name 'gate-a-20.jsonl' | head -n 1)"
+          test -n "$PRIOR_SEARCH"
+          cp "$PRIOR_SEARCH" shared/pr137-gate-a-20.jsonl
+          test "$(wc -l < shared/pr137-gate-a-20.jsonl)" -eq 20
+          test "$(sha256sum shared/pr137-gate-a-20.jsonl | awk '{print $1}')" = "$PRIOR_SEARCH_GATE_A_SHA256"
+
+      - name: Recover prior experiment cohorts
+        run: |
+          set -euo pipefail
+          gh run download 37612496445 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m13-frozen-cohort --dir shared/m13
+          M13="$(find shared/m13 -type f -name 'm13-consumed-100.jsonl' | head -n 1)"
+          test -n "$M13"
+          cp "$M13" shared/prior-m13-consumed-100.jsonl
+          test "$(wc -l < shared/prior-m13-consumed-100.jsonl)" -eq 100
+
+          gh run download 37622216471 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m14-frozen-inputs --dir shared/m14
+          M14="$(find shared/m14 -type f -name 'm14-consumed-100.jsonl' | head -n 1)"
+          test -n "$M14"
+          cp "$M14" shared/prior-m14-consumed-100.jsonl
+          test "$(wc -l < shared/prior-m14-consumed-100.jsonl)" -eq 100
+
+          gh run download 37624617561 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m14b-frozen-inputs --dir shared/m14b
+          M14B="$(find shared/m14b -type f -name 'm14b-consumed-100.jsonl' | head -n 1)"
+          test -n "$M14B"
+          cp "$M14B" shared/prior-m14b-consumed-100.jsonl
+          test "$(wc -l < shared/prior-m14b-consumed-100.jsonl)" -eq 100
+
+      - name: Recover exact frozen M10 BRREG snapshot
+        run: |
+          set -euo pipefail
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir shared/m10
+          BULK="$(find shared/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          (cd shared && sha256sum brreg-enheter.csv > brreg-enheter.sha256)
+
+      - name: Freeze replacement M13b holdout before provider output
+        run: |
+          cd code
+          uv run python scripts/build_v9_m13b_replacement_cohort.py \
+            --source-manifest ../shared/consumed-1000.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --prior-search-manifest ../shared/pr137-gate-a-20.jsonl \
+            --prior-m13-manifest ../shared/prior-m13-consumed-100.jsonl \
+            --prior-m14-manifest ../shared/prior-m14-consumed-100.jsonl \
+            --prior-m14b-manifest ../shared/prior-m14b-consumed-100.jsonl \
+            --output ../shared/m13b-consumed-100.jsonl \
+            --audit ../shared/m13b-cohort-audit.jsonl \
+            --report ../shared/m13b-cohort-report.json \
+            --target-count 100 --search-count 20
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          r=json.loads(Path("../shared/m13b-cohort-report.json").read_text())
+          rows=[json.loads(x) for x in Path("../shared/m13b-cohort-audit.jsonl").read_text().splitlines() if x.strip()]
+          selected={x["organisation_number"] for x in rows}
+          prior=set()
+          for fn in (
+              "../shared/prior-m13-consumed-100.jsonl",
+              "../shared/prior-m14-consumed-100.jsonl",
+              "../shared/prior-m14b-consumed-100.jsonl",
+          ):
+              prior |= {
+                  json.loads(x)["organisation_number"]
+                  for x in Path(fn).read_text().splitlines()
+                  if x.strip()
+              }
+
+          assert r["selected_companies"] == 100, r
+          assert r["search_holdout_companies"] == 20, r
+          assert r["control_companies"] == 80, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["replacement_disjoint_from_all_prior_experiment_cohorts"] is True, r
+          assert not (selected & prior), selected & prior
+          assert sum(x["bucket"] == "m13b_search_holdout" for x in rows) == 20
+          assert sum(x["bucket"] == "m13b_control_unsearched" for x in rows) == 80
+          assert not any(
+              x["prior_m13_cohort"]
+              or x["prior_m14_cohort"]
+              or x["prior_m14b_cohort"]
+              or x["builderr_public_practice"]
+              for x in rows
+          )
+          print("M13B_REPLACEMENT_FROZEN", json.dumps(r, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v9-m13b-replacement-frozen-cohort
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/m13b-consumed-100.jsonl
+            shared/m13b-cohort-audit.jsonl
+            shared/m13b-cohort-report.json
+            shared/brreg-enheter.sha256
