@@ -1,0 +1,65 @@
+name: V10 Builderr Gap Map
+
+on:
+  push:
+    branches:
+      - audit/v10-builderr-gap-map
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      QUALIFIED_CODE_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
+      Q8_ARTIFACT_ID: "11386579108"
+      Q8_ARTIFACT_DIGEST: "sha256:74401ccf2e1c11832bc91563ce02c8cb4ff040491542c563052049205a1b995e"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: audit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify immutable qualified artifact
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$Q8_ARTIFACT_ID" --jq .digest)" = "$Q8_ARTIFACT_DIGEST"
+
+      - name: Download exact fresh Q8 qualification artifact
+        run: |
+          set -euo pipefail
+          mkdir -p frozen
+          gh run download 37403982422 --repo "$GITHUB_REPOSITORY"             --name q8-fresh-release-attempt4-100 --dir frozen
+          find frozen -maxdepth 4 -type f -print
+
+      - name: Audit Builderr-relevant coverage and evidence
+        run: |
+          python audit/scripts/audit_builderr_gap_map.py             --artifact-dir frozen             --output builderr-gap-map.json
+
+      - name: Assert qualified evidence remains complete
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("builderr-gap-map.json").read_text())
+          assert r["companies"] == 100, r
+          assert r["material_external_evidence_issues"] == 0, r
+          assert r["material_external_evidence_completeness_rate"] == 1.0, r
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v10-builderr-gap-map-q8-fresh
+          retention-days: 30
+          if-no-files-found: error
+          path: builderr-gap-map.json
