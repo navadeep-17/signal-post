@@ -18,7 +18,7 @@ env:
   PYTHONUNBUFFERED: "1"
   QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
   FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
-  EXCLUSION_UNION_SHA256: 5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7
+  EXCLUSION_UNION_SHA256: 5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7\n  EXCLUSION_ORG_LIST_SHA256: d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451
   BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
 
 jobs:
@@ -84,29 +84,27 @@ jobs:
       - name: Verify committed exclusion provenance and freeze both transfer gates
         run: |
           set -euo pipefail
+          test "$(sha256sum evaluation/v10_m19_prior_exclusion_orgs.txt | awk '{print $1}')" = "$EXCLUSION_ORG_LIST_SHA256"
+          test "$(wc -l < evaluation/v10_m19_prior_exclusion_orgs.txt)" -eq 428
           python - <<'PY'
-          import base64, gzip, hashlib, json
+          import json
           from pathlib import Path
-
-          encoded=Path("evaluation/v10_m19_prior_exclusion_union.jsonl.gz.b64").read_text().strip()
-          raw=gzip.decompress(base64.b64decode(encoded, validate=True))
-          digest=hashlib.sha256(raw).hexdigest()
           report=json.loads(Path("evaluation/v10_m19_prior_exclusion_union.report.json").read_text())
-          assert digest == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7", digest
-          assert report["union_manifest_sha256"] == digest, report
           assert report["union_companies"] == 428, report
           assert report["remaining_consumed_companies"] == 572, report
           assert report["all_union_rows_are_in_consumed_source"] is True, report
+          assert report["union_org_list_sha256"] == "d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451", report
+          assert report["union_manifest_sha256"] == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7", report
           print({
               "union_companies": report["union_companies"],
               "remaining_consumed_companies": report["remaining_consumed_companies"],
-              "union_manifest_sha256": digest,
+              "union_org_list_sha256": report["union_org_list_sha256"],
           })
           PY
 
           uv run python scripts/build_v10_m19_transfer_cohorts.py \
             --source-manifest frozen/consumed-1000.jsonl \
-            --prior-exclusion-union-b64 evaluation/v10_m19_prior_exclusion_union.jsonl.gz.b64 \
+            --prior-exclusion-orgs evaluation/v10_m19_prior_exclusion_orgs.txt \
             --prior-exclusion-report evaluation/v10_m19_prior_exclusion_union.report.json \
             --gate-a-output frozen/m19-transfer-gate-a-100.jsonl \
             --gate-b-output frozen/m19-transfer-gate-b-100.jsonl \
@@ -126,8 +124,7 @@ jobs:
           assert not (ao & bo)
           assert r["fresh_companies_used"] == 0
           assert r["prior_exclusion_union_companies"] == 428
-          assert r["prior_exclusion_union_sha256"] == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"
-          assert r["remaining_uninspected_companies"] == 572
+          assert r["prior_exclusion_org_list_sha256"] == "d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451"\n          assert r["prior_exclusion_union_sha256"] == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"\n          assert r["remaining_uninspected_companies"] == 572
           print({
               "gate_a_manifest_sha256": r["gate_a_manifest_sha256"],
               "gate_b_manifest_sha256": r["gate_b_manifest_sha256"],
