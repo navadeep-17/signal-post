@@ -72,25 +72,45 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p frozen/legacy frozen/m10
-          gh run download 35246833190 --repo "$GITHUB_REPOSITORY"             --name final-release-1000-aggregate --dir frozen/legacy
+
+          download_named_artifact() {
+            run_id="$1"
+            artifact_name="$2"
+            destination="$3"
+            echo "RECOVER_ARTIFACT run=$run_id name=$artifact_name"
+            for attempt in 1 2 3; do
+              rm -rf "$destination"
+              mkdir -p "$destination"
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir "$destination"; then
+                echo "RECOVER_ARTIFACT_OK run=$run_id name=$artifact_name attempt=$attempt"
+                return 0
+              fi
+              echo "RECOVER_ARTIFACT_RETRY run=$run_id name=$artifact_name attempt=$attempt" >&2
+              sleep 3
+            done
+            echo "RECOVER_ARTIFACT_FAILED run=$run_id name=$artifact_name" >&2
+            return 1
+          }
+
+          download_named_artifact 35246833190 final-release-1000-aggregate frozen/legacy
           LEGACY="$(find frozen/legacy -type f -name 'final-release-1000-output.jsonl' | head -n 1)"
           test -n "$LEGACY"
           cp "$LEGACY" frozen/final-release-1000-output.jsonl
           test "$(wc -l < frozen/final-release-1000-output.jsonl)" -eq 1000
 
-          gh run download 37567829642 --repo "$GITHUB_REPOSITORY"             --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
-          M10="$(find frozen/m10 -type f -name 'gate-b-100.jsonl' | head -n 1)"
+          download_named_artifact 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
+          M10="$(find frozen/m10 -type f -name 'gate-b-consumed-100.jsonl' | head -n 1)"
           BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
           test -n "$M10"
           test -n "$BULK"
-          cp "$M10" frozen/m10-gate-b-100.jsonl
+          cp "$M10" frozen/m10-gate-b-consumed-100.jsonl
           cp "$BULK" frozen/brreg-enheter.csv
-          test "$(wc -l < frozen/m10-gate-b-100.jsonl)" -eq 100
+          test "$(wc -l < frozen/m10-gate-b-consumed-100.jsonl)" -eq 100
           test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
 
       - name: Freeze deterministic consumed verified-site cohort
         run: |
-          python harness/scripts/build_v10_m18_consumed_site_cohort.py             --legacy-output frozen/final-release-1000-output.jsonl             --m10-exclude frozen/m10-gate-b-100.jsonl             --output frozen/m18-consumed-20.jsonl             --report frozen/m18-cohort-report.json             --count 20
+          python harness/scripts/build_v10_m18_consumed_site_cohort.py             --legacy-output frozen/final-release-1000-output.jsonl             --m10-exclude frozen/m10-gate-b-consumed-100.jsonl             --output frozen/m18-consumed-20.jsonl             --report frozen/m18-cohort-report.json             --count 20
 
           python - <<'PY'
           import json
