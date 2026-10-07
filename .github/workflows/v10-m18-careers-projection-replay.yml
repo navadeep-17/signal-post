@@ -1,0 +1,178 @@
+name: V10 M18 Careers Projection Replay
+
+on:
+  push:
+    branches:
+      - experiment/v10-m18-careers-projection
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m18-careers-projection-replay
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
+  Q8_ARTIFACT_ID: "11386579108"
+  Q8_ARTIFACT_DIGEST: "sha256:74401ccf2e1c11832bc91563ce02c8cb4ff040491542c563052049205a1b995e"
+  M10_BRREG_ARTIFACT_ID: "11459496712"
+  M10_BRREG_ARTIFACT_DIGEST: "sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98"
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact M18 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: m18
+          fetch-depth: 1
+
+      - name: Checkout exact qualified V8 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.QUALIFIED_V8_SHA }}
+          path: baseline
+          fetch-depth: 1
+
+      - name: Prove exact baseline SHA
+        run: test "$(git -C baseline rev-parse HEAD)" = "$QUALIFIED_V8_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtimes and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          (cd baseline && uv sync --locked)
+          (cd m18 && uv sync --locked)
+
+      - name: Run focused M18 regressions
+        run: |
+          cd m18
+          uv run --with pytest pytest -q             tests/test_v10_m18_careers_projection.py             tests/test_c12_m4_hiring_signal_precision.py             tests/test_v7_m4b2_careers_signal_ui.py             tests/test_q8_social_declaration_identity_guard.py
+          python -m py_compile             src/norway_company_agent/careers_contract.py             src/norway_company_agent/synthesis.py             scripts/run_signalpost_v8.py             scripts/replay_v10_m18_careers_projection.py
+
+      - name: Verify immutable consumed inputs
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$Q8_ARTIFACT_ID" --jq .digest)" = "$Q8_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M10_BRREG_ARTIFACT_ID" --jq .digest)" = "$M10_BRREG_ARTIFACT_DIGEST"
+
+      - name: Recover already-consumed Q8 100 and frozen BRREG bytes
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/q8 frozen/m10 shared
+          gh run download 37403982422 --repo "$GITHUB_REPOSITORY"             --name q8-fresh-release-attempt4-100 --dir frozen/q8
+          Q8="$(find frozen/q8 -type f -name 'q8-fresh-100.jsonl' | head -n 1)"
+          test -n "$Q8"
+          cp "$Q8" shared/q8-consumed-100.jsonl
+          test "$(wc -l < shared/q8-consumed-100.jsonl)" -eq 100
+
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY"             --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+
+      - name: Run exact qualified V8 acquisition once
+        run: |
+          mkdir -p baseline-out/work
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/q8-consumed-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../baseline-out/output.jsonl             --report ../baseline-out/report.json             --product-output ../baseline-out/product.html             --work-dir ../baseline-out/work             --run-id v10-m18-qualified-v8-replay-baseline             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Verify baseline and retained profile snapshot
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("baseline-out/report.json").read_text())
+          profiles=[
+              json.loads(line)
+              for line in Path("baseline-out/work/profiles.jsonl").read_text().splitlines()
+              if line.strip()
+          ]
+          output=[
+              json.loads(line)
+              for line in Path("baseline-out/output.jsonl").read_text().splitlines()
+              if line.strip()
+          ]
+          assert report["passed"] is True, report
+          assert len(profiles) == len(output) == 100
+          assert {str(x["organisation_number"]) for x in profiles} == {
+              str(x["organisation_number"]) for x in output
+          }
+          assert report["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, report
+          assert report["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, report
+          assert report["source_policy"]["third_party_cost_usd"] == 0.0, report
+          assert report["source_policy"]["search_api_requests"] == 0, report
+          print({
+              "requests": report["request_budget"]["observed_conservative_challenge_request_charge"],
+              "theorem": report["request_budget"]["theoretical_challenge_request_charge_ceiling"],
+              "runtime": report["runtime"]["wall_runtime_seconds"],
+              "profiles": len(profiles),
+          })
+          PY
+
+      - name: Replay only M18 careers projection on identical acquisition
+        run: |
+          mkdir -p result
+          cd m18
+          uv run python scripts/replay_v10_m18_careers_projection.py             --baseline-output ../baseline-out/output.jsonl             --profiles ../baseline-out/work/profiles.jsonl             --challenger-output ../result/challenger-output.jsonl             --report ../result/m18-report.json             --manual-audit ../result/manual-audit-required.jsonl
+
+      - name: Enforce zero-network replay contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/m18-report.json").read_text())
+          assert r["companies"] == 100, r
+          assert r["minimum_new_careers_companies"] == 1, r
+          assert r["total_lost_claims"] == 0, r
+          assert r["job_postings_before"] == r["job_postings_after"], r
+          assert r["network_requests_added_by_replay"] == 0, r
+          assert r["search_api_requests_added_by_replay"] == 0, r
+          assert r["third_party_cost_usd_added_by_replay"] == 0.0, r
+          assert not r["evidence_defects"], r
+          assert not r["validation_errors"], r
+          assert r["total_new_claims"] == r["new_careers_claims"], r
+          assert r["machine_decision"] in {
+              "HOLD_NO_REAL_CAREERS_TRANSFER",
+              "MANUAL_AUDIT_REQUIRED",
+          }, r
+          assert r["production_promotion_authorized"] is False, r
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove baseline UI/cache before artifact
+        if: always()
+        run: |
+          rm -f baseline-out/product.html
+          rm -rf baseline-out/work/internal-envelopes.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m18-careers-projection-replay
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            shared/q8-consumed-100.jsonl
+            baseline-out/output.jsonl
+            baseline-out/report.json
+            baseline-out/work/profiles.jsonl
+            result/
