@@ -307,6 +307,13 @@ def main() -> None:
     parser.add_argument("--wikidata-timeout", type=float, default=8.0)
     parser.add_argument("--max-challenge-requests", type=int, default=DEFAULT_MAX_CHALLENGE_REQUESTS)
     parser.add_argument("--max-third-party-cost-usd", type=float, default=0.0)
+    parser.add_argument("--enable-openai-web-search", action="store_true")
+    parser.add_argument(
+        "--max-search-calls",
+        type=int,
+        default=0,
+        help="Maximum Responses API web-search requests reserved inside the existing request theorem.",
+    )
     parser.add_argument("--max-wall-runtime-seconds", type=int, default=2400)
     parser.add_argument("--refresh-report", help="Optional refresh report with events[]")
     parser.add_argument("--annual-workforce-workers", type=int, default=4)
@@ -328,6 +335,17 @@ def main() -> None:
         parser.error("--max-challenge-requests must be positive")
     if args.max_third_party_cost_usd < 0:
         parser.error("--max-third-party-cost-usd cannot be negative")
+    if args.max_search_calls < 0:
+        parser.error("--max-search-calls cannot be negative")
+    if args.enable_openai_web_search:
+        if args.max_search_calls < 1:
+            parser.error("--enable-openai-web-search requires --max-search-calls >= 1")
+        if args.max_third_party_cost_usd <= 0:
+            parser.error("--enable-openai-web-search requires a positive --max-third-party-cost-usd")
+        if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
+            parser.error("--enable-openai-web-search requires OPENAI_API_KEY")
+    elif args.max_search_calls != 0:
+        parser.error("--max-search-calls must be 0 unless --enable-openai-web-search is set")
     if args.max_wall_runtime_seconds < 1:
         parser.error("--max-wall-runtime-seconds must be positive")
     if args.annual_workforce_workers < 1:
@@ -347,26 +365,37 @@ def main() -> None:
         max_wall_runtime_seconds=args.max_wall_runtime_seconds,
         max_redirects_per_logical_request=1,
     )
-    per_profile_logical_ceiling = OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE + MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
-    theoretical_shared_wikidata_requests = theoretical_wikidata_lookup_requests(args.expected_count)
-    base_theoretical_logical_ceiling = (
-        args.expected_count * per_profile_logical_ceiling
-        + theoretical_shared_wikidata_requests
+    m13_allocation = allocate_m13_search_budget(
+        expected_count=args.expected_count,
+        max_challenge_requests=args.max_challenge_requests,
+        max_search_calls=args.max_search_calls if args.enable_openai_web_search else 0,
+        request_charge_multiplier=budget.request_charge_multiplier,
     )
-    base_theoretical_charge_ceiling = budget.charge_requests(base_theoretical_logical_ceiling)
-    if base_theoretical_charge_ceiling > args.max_challenge_requests:
-        raise SystemExit(
-            f"Configured base pipeline cannot prove request safety: theoretical charge "
-            f"{base_theoretical_charge_ceiling}>{args.max_challenge_requests}. "
-            "Reduce expected count or raise the explicit budget only within the challenge's request cap."
-        )
-    remaining_structural_charge = args.max_challenge_requests - base_theoretical_charge_ceiling
-    annual_workforce_logical_request_ceiling = min(
-        args.expected_count,
-        max(0, remaining_structural_charge // budget.request_charge_multiplier),
+    per_profile_logical_ceiling = (
+        OFFICIAL_LOGICAL_REQUESTS_PER_PROFILE + MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE
     )
-    theoretical_logical_ceiling = base_theoretical_logical_ceiling + annual_workforce_logical_request_ceiling
-    theoretical_charge_ceiling = budget.charge_requests(theoretical_logical_ceiling)
+    theoretical_shared_wikidata_requests = int(
+        m13_allocation["shared_wikidata_logical_request_ceiling"]
+    )
+    base_theoretical_logical_ceiling = int(
+        m13_allocation["base_theoretical_logical_request_ceiling"]
+    )
+    base_theoretical_charge_ceiling = int(
+        m13_allocation["base_theoretical_conservative_charge_ceiling"]
+    )
+    provider_search_logical_request_ceiling = int(
+        m13_allocation["provider_search_logical_request_ceiling"]
+    )
+    provider_search_conservative_charge_ceiling = int(
+        m13_allocation["provider_search_conservative_charge_ceiling"]
+    )
+    annual_workforce_logical_request_ceiling = int(
+        m13_allocation["annual_report_workforce_logical_request_ceiling"]
+    )
+    theoretical_logical_ceiling = int(m13_allocation["theoretical_logical_request_ceiling"])
+    theoretical_charge_ceiling = int(
+        m13_allocation["theoretical_challenge_request_charge_ceiling"]
+    )
 
     wall_start = time.monotonic()
     started_at = utc_now()
@@ -385,6 +414,19 @@ def main() -> None:
         for key in ("evaluation_split", "sample_slice"):
             if key in annotations[profile["organisation_number"]]:
                 profile[key] = annotations[profile["organisation_number"]][key]
+
+    search_api_key = str(os.environ.get("OPENAI_API_KEY") or "").strip()
+    statically_search_eligible_orgs = sorted(
+        str(profile.get("organisation_number") or "")
+        for profile in profiles
+        if not str(profile.get("website") or "").strip()
+        and hyphenated_no_candidate(profile) is not None
+    )
+    search_target_orgs = set(
+        statically_search_eligible_orgs[:provider_search_logical_request_ceiling]
+        if args.enable_openai_web_search
+        else []
+    )
 
     # H1e is a shared, exact-ID candidate lookup. It is deliberately non-fatal: if the
     # public WDQS endpoint is unavailable or throttled, the candidate map is empty/partial
@@ -409,6 +451,11 @@ def main() -> None:
                 budget=budget,
                 site_timeout=args.site_timeout,
                 wikidata_candidate=wikidata_candidates.get(profile["organisation_number"]),
+                search_enabled=(
+                    args.enable_openai_web_search
+                    and profile["organisation_number"] in search_target_orgs
+                ),
+                search_api_key=search_api_key,
             ): profile["organisation_number"]
             for profile in profiles
         }
@@ -454,9 +501,15 @@ def main() -> None:
     changes_by_org = group_refresh_events(refresh_events, expected_organisation_numbers=set(orgs))
     projected: list[dict[str, Any]] = []
     for envelope in envelopes:
+        profile_cost = float(
+            ((envelope.get("profile") or {}).get("run_metrics") or {}).get(
+                "third_party_cost_usd"
+            )
+            or 0.0
+        )
         contract = project_terminal_envelope(
             envelope,
-            third_party_cost_usd=THIRD_PARTY_COST_USD,
+            third_party_cost_usd=profile_cost,
             changes=changes_by_org[envelope["organisation_number"]],
         )
         contract = project_profile_handle_observations(contract, envelope["profile"])
@@ -489,9 +542,24 @@ def main() -> None:
     total_logical_requests = profile_logical_requests + shared_wikidata_logical_requests
     shared_wikidata_charged_requests = budget.charge_requests(shared_wikidata_logical_requests)
     total_charged_requests = profile_charged_requests + shared_wikidata_charged_requests
+    total_third_party_cost_usd = round(
+        sum(
+            float((profile.get("run_metrics") or {}).get("third_party_cost_usd") or 0.0)
+            for profile in ordered_profiles
+        ),
+        6,
+    )
+    observed_search_api_requests = sum(
+        int((profile.get("run_metrics") or {}).get("search_api_requests") or 0)
+        for profile in ordered_profiles
+    )
+    observed_search_web_tool_calls = sum(
+        int((profile.get("run_metrics") or {}).get("search_web_tool_calls") or 0)
+        for profile in ordered_profiles
+    )
     budget_errors = budget.validate(
         logical_requests=total_logical_requests,
-        third_party_cost_usd=THIRD_PARTY_COST_USD,
+        third_party_cost_usd=total_third_party_cost_usd,
         wall_runtime_seconds=wall_runtime_seconds,
     )
     if total_charged_requests != budget.charge_requests(total_logical_requests):
@@ -546,7 +614,18 @@ def main() -> None:
         "all_refresh_events_attached_once": sum(len(item.get("changes") or []) for item in projected) == len(refresh_events),
         "all_external_observations_valid": not external_observation_errors,
         "budget_valid": not budget_errors,
-        "zero_third_party_cost": THIRD_PARTY_COST_USD == 0.0,
+        "third_party_cost_within_budget": total_third_party_cost_usd <= args.max_third_party_cost_usd,
+        "search_api_requests_bounded": observed_search_api_requests <= provider_search_logical_request_ceiling,
+        "search_tool_calls_bounded": observed_search_web_tool_calls <= observed_search_api_requests,
+        "search_disabled_is_zero_cost": (
+            args.enable_openai_web_search
+            or (
+                observed_search_api_requests == 0
+                and observed_search_web_tool_calls == 0
+                and total_third_party_cost_usd == 0.0
+            )
+        ),
+        "search_targets_bounded": len(search_target_orgs) <= provider_search_logical_request_ceiling,
         "theoretical_request_ceiling_within_budget": theoretical_charge_ceiling <= args.max_challenge_requests,
         "wikidata_lookup_bounded": shared_wikidata_logical_requests <= theoretical_shared_wikidata_requests,
         "site_source_accounting_consistent": sum(selected_sources.values()) == len(ordered_profiles),
@@ -566,9 +645,18 @@ def main() -> None:
         "modules": FINAL_MODULES,
         "registry": registry_metadata,
         "source_policy": {
-            "third_party_cost_usd": THIRD_PARTY_COST_USD,
-            "search_api_requests": 0,
-            "experimental_connectors_enabled": False,
+            "third_party_cost_usd": total_third_party_cost_usd,
+            "search_api_requests": observed_search_api_requests,
+            "search_web_tool_calls": observed_search_web_tool_calls,
+            "experimental_connectors_enabled": bool(args.enable_openai_web_search),
+            "openai_web_search_enabled": bool(args.enable_openai_web_search),
+            "openai_web_search_provider": (
+                "openai_responses_web_search_v2" if args.enable_openai_web_search else None
+            ),
+            "openai_web_search_model": "gpt-6-luna" if args.enable_openai_web_search else None,
+            "openai_search_results_are_publication_evidence": False,
+            "search_target_count": len(search_target_orgs),
+            "max_search_calls": provider_search_logical_request_ceiling,
             "official_attempts_per_endpoint": 1,
             "max_site_homepage_probes_per_company": 2,
             "wikidata_candidate_discovery_enabled": True,
@@ -592,6 +680,12 @@ def main() -> None:
             "shared_wikidata_logical_request_ceiling": theoretical_shared_wikidata_requests,
             "base_theoretical_logical_request_ceiling": base_theoretical_logical_ceiling,
             "base_theoretical_challenge_request_charge_ceiling": base_theoretical_charge_ceiling,
+            "provider_search_logical_request_ceiling": provider_search_logical_request_ceiling,
+            "provider_search_conservative_charge_ceiling": provider_search_conservative_charge_ceiling,
+            "provider_search_observed_logical_requests": observed_search_api_requests,
+            "provider_search_observed_conservative_charge": budget.charge_requests(
+                observed_search_api_requests
+            ),
             "annual_report_workforce_logical_request_ceiling": annual_workforce_logical_request_ceiling,
             "theoretical_logical_request_ceiling": theoretical_logical_ceiling,
             "request_charge_multiplier": budget.request_charge_multiplier,
@@ -618,6 +712,17 @@ def main() -> None:
             "h1g": {
                 "attempted": h1g_attempted,
                 "verified": h1g_verified,
+            },
+            "m13_search": {
+                "enabled": bool(args.enable_openai_web_search),
+                "statically_eligible": len(statically_search_eligible_orgs),
+                "targeted": len(search_target_orgs),
+                "provider_api_requests": observed_search_api_requests,
+                "provider_web_search_calls": observed_search_web_tool_calls,
+                "provider_estimated_cost_usd": total_third_party_cost_usd,
+                "verified": int(selected_sources.get("m13_search_candidate") or 0),
+                "candidate_fetch_additional_site_slots": 0,
+                "candidate_fetch_policy": "replaces existing H1g final two-logical-request slot",
             },
             "wikidata": {
                 "requests": shared_wikidata_logical_requests,
