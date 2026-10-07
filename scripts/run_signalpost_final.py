@@ -422,11 +422,36 @@ def main() -> None:
         if not str(profile.get("website") or "").strip()
         and hyphenated_no_candidate(profile) is not None
     )
-    search_target_orgs = set(
-        statically_search_eligible_orgs[:provider_search_logical_request_ceiling]
-        if args.enable_openai_web_search
-        else []
+    statically_search_eligible_set = set(statically_search_eligible_orgs)
+    annotated_search_targets = sorted(
+        org
+        for org, item in annotations.items()
+        if str(item.get("sample_slice") or "") == "m13_search_holdout"
     )
+    if args.enable_openai_web_search and annotated_search_targets:
+        invalid_targets = [
+            org for org in annotated_search_targets if org not in statically_search_eligible_set
+        ]
+        if invalid_targets:
+            raise SystemExit(
+                "Pre-registered M13 targets are not statically search-eligible under the frozen "
+                f"BRREG snapshot: {invalid_targets[:5]}"
+            )
+        if len(annotated_search_targets) > provider_search_logical_request_ceiling:
+            raise SystemExit(
+                "Pre-registered M13 target count exceeds --max-search-calls: "
+                f"{len(annotated_search_targets)}>{provider_search_logical_request_ceiling}"
+            )
+        search_target_orgs = set(annotated_search_targets)
+        search_target_mode = "pre_registered_manifest_annotation"
+    elif args.enable_openai_web_search:
+        search_target_orgs = set(
+            statically_search_eligible_orgs[:provider_search_logical_request_ceiling]
+        )
+        search_target_mode = "deterministic_org_number_order"
+    else:
+        search_target_orgs = set()
+        search_target_mode = "disabled"
 
     # H1e is a shared, exact-ID candidate lookup. It is deliberately non-fatal: if the
     # public WDQS endpoint is unavailable or throttled, the candidate map is empty/partial
@@ -656,6 +681,7 @@ def main() -> None:
             "openai_web_search_model": "gpt-6-luna" if args.enable_openai_web_search else None,
             "openai_search_results_are_publication_evidence": False,
             "search_target_count": len(search_target_orgs),
+            "search_target_mode": search_target_mode,
             "max_search_calls": provider_search_logical_request_ceiling,
             "official_attempts_per_endpoint": 1,
             "max_site_homepage_probes_per_company": 2,
@@ -717,6 +743,7 @@ def main() -> None:
                 "enabled": bool(args.enable_openai_web_search),
                 "statically_eligible": len(statically_search_eligible_orgs),
                 "targeted": len(search_target_orgs),
+                "target_mode": search_target_mode,
                 "provider_api_requests": observed_search_api_requests,
                 "provider_web_search_calls": observed_search_web_tool_calls,
                 "provider_estimated_cost_usd": total_third_party_cost_usd,
