@@ -1,0 +1,315 @@
+name: V9 M13 Consumed Search Preflight
+
+on:
+  push:
+    branches:
+      - experiment/v9-m13-search-assisted-recall
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m13-consumed-search-preflight
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  V9_BASELINE_SHA: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+  FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+  PRIOR_SEARCH_GATE_A_SHA256: f2177abd0bd0d6202f9fe47fd00b8def06b21c01fdf4c864c1f3b68f80b160d5
+  M10_FROZEN_INPUT_ARTIFACT_DIGEST: sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98
+
+jobs:
+  freeze-cohort:
+    name: Freeze unresearched M13 consumed cohort
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact M13 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: m13
+          fetch-depth: 100
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked environment
+        run: |
+          cd m13
+          uv sync --locked
+
+      - name: Run focused M13, social-proof and provider regressions
+        run: |
+          cd m13
+          uv run --with pytest pytest -q \
+            tests/test_company_site_social.py \
+            tests/test_q8_social_declaration_identity_guard.py \
+            tests/test_v9_m10_consumed_gates.py \
+            tests/test_v9_m13_budget.py \
+            tests/test_v9_m13_consumed_search_cohort.py \
+            tests/test_v9_m13_search_slot.py \
+            tests/test_v9_openai_gate_a.py \
+            tests/test_v9_openai_websearch_v2.py \
+            tests/test_v9_provider_gate.py \
+            tests/test_v9_discovery.py
+
+      - name: Prove default live-provider gate stays closed
+        run: |
+          cd m13
+          uv run python - <<'PY'
+          from norway_company_agent.v9_openai_websearch_v2 import (
+              build_request_body,
+              provider_readiness,
+          )
+
+          profile = {
+              "organisation_number": "923368876",
+              "name": "TRE FOR EN AS",
+              "municipality": "RISØR",
+          }
+          body = build_request_body(profile)
+          assert body["model"] == "gpt-6-luna"
+          assert body["store"] is False
+          assert body["reasoning"] == {"effort": "none"}
+          assert body["tool_choice"] == "required"
+          assert body["max_tool_calls"] == 1
+          assert body["parallel_tool_calls"] is False
+          assert body["tools"] == [{
+              "type": "web_search",
+              "search_context_size": "low",
+              "external_web_access": True,
+              "user_location": {"type": "approximate", "country": "NO"},
+          }]
+          assert set(body["include"]) == {
+              "web_search_call.results",
+              "web_search_call.action.sources",
+          }
+
+          closed = provider_readiness(
+              max_searches=20,
+              evaluator_key_available=False,
+              rights_status="unknown",
+              challenge_cost_budget_usd=1.0,
+              project_third_party_budget_usd=1.0,
+          )
+          assert closed["allowed_for_live_v9_experiment"] is False
+          assert "provider_not_evaluator_reproducible" in closed["reasons"]
+          assert "provider_key_not_available_to_evaluator" in closed["reasons"]
+          assert "provider_rights_not_confirmed" in closed["reasons"]
+          print(closed)
+          PY
+
+      - name: Verify immutable upstream artifact identities
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10508036929" --jq .digest)" = \
+            'sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11393772677" --jq .digest)" = \
+            'sha256:b7dd01b666470d155d2c70274bb8d1cb2695abc9d2f331d6a41eafe447c023f8'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            "$M10_FROZEN_INPUT_ARTIFACT_DIGEST"
+
+      - name: Recover consumed 1000 and prior-search development 20
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/source frozen/pr137 frozen/m10 shared
+          gh run download 35246833190 --repo "$GITHUB_REPOSITORY" \
+            --name final-release-manifest-1000 --dir frozen/source
+          SOURCE="$(find frozen/source -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" shared/consumed-1000.jsonl
+          test "$(wc -l < shared/consumed-1000.jsonl)" -eq 1000
+          test "$(sha256sum shared/consumed-1000.jsonl | awk '{print $1}')" = \
+            "$FROZEN_CONSUMED_SOURCE_SHA256"
+
+          gh run download 37421325313 --repo "$GITHUB_REPOSITORY" \
+            --name v9-consumed-baseline --dir frozen/pr137
+          PRIOR="$(find frozen/pr137 -type f -name 'gate-a-20.jsonl' | head -n 1)"
+          test -n "$PRIOR"
+          cp "$PRIOR" shared/pr137-gate-a-20.jsonl
+          test "$(wc -l < shared/pr137-gate-a-20.jsonl)" -eq 20
+          test "$(sha256sum shared/pr137-gate-a-20.jsonl | awk '{print $1}')" = \
+            "$PRIOR_SEARCH_GATE_A_SHA256"
+
+      - name: Recover exact M10 BRREG snapshot
+        run: |
+          set -euo pipefail
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          (cd shared && sha256sum brreg-enheter.csv > brreg-enheter.sha256)
+
+      - name: Pre-register 20 search targets plus 80 controls
+        run: |
+          cd m13
+          uv run python scripts/build_v9_m13_consumed_search_cohort.py \
+            --source-manifest ../shared/consumed-1000.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --prior-search-manifest ../shared/pr137-gate-a-20.jsonl \
+            --output ../shared/m13-consumed-100.jsonl \
+            --audit ../shared/m13-cohort-audit.jsonl \
+            --report ../shared/m13-cohort-report.json \
+            --target-count 100 \
+            --search-count 20
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report=json.loads(Path("../shared/m13-cohort-report.json").read_text())
+          rows=[json.loads(x) for x in Path("../shared/m13-cohort-audit.jsonl").read_text().splitlines() if x.strip()]
+          manifest=[json.loads(x) for x in Path("../shared/m13-consumed-100.jsonl").read_text().splitlines() if x.strip()]
+          assert report["selected_companies"] == 100, report
+          assert report["search_holdout_companies"] == 20, report
+          assert report["control_companies"] == 80, report
+          assert report["fresh_companies_used"] == 0, report
+          assert report["eligible_unresearched_population"] >= 100, report
+          assert len(manifest) == len(rows) == 100
+          assert sum(r["bucket"] == "m13_search_holdout" for r in rows) == 20
+          assert sum(r["bucket"] == "m13_control_unsearched" for r in rows) == 80
+          assert not any(
+              r["previous_search_development"] or r["m10_positive_canary"] or r["m12_researched"]
+              for r in rows
+          )
+          print("M13_PRE_REGISTERED", json.dumps(report, sort_keys=True))
+          PY
+
+      - name: Upload immutable M13 cohort metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m13-frozen-cohort
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/m13-consumed-100.jsonl
+            shared/m13-cohort-audit.jsonl
+            shared/m13-cohort-report.json
+            shared/brreg-enheter.sha256
+            shared/pr137-gate-a-20.jsonl
+
+  baseline:
+    name: Frozen integrated-V9 baseline on M13 cohort
+    needs: freeze-cohort
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact integrated V9 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+          path: baseline
+          fetch-depth: 1
+
+      - name: Prove baseline SHA
+        run: test "$(git -C baseline rev-parse HEAD)" = "$V9_BASELINE_SHA"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m13-frozen-cohort
+          path: shared
+
+      - name: Recover same frozen BRREG bytes
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/m10
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          (cd shared && sha256sum -c brreg-enheter.sha256)
+          test "$(wc -l < shared/m13-consumed-100.jsonl)" -eq 100
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked baseline runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          (cd baseline && uv sync --locked)
+          mkdir -p out
+
+      - name: Run exact V9 baseline with search disabled
+        run: |
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/m13-consumed-100.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../out/output.jsonl \
+            --report ../out/report.json \
+            --product-output ../out/product.html \
+            --work-dir ../out/work \
+            --run-id v9-m13-baseline-consumed-100 \
+            --expected-count 100 \
+            --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Verify baseline contract and zero search
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("out/report.json").read_text())
+          assert report["passed"] is True, report
+          assert report["expected_count"] == report["final_objects"] == 100, report
+          assert report["source_policy"]["search_api_requests"] == 0, report
+          assert report["source_policy"]["third_party_cost_usd"] == 0.0, report
+          assert report["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, report
+          assert report["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, report
+          assert report["runtime"]["wall_runtime_seconds"] <= 2400, report
+          print(json.dumps({
+              "passed": report["passed"],
+              "requests": report["request_budget"]["observed_conservative_challenge_request_charge"],
+              "theorem": report["request_budget"]["theoretical_challenge_request_charge_ceiling"],
+              "runtime": report["runtime"]["wall_runtime_seconds"],
+              "verified_sites": report["site_discovery"]["profiles_with_verified_site"],
+          }, indent=2))
+          PY
+
+      - name: Remove UI/cache before upload
+        if: always()
+        run: |
+          rm -f out/product.html
+          rm -rf out/work/internal-envelopes.jsonl
+
+      - name: Upload reusable frozen baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m13-consumed-baseline
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/output.jsonl
+            out/report.json
+            out/work/profiles.jsonl
