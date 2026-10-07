@@ -18,7 +18,7 @@ from .final_site_discovery import (
     _publishable,
     fetch_bounded_homepage,
 )
-from .first_party_feed import fetch_verified_activity_feed
+from .v9_m16_sitemap_careers import fetch_verified_sitemap_careers
 from .identity import apply_website_identity_gate
 from .zero_cost_registry_guard import apply_registry_risk_guard
 
@@ -118,7 +118,7 @@ def _base_site_logical_requests(profile: dict[str, Any]) -> int | None:
     return site if 0 <= site <= MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE else None
 
 
-def _attach_activity_feed_in_spare_slot(
+def _attach_sitemap_careers_in_spare_slot(
     row: dict[str, Any],
     result: dict[str, Any],
     *,
@@ -126,56 +126,79 @@ def _attach_activity_feed_in_spare_slot(
     base_site_requests: int | None,
     timeout: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Use exactly the final two site requests only after company identity is settled."""
+    """Use exactly the final two site requests for one same-host sitemap.
+
+    This replaces only the prior verified-site RSS/feed probe. Unresolved companies still
+    retain the same final two requests for H1g website recovery.
+    """
+    result["sitemap_careers_attempted"] = False
+    result["sitemap_careers_retained"] = False
+    result["sitemap_careers_status"] = None
+    # Keep legacy feed metrics explicit so reports cannot imply the old probe still ran.
     result["activity_feed_attempted"] = False
     result["activity_feed_retained"] = False
     result["activity_feed_status"] = None
+    result["activity_feed_skipped_reason"] = "m16_replaced_by_sitemap_careers"
 
     if base_site_requests is None:
-        result["activity_feed_skipped_reason"] = "base_site_request_accounting_unavailable"
+        result["sitemap_careers_skipped_reason"] = "base_site_request_accounting_unavailable"
         return row, result
     if base_site_requests + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
-        result["activity_feed_skipped_reason"] = "site_request_budget_consumed"
+        result["sitemap_careers_skipped_reason"] = "site_request_budget_consumed"
         return row, result
 
+    value = website.get("value") or {}
     verified_url = str(
-        (website.get("value") or {}).get("final_url")
+        value.get("final_url")
         or website.get("source_url")
         or row.get("website")
         or ""
     ).strip()
-    if not verified_url:
-        result["activity_feed_skipped_reason"] = "verified_website_url_missing"
+    website_hash = str(
+        website.get("content_sha256")
+        or value.get("content_sha256")
+        or ""
+    ).strip()
+    assessment = value.get("identity_assessment")
+    if not isinstance(assessment, dict) or not assessment.get("publishable"):
+        result["sitemap_careers_skipped_reason"] = "verified_website_identity_not_publishable"
+        return row, result
+    if not verified_url or len(website_hash) != 64:
+        result["sitemap_careers_skipped_reason"] = "verified_website_provenance_incomplete"
         return row, result
 
-    result["activity_feed_attempted"] = True
-    feed_record, operations = fetch_verified_activity_feed(
+    result["sitemap_careers_attempted"] = True
+    sitemap_record, operations = fetch_verified_sitemap_careers(
         verified_url,
+        verified_website_content_sha256=website_hash,
+        identity_assessment=assessment,
         timeout=timeout,
     )
     added_requests = int(operations.get("requests") or 0)
     post_site_requests = base_site_requests + added_requests
     if post_site_requests > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         raise RuntimeError(
-            f"Q4 activity feed exceeded site request ceiling for {row.get('organisation_number')}: "
+            f"M16 sitemap careers exceeded site request ceiling for {row.get('organisation_number')}: "
             f"{post_site_requests}>{MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE}"
         )
 
     result["requests_added"] = added_requests
     result["post_site_logical_requests"] = post_site_requests
     result["bytes_added"] = int(operations.get("bytes") or 0)
-    result["latencies_ms"] = [int(value) for value in operations.get("latencies_ms") or []]
-    result["activity_feed_status"] = feed_record.get("status")
-    result["activity_feed_skipped_reason"] = None
+    result["latencies_ms"] = [
+        int(value) for value in operations.get("latencies_ms") or [] if value is not None
+    ]
+    result["sitemap_careers_status"] = sitemap_record.get("status")
+    result["sitemap_careers_skipped_reason"] = None
 
-    row.setdefault("evidence", {})["website_activity_feed"] = feed_record
-    if feed_record.get("status") == "available":
-        entries = ((feed_record.get("value") or {}).get("entries") or [])
-        result["activity_feed_retained"] = bool(entries)
-        result["activity_feed_entry_count"] = len(entries)
-        result["activity_feed_url"] = feed_record.get("source_url")
+    row.setdefault("evidence", {})["website_sitemap_careers"] = sitemap_record
+    if sitemap_record.get("status") == "available":
+        sitemap_value = sitemap_record.get("value") or {}
+        careers_url = str(sitemap_value.get("careers_url") or "").strip()
+        result["sitemap_careers_retained"] = bool(careers_url)
+        result["sitemap_careers_url"] = careers_url or None
+        result["sitemap_url"] = sitemap_record.get("source_url")
     return row, result
-
 
 def evaluate_hyphenated_no_fallback(
     profile: dict[str, Any],
@@ -183,16 +206,16 @@ def evaluate_hyphenated_no_fallback(
     timeout: float = 6.0,
     base_site_logical_requests: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Evaluate H1g inside request headroom, then use any settled spare slot for Q4.
+    """Evaluate H1g inside request headroom, with M16 using settled spare site capacity.
 
-    The standalone evaluator derives site requests from ``profile.run_metrics``. Production
+    The standalone evaluator derives site requests from profile.run_metrics. Production
     orchestration can instead pass the already-measured site request count directly so the
     same four-request ceiling remains authoritative while discovery is still in progress.
 
-    Q4 never competes with website recovery. If a website is already exact-verified, one
-    `/feed/` attempt may use the final two logical site requests. Unresolved companies keep
-    those requests available for H1g. A site that H1g itself recovers therefore receives no
-    additional feed request in the same run.
+    M16 never competes with website recovery. If a website is already exact-verified, one
+    robots-plus-sitemap probe may use the final two logical site requests. Unresolved companies
+    keep those requests available for H1g. A site that H1g itself recovers therefore receives
+    no sitemap request in the same run.
     """
 
     row = deepcopy(profile)
@@ -231,7 +254,7 @@ def evaluate_hyphenated_no_fallback(
 
     if _publishable(website):
         result["skipped_reason"] = "verified_website_present"
-        return _attach_activity_feed_in_spare_slot(
+        return _attach_sitemap_careers_in_spare_slot(
             row,
             result,
             website=website,
@@ -240,7 +263,7 @@ def evaluate_hyphenated_no_fallback(
         )
     if base_site_requests is None:
         result["skipped_reason"] = "base_site_request_accounting_unavailable"
-        result["activity_feed_skipped_reason"] = "website_not_verified"
+        result["activity_feed_skipped_reason"] = "website_not_verified"\n        result["sitemap_careers_skipped_reason"] = "website_not_verified"
         return row, result
     if not candidate:
         result["skipped_reason"] = "no_distinct_hyphenated_no_candidate"
@@ -268,7 +291,7 @@ def evaluate_hyphenated_no_fallback(
     result["post_site_logical_requests"] = post_site_requests
     result["bytes_added"] = int(operations.get("bytes") or 0)
     result["latencies_ms"] = [int(value) for value in operations.get("latencies_ms") or []]
-    result["activity_feed_skipped_reason"] = "h1g_consumed_spare_slot"
+    result["activity_feed_skipped_reason"] = "h1g_consumed_spare_slot"\n    result["sitemap_careers_skipped_reason"] = "h1g_consumed_spare_slot"
 
     record["source_class"] = "company_owned_candidate"
     gated = apply_website_identity_gate(row, record)
