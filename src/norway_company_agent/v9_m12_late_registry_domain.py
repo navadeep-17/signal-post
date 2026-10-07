@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Callable
 
 from .domain_discovery import (
     _domain_identity_strength,
@@ -172,6 +172,7 @@ def evaluate_request_neutral_late_fallback(
     *,
     timeout: float = 6.0,
     base_site_logical_requests: int | None = None,
+    h1g_evaluator: Callable[..., tuple[dict[str, Any], dict[str, Any]]] = evaluate_hyphenated_no_fallback,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Replace H1g only for unresolved M12-eligible profiles; never add requests."""
 
@@ -181,7 +182,7 @@ def evaluate_request_neutral_late_fallback(
     # Preserve all existing behavior when a site is already verified. This also preserves
     # H1g's spare-slot feed behavior.
     if _publishable(website):
-        fallback_row, fallback = evaluate_hyphenated_no_fallback(
+        fallback_row, fallback = h1g_evaluator(
             row,
             timeout=timeout,
             base_site_logical_requests=base_site_logical_requests,
@@ -192,7 +193,7 @@ def evaluate_request_neutral_late_fallback(
 
     candidate = select_late_registry_domain_candidate(row)
     if candidate is None:
-        fallback_row, fallback = evaluate_hyphenated_no_fallback(
+        fallback_row, fallback = h1g_evaluator(
             row,
             timeout=timeout,
             base_site_logical_requests=base_site_logical_requests,
