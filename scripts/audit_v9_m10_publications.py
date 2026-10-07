@@ -34,12 +34,83 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _identity_publishable(value: Any) -> bool:
+    """Accept canonical verifier dicts and the typed, abbreviated exact-site proof.
+
+    Contact/social projections encode exact site identity in a website_identity_gate
+    proof entry containing status, score and verifier method but no redundant
+    publishable flag. This branch only modifies the *audit*, never the verifier.
+    """
     if isinstance(value, dict):
-        if value.get("publishable") is True and str(value.get("status") or "") == "exact":
-            return True
+        if str(value.get("status") or "") == "exact":
+            if value.get("publishable") is True:
+                return bool(str(value.get("method") or "").strip())
+            if value.get("publishable") is False:
+                return False
+            if value.get("type") == "website_identity_gate":
+                try:
+                    score = float(value.get("score"))
+                except (TypeError, ValueError):
+                    return False
+                return 0.95 <= score <= 1.0 and bool(str(value.get("method") or "").strip())
         return any(_identity_publishable(child) for child in value.values())
     if isinstance(value, list):
         return any(_identity_publishable(child) for child in value)
+    return False
+
+
+def _supplemental_claim_precision(field: str, claim_value: Any, evidence_rows: list[dict[str, Any]]) -> bool:
+    """Check the field-specific proof binding for recovered contact/social claims."""
+    if field not in {
+        "external.contact_email", "external.contact_phone", "external.profile_handle",
+    }:
+        return True
+    for evidence in evidence_rows:
+        proof = evidence.get("identity_proof")
+        if not isinstance(proof, list):
+            continue
+        typed = {
+            str(item.get("type") or ""): item
+            for item in proof
+            if isinstance(item, dict) and item.get("type")
+        }
+        if field == "external.contact_email":
+            entry = typed.get("same_registered_domain_contact_email") or {}
+            value = str(claim_value or "").strip().casefold()
+            if (
+                "@" in value
+                and value.rsplit("@", 1)[-1] == str(entry.get("email_domain") or "").casefold()
+                and str(entry.get("email_domain") or "").casefold()
+                == str(entry.get("registered_domain") or "").casefold()
+                and bool(entry.get("registered_domain"))
+            ):
+                return True
+        elif field == "external.contact_phone":
+            structured = typed.get("structured_organization_identity_gate") or {}
+            phone = typed.get("structured_organization_telephone_field") or {}
+            if (
+                str(claim_value or "").startswith("+47")
+                and str(structured.get("method") or "") in {
+                    "structured_exact_organisation_number",
+                    "structured_legal_name_token_match",
+                }
+                and phone.get("source_url") == evidence.get("source_url")
+                and phone.get("content_sha256") == evidence.get("content_sha256")
+                and bool(phone.get("source_url"))
+            ):
+                return True
+        elif field == "external.profile_handle":
+            homepage = typed.get("company_homepage_declared_social_link") or {}
+            social = typed.get("social_handle_identity_gate") or {}
+            try:
+                score = float(social.get("score") or 0)
+            except (TypeError, ValueError):
+                score = 0.0
+            if (
+                homepage.get("profile_url") == claim_value
+                and score >= 0.95
+                and bool(social.get("method"))
+            ):
+                return True
     return False
 
 
@@ -80,6 +151,9 @@ def audit_new_publications(
             and all(bool(row.get("identity_proof")) for row in evidence_rows),
             "exact_publishable_identity_present": any(
                 _identity_publishable(row.get("identity_proof")) for row in evidence_rows
+            ),
+            "field_specific_identity_scope_proof": _supplemental_claim_precision(
+                field, item.get("value"), evidence_rows
             ),
         }
         row = {
