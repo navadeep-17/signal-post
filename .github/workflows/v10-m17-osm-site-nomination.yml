@@ -112,11 +112,11 @@ jobs:
 
           download_named_artifact 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
           BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
-          M10="$(find frozen/m10 -type f -name 'gate-b-100.jsonl' | head -n 1)"
+          M10="$(find frozen/m10 -type f -name 'gate-b-consumed-100.jsonl' | head -n 1)"
           test -n "$BULK"
           test -n "$M10"
           cp "$BULK" frozen/brreg-enheter.csv
-          cp "$M10" frozen/m10-gate-b-100.jsonl
+          cp "$M10" frozen/m10-gate-b-consumed-100.jsonl
           test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
 
           download_named_artifact 37612496445 v9-m13-frozen-cohort frozen/m13
@@ -153,7 +153,7 @@ jobs:
             --m13b-base-exclude frozen/m13-consumed-100.jsonl \
             --m13b-base-exclude frozen/m14-consumed-100.jsonl \
             --m13b-base-exclude frozen/m14b-consumed-100.jsonl \
-            --extra-exclude frozen/m10-gate-b-100.jsonl \
+            --extra-exclude frozen/m10-gate-b-consumed-100.jsonl \
             --extra-exclude frozen/m15-consumed-20.jsonl \
             --extra-exclude frozen/m16-consumed-20.jsonl \
             --output frozen/m17-consumed-20.jsonl \
