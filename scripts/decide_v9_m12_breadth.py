@@ -142,8 +142,7 @@ def decide(
             "every_new_publication_has_manual_row")
     require(len(manual_publications) == int(publication_report.get("manual_review_rows") or 0),
             "manual_queue_count_matches")
-    require(all(all((row.get("checks") or {}).values()) for row in manual_publications),
-            "every_manual_row_machine_check_green")
+    require(all(bool(row.get("checks")) and all((row.get("checks") or {}).values()) for row in manual_publications),\n            "every_manual_row_machine_check_green")
 
     holdout_orgs = {org for org, bucket in cohort.items() if bucket == "m12_delta_holdout"}
     dev_orgs = {org for org, bucket in cohort.items() if bucket == "m12_delta_development"}
