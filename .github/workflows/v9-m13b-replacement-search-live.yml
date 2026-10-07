@@ -1,0 +1,395 @@
+name: V9 M13b Replacement Search Live Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_live_provider:
+        description: Explicitly enable the frozen M13 search experiment on replacement holdout
+        required: true
+        type: boolean
+        default: false
+      evaluator_reproducible:
+        description: Confirm this exact provider/search path is available during Builderr scoring
+        required: true
+        type: boolean
+        default: false
+      evaluator_supplied_credential:
+        description: Confirm credential is supplied by Builderr/evaluator, not participant-owned
+        required: true
+        type: boolean
+        default: false
+      rights_status:
+        description: Provider/use-rights confirmation
+        required: true
+        type: choice
+        options:
+          - unknown
+          - approved
+          - contract_confirmed
+        default: unknown
+      challenge_cost_budget_usd:
+        description: Explicit third-party API budget for this 100-company consumed experiment
+        required: true
+        type: string
+        default: '0'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m13b-replacement-search-live
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  M13_EVALUATOR_SHA: 9f9af16ee213256b3979e1ef9d98c68f3c535065
+  M13B_FROZEN_ARTIFACT_ID: "11485523306"
+  M13B_FROZEN_ARTIFACT_DIGEST: "sha256:eab584beb1d81baf98791c32787e3dcec5a2b332df6e918135886b29bd11e1ad"
+  M10_BRREG_ARTIFACT_ID: "11459496712"
+  M10_BRREG_ARTIFACT_DIGEST: "sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98"
+  M13B_TARGET_MANIFEST_SHA256: eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe
+  BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
+  MAX_SEARCH_CALLS: "20"
+  MIN_PROVIDER_RESERVE_USD: "0.30"
+
+jobs:
+  preflight:
+    name: M13b explicit provider and immutable-input gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Require explicit live-provider authorization
+        run: |
+          set -euo pipefail
+          test "${{ inputs.enable_live_provider }}" = "true"
+          test "${{ inputs.evaluator_reproducible }}" = "true"
+          test "${{ inputs.evaluator_supplied_credential }}" = "true"
+          test "${{ inputs.rights_status }}" != "unknown"
+          test -n "${OPENAI_API_KEY:-}"
+          python - <<'PY'
+          from decimal import Decimal
+          supplied=Decimal("${{ inputs.challenge_cost_budget_usd }}")
+          floor=Decimal("0.30")
+          assert supplied >= floor, (supplied, floor)
+          PY
+
+      - name: Verify exact frozen artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M13B_FROZEN_ARTIFACT_ID" --jq .digest)" = "$M13B_FROZEN_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M10_BRREG_ARTIFACT_ID" --jq .digest)" = "$M10_BRREG_ARTIFACT_DIGEST"
+
+      - name: Recover replacement holdout without printing target identities
+        run: |
+          set -euo pipefail
+          mkdir -p shared/m13b shared/m10
+          gh run download 37629716481 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m13b-replacement-frozen-cohort --dir shared/m13b
+          cp shared/m13b/m13b-consumed-100.jsonl shared/m13b-consumed-100.jsonl
+          cp shared/m13b/m13b-cohort-audit.jsonl shared/m13b-cohort-audit.jsonl
+          cp shared/m13b/m13b-cohort-report.json shared/m13b-cohort-report.json
+          cp shared/m13b/brreg-enheter.sha256 shared/brreg-enheter.sha256
+
+          test "$(wc -l < shared/m13b-consumed-100.jsonl)" -eq 100
+          test "$(sha256sum shared/m13b-consumed-100.jsonl | awk '{print $1}')" = "$M13B_TARGET_MANIFEST_SHA256"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("shared/m13b-cohort-report.json").read_text())
+          assert r["selected_companies"] == 100, r
+          assert r["search_holdout_companies"] == 20, r
+          assert r["control_companies"] == 80, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["replacement_disjoint_from_all_prior_experiment_cohorts"] is True, r
+          assert r["target_manifest_sha256"] == "eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe", r
+          print({
+              "selected_companies": r["selected_companies"],
+              "search_holdout_companies": r["search_holdout_companies"],
+              "control_companies": r["control_companies"],
+              "fresh_companies_used": r["fresh_companies_used"],
+              "target_manifest_sha256": r["target_manifest_sha256"],
+          })
+          PY
+
+      - name: Recover exact frozen BRREG bytes
+        run: |
+          set -euo pipefail
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir shared/m10
+          BULK="$(find shared/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          test "$(sha256sum shared/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+          (cd shared && sha256sum -c brreg-enheter.sha256)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v9-m13b-live-frozen-inputs
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/m13b-consumed-100.jsonl
+            shared/m13b-cohort-audit.jsonl
+            shared/m13b-cohort-report.json
+            shared/brreg-enheter.csv
+            shared/brreg-enheter.sha256
+
+  evaluator:
+    name: M13b ${{ matrix.side }} 100
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - side: baseline-search-disabled
+            enable_search: false
+          - side: challenger-search-enabled
+            enable_search: true
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.M13_EVALUATOR_SHA }}
+          path: code
+          fetch-depth: 1
+
+      - name: Prove frozen M13 evaluator SHA
+        run: test "$(git -C code rev-parse HEAD)" = "$M13_EVALUATOR_SHA"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m13b-live-frozen-inputs
+          path: shared
+
+      - name: Verify exact shared inputs
+        run: |
+          set -euo pipefail
+          test "$(wc -l < shared/m13b-consumed-100.jsonl)" -eq 100
+          test "$(sha256sum shared/m13b-consumed-100.jsonl | awk '{print $1}')" = "$M13B_TARGET_MANIFEST_SHA256"
+          test "$(sha256sum shared/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+          (cd shared && sha256sum -c brreg-enheter.sha256)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install frozen M13 runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          cd code
+          uv sync --locked
+          mkdir -p ../out
+
+      - name: Run exact frozen M13 baseline/treatment
+        run: |
+          set -euo pipefail
+          cd code
+          EXTRA=()
+          COST="0"
+          if test "${{ matrix.enable_search }}" = "true"; then
+            EXTRA+=(
+              --enable-openai-web-search
+              --max-search-calls "$MAX_SEARCH_CALLS"
+              --search-evaluator-reproducible
+              --search-evaluator-supplied-credential
+              --search-rights-status "${{ inputs.rights_status }}"
+            )
+            COST="${{ inputs.challenge_cost_budget_usd }}"
+          fi
+
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/m13b-consumed-100.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../out/output.jsonl \
+            --report ../out/report.json \
+            --product-output ../out/product.html \
+            --work-dir ../out/work \
+            --run-id "v9-m13b-${{ matrix.side }}" \
+            --expected-count 100 \
+            --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd "$COST" \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 --support-lookback-days 365 \
+            --support-events-per-company 5 \
+            "${EXTRA[@]}"
+
+      - name: Verify side contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("out/report.json").read_text())
+          assert r["passed"] is True, r
+          assert r["final_objects"] == 100, r
+          assert r["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, r
+          assert r["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, r
+          assert r["runtime"]["wall_runtime_seconds"] <= 2400, r
+          if "${{ matrix.enable_search }}" == "true":
+              assert r["source_policy"]["openai_web_search_enabled"] is True, r
+              assert r["source_policy"]["search_evaluator_reproducible"] is True, r
+              assert r["source_policy"]["search_evaluator_supplied_credential"] is True, r
+              assert r["source_policy"]["search_rights_status"] in {"approved", "contract_confirmed"}, r
+              contract=r["source_policy"]["openai_provider_contract"]
+              assert contract["allowed_for_live_v9_experiment"] is True, contract
+              assert 0 < r["source_policy"]["search_api_requests"] <= 20, r
+              assert r["source_policy"]["third_party_cost_usd"] > 0, r
+              assert r["request_budget"]["provider_search_logical_request_ceiling"] == 20, r
+          else:
+              assert r["source_policy"]["search_api_requests"] == 0, r
+              assert r["source_policy"]["third_party_cost_usd"] == 0, r
+              assert r["request_budget"]["provider_search_logical_request_ceiling"] == 0, r
+          PY
+
+      - name: Remove UI/cache before upload
+        if: always()
+        run: |
+          rm -f out/product.html
+          rm -rf out/work
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v9-m13b-${{ matrix.side }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/output.jsonl
+            out/report.json
+
+  audit:
+    name: M13b replacement holdout breadth and evidence gate
+    needs: [preflight, evaluator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.M13_EVALUATOR_SHA }}
+          path: code
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install frozen M13 measurement runtime
+        run: |
+          cd code
+          uv sync --locked
+          mkdir -p ../result ../compat
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m13b-live-frozen-inputs
+          path: shared
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m13b-baseline-search-disabled
+          path: baseline
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m13b-challenger-search-enabled
+          path: challenger
+
+      - name: Map replacement bucket labels only for frozen M13 decision script
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          source=Path("shared/m13b-cohort-audit.jsonl")
+          dest=Path("compat/m13-cohort-audit.jsonl")
+          out=[]
+          for line in source.read_text().splitlines():
+              if not line.strip():
+                  continue
+              row=json.loads(line)
+              if row["bucket"] == "m13b_search_holdout":
+                  row["bucket"] = "m13_search_holdout"
+              elif row["bucket"] == "m13b_control_unsearched":
+                  row["bucket"] = "m13_control_unsearched"
+              else:
+                  raise AssertionError(row["bucket"])
+              out.append(row)
+          assert len(out) == 100
+          assert sum(x["bucket"] == "m13_search_holdout" for x in out) == 20
+          assert sum(x["bucket"] == "m13_control_unsearched" for x in out) == 80
+          dest.write_text("".join(json.dumps(x,sort_keys=True)+"\n" for x in out))
+          PY
+
+      - name: Compare all seven external company families
+        run: |
+          cd code
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline ../baseline/output.jsonl \
+            --challenger ../challenger/output.jsonl \
+            --report ../result/family-transfer.json \
+            --new-publications ../result/new-publications.jsonl \
+            --lost-publications ../result/lost-publications.jsonl
+
+      - name: Audit every new publication
+        run: |
+          cd code
+          uv run python scripts/audit_v9_m10_publications.py \
+            --baseline ../baseline/output.jsonl \
+            --challenger ../challenger/output.jsonl \
+            --report ../result/publication-audit.json \
+            --manual-audit ../result/manual-audit-required.jsonl
+
+      - name: Apply unchanged frozen M13 decision bar
+        run: |
+          cd code
+          uv run python scripts/decide_v9_m13_search_breadth.py \
+            --cohort-report ../shared/m13b-cohort-report.json \
+            --cohort-audit ../compat/m13-cohort-audit.jsonl \
+            --baseline-report ../baseline/report.json \
+            --challenger-report ../challenger/report.json \
+            --baseline-output ../baseline/output.jsonl \
+            --challenger-output ../challenger/output.jsonl \
+            --family-report ../result/family-transfer.json \
+            --publication-report ../result/publication-audit.json \
+            --manual-publications ../result/manual-audit-required.jsonl \
+            --output ../result/m13b-machine-result.json
+
+      - name: Print bounded machine result
+        if: always()
+        run: |
+          test ! -f result/m13b-machine-result.json || cat result/m13b-machine-result.json
+          if test -f result/manual-audit-required.jsonl; then
+            echo "MANUAL_ROWS=$(wc -l < result/manual-audit-required.jsonl)"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v9-m13b-consumed-decision-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            result/
+            shared/m13b-consumed-100.jsonl
+            shared/m13b-cohort-audit.jsonl
+            shared/m13b-cohort-report.json
+            shared/brreg-enheter.sha256
