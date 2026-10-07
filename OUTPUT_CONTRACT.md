@@ -158,7 +158,7 @@ Current canonical namespaces are `company.*`, `financial.*`, `people.*`, `locati
 Important semantic boundaries:
 
 - a social-profile fact means only that an exact verified company-owned page declared the profile URL; the social platform itself was not fetched;
-- a generic careers page is never projected as a hiring fact;
+- a verified same-company-host careers page may be projected as `hiring.careers_page`, explicitly scoped to careers/hiring presence only; it never establishes an active vacancy or job posting;
 - an official BRREG registry-change fact means BRREG recorded a dated exact-org update; it is not company-authored news, hiring or social activity;
 - missing values, blocked sources and ambiguous identity evidence remain explicit rather than being converted into negative business claims.
 
