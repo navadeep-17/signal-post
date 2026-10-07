@@ -1,0 +1,212 @@
+name: V9 M10 Gate A Consumed 20
+
+on:
+  push:
+    branches:
+      - experiment/v9-m10-consumed-gates
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-gate-a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: challenger
+          fetch-depth: 1
+
+      - name: Checkout immutable V8 production baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
+          path: baseline
+          fetch-depth: 1
+
+      - name: Verify code identities
+        run: |
+          mkdir -p shared/out
+          git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
+          git -C baseline rev-parse HEAD | tee shared/out/baseline-sha.txt
+          test "$(cat shared/out/challenger-sha.txt)" = "${{ github.sha }}"
+          test "$(cat shared/out/baseline-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Install locked dependencies and test harness
+        run: |
+          (cd baseline && uv sync --locked)
+          (cd challenger && uv sync --locked)
+          (cd challenger && uv run --with pytest pytest -q tests/test_v9_m10_consumed_gates.py)
+
+      - name: Recover original frozen consumed 1000
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p shared/frozen-consumed
+          gh run download 35246833190 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name final-release-manifest-1000 \
+            --dir shared/frozen-consumed
+          SOURCE="$(find shared/frozen-consumed -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" shared/out/consumed-1000.jsonl
+          test "$(wc -l < shared/out/consumed-1000.jsonl)" -eq 1000
+          sha256sum shared/out/consumed-1000.jsonl > shared/out/consumed-source.sha256
+
+      - name: Obtain one shared current official BRREG snapshot
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          sha256sum shared/brreg-enheter.csv > shared/out/brreg-snapshot.sha256
+
+      - name: Build consumed-only Gate A 20 and locked Gate B 100
+        run: |
+          cd challenger
+          uv run python scripts/build_v9_m10_consumed_gates.py \
+            --source-manifest ../shared/out/consumed-1000.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --gate-a-output ../shared/out/gate-a-consumed-20.jsonl \
+            --gate-b-output ../shared/out/gate-b-consumed-100.jsonl \
+            --audit ../shared/out/cohort-audit.jsonl \
+            --report ../shared/out/cohort-report.json \
+            --gate-a-count 20 --gate-b-count 100
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          q = json.loads(Path("../shared/out/cohort-report.json").read_text())
+          assert q["gate_a_companies"] == 20 and q["gate_b_companies"] == 100, q
+          assert q["fresh_companies_used"] == 0, q
+          assert set(q["required_canaries"]) <= set(q["gate_a_canaries"]), q
+          print("GATE_A_COHORT_LOCKED", q["gate_a_manifest_sha256"])
+          print("GATE_B_COHORT_RESERVED", q["gate_b_manifest_sha256"])
+          PY
+
+      - name: Run frozen V8 baseline on exact consumed Gate A
+        run: |
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/out/gate-a-consumed-20.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../shared/out/baseline-output.jsonl \
+            --report ../shared/out/baseline-report.json \
+            --product-output ../shared/out/baseline-product.html \
+            --work-dir ../shared/out/baseline-work \
+            --run-id v9-m10-gate-a-baseline \
+            --expected-count 20 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Run integrated V9 M2 M4 M5 challenger on identical Gate A
+        run: |
+          cd challenger
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/out/gate-a-consumed-20.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../shared/out/challenger-output.jsonl \
+            --report ../shared/out/challenger-report.json \
+            --product-output ../shared/out/challenger-product.html \
+            --work-dir ../shared/out/challenger-work \
+            --run-id v9-m10-gate-a-challenger \
+            --expected-count 20 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Compare family-company coverage and record exact publications
+        run: |
+          cd challenger
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline ../shared/out/baseline-output.jsonl \
+            --challenger ../shared/out/challenger-output.jsonl \
+            --report ../shared/out/family-transfer.json \
+            --new-publications ../shared/out/new-publications.jsonl \
+            --lost-publications ../shared/out/lost-publications.jsonl
+
+      - name: Audit all new external publications and evidence
+        run: |
+          cd challenger
+          uv run python scripts/audit_v9_m10_publications.py \
+            --baseline ../shared/out/baseline-output.jsonl \
+            --challenger ../shared/out/challenger-output.jsonl \
+            --report ../shared/out/publication-audit.json \
+            --manual-audit ../shared/out/manual-audit-required.jsonl
+
+      - name: Machine screen only no automatic promotion
+        run: |
+          cd challenger
+          uv run python scripts/decide_v9_m10_gate.py \
+            --cohort ../shared/out/cohort-report.json \
+            --baseline-report ../shared/out/baseline-report.json \
+            --challenger-report ../shared/out/challenger-report.json \
+            --family-report ../shared/out/family-transfer.json \
+            --publication-report ../shared/out/publication-audit.json \
+            --output ../shared/out/m10-gate-a-machine-result.json \
+            --count 20
+
+      - name: Print manual precision review queue
+        if: always()
+        run: |
+          test ! -f shared/out/manual-audit-required.jsonl || cat shared/out/manual-audit-required.jsonl
+
+      - name: Remove generated HTML from retained audit artifact
+        if: always()
+        run: rm -f shared/out/baseline-product.html shared/out/challenger-product.html
+
+      - name: Upload consumed Gate A decision evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m10-gate-a-consumed-20
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/out/challenger-sha.txt
+            shared/out/baseline-sha.txt
+            shared/out/consumed-source.sha256
+            shared/out/brreg-snapshot.sha256
+            shared/out/cohort-report.json
+            shared/out/gate-a-consumed-20.jsonl
+            shared/out/gate-b-consumed-100.jsonl
+            shared/out/cohort-audit.jsonl
+            shared/out/baseline-report.json
+            shared/out/challenger-report.json
+            shared/out/baseline-output.jsonl
+            shared/out/challenger-output.jsonl
+            shared/out/family-transfer.json
+            shared/out/new-publications.jsonl
+            shared/out/lost-publications.jsonl
+            shared/out/publication-audit.json
+            shared/out/manual-audit-required.jsonl
+            shared/out/m10-gate-a-machine-result.json
