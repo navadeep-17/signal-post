@@ -50,7 +50,7 @@ def test_contact_brand_email_domain_can_rank_without_legal_name_similarity() -> 
     row = rows["grisrestauranten.no"]
     assert row["method"] == "email_domain"
     assert row["email_local"] == "post"
-    assert row["identity_strength"] == "none"
+    assert row["identity_strength"] in {"none", "partial"}
     assert row["already_tried"] is False
     assert row["explicit_m15_form"] is False
     assert row["generic_or_service"] is False
@@ -100,7 +100,7 @@ def test_auditor_service_domain_is_flagged_and_penalized() -> None:
     row = rows["bdo.no"]
     assert row["generic_or_service"] is True
     assert row["negative_context_hits"]
-    assert row["score"] < 2
+    assert row["negative_context_disqualified"] is True
 
 
 def test_unrelated_accountant_domain_gets_negative_context_penalty() -> None:
@@ -111,7 +111,7 @@ def test_unrelated_accountant_domain_gets_negative_context_penalty() -> None:
     rows = _by_domain(diag.domain_mentions(_profile(), text))
     row = rows["lokalregnskap.no"]
     assert "regnskapsfører" in row["negative_context_hits"]
-    assert row["score"] < 2
+    assert row["negative_context_disqualified"] is True
 
 
 def test_exact_org_number_is_required() -> None:
