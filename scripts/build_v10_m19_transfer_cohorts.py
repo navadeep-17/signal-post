@@ -2,39 +2,27 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
 import hashlib
 import json
 from pathlib import Path
-import sys
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+from norway_company_agent.batch import read_organisation_inputs
 
-from norway_company_agent.batch import profiles_from_bulk, read_organisation_inputs
-from norway_company_agent.h1g_hyphenated_no_recall import hyphenated_no_candidate
 
-M13B_TARGET_MANIFEST_SHA256 = "eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe"
+EXPECTED_CONSUMED_SOURCE_SHA256 = "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26"
+EXPECTED_EXCLUSION_UNION_SHA256 = "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"
+EXPECTED_EXCLUSION_UNION_COMPANIES = 428
 
-KNOWN_RESEARCHED_ORGS = {
-    "927097532", "979943377", "999096298",
-    "828829092", "870418892", "896488562", "898321622",
-    "911546221", "914384729", "936455298", "976533194",
-    "979436661", "988936987", "992784229", "996405524",
-    "811413682", "811730912", "883971752", "923609016",
-}
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def read_orgs(path: Path) -> set[str]:
-    rows = read_organisation_inputs(path)
-    values = {str(row["organisation_number"]) for row in rows}
-    if len(values) != len(rows):
-        raise ValueError(f"{path}: duplicate organisation numbers")
-    return values
+    return sha256_bytes(path.read_bytes())
 
 
 def jsonl_bytes(rows: list[dict[str, Any]]) -> bytes:
@@ -49,90 +37,99 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_bytes(jsonl_bytes(rows))
 
 
-def reconstruct_m13b(
-    profiles: list[dict[str, Any]],
+def read_exclusion_union(
+    encoded_path: Path,
+    report_path: Path,
     *,
-    base_excluded: set[str],
-) -> tuple[set[str], str]:
-    eligible: list[str] = []
-    for profile in profiles:
-        org = str(profile.get("organisation_number") or "")
-        if org in base_excluded:
-            continue
-        if str(profile.get("website") or "").strip():
-            continue
-        if hyphenated_no_candidate(profile) is None:
-            continue
-        eligible.append(org)
-    eligible.sort()
-    if len(eligible) < 100:
-        raise ValueError(f"cannot reconstruct M13b: only {len(eligible)} eligible")
-    selected = eligible[:100]
-    manifest = [
-        {
-            "organisation_number": org,
-            "evaluation_split": "v9_m13b_consumed_search_replacement",
-            "sample_slice": "m13b_search_holdout" if i < 20 else "m13b_control_unsearched",
-        }
-        for i, org in enumerate(selected)
-    ]
-    digest = hashlib.sha256(jsonl_bytes(manifest)).hexdigest()
-    if digest != M13B_TARGET_MANIFEST_SHA256:
+    source_orgs: set[str],
+) -> tuple[set[str], dict[str, Any]]:
+    encoded = encoded_path.read_text(encoding="utf-8").strip()
+    try:
+        raw = gzip.decompress(base64.b64decode(encoded, validate=True))
+    except Exception as exc:
+        raise ValueError(f"cannot decode frozen exclusion union: {type(exc).__name__}: {exc}") from exc
+
+    digest = sha256_bytes(raw)
+    if digest != EXPECTED_EXCLUSION_UNION_SHA256:
         raise ValueError(
-            f"M13b reconstruction mismatch: {digest} != {M13B_TARGET_MANIFEST_SHA256}"
+            f"exclusion union SHA mismatch: {digest} != {EXPECTED_EXCLUSION_UNION_SHA256}"
         )
-    return set(selected), digest
+
+    rows: list[dict[str, Any]] = []
+    for lineno, line in enumerate(raw.decode("utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        if not isinstance(item, dict):
+            raise ValueError(f"exclusion union line {lineno}: expected object")
+        org = str(item.get("organisation_number") or "")
+        reasons = item.get("excluded_by")
+        if len(org) != 9 or not org.isdigit():
+            raise ValueError(f"exclusion union line {lineno}: invalid organisation number")
+        if not isinstance(reasons, list) or not reasons or not all(str(x).strip() for x in reasons):
+            raise ValueError(f"exclusion union line {lineno}: missing excluded_by provenance")
+        rows.append(item)
+
+    excluded = {str(row["organisation_number"]) for row in rows}
+    if len(rows) != len(excluded):
+        raise ValueError("exclusion union contains duplicate organisation numbers")
+    if len(excluded) != EXPECTED_EXCLUSION_UNION_COMPANIES:
+        raise ValueError(
+            f"exclusion union company count mismatch: {len(excluded)} != {EXPECTED_EXCLUSION_UNION_COMPANIES}"
+        )
+    outside = excluded - source_orgs
+    if outside:
+        raise ValueError(f"exclusion union contains organisations outside consumed source: {sorted(outside)[:5]}")
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report.get("schema_version") != "v10_m19_prior_exclusion_union_v1":
+        raise ValueError("unexpected exclusion provenance schema")
+    if report.get("union_manifest_sha256") != digest:
+        raise ValueError("exclusion provenance report manifest SHA mismatch")
+    if int(report.get("union_companies") or 0) != len(excluded):
+        raise ValueError("exclusion provenance report company count mismatch")
+    if report.get("all_union_rows_are_in_consumed_source") is not True:
+        raise ValueError("exclusion provenance report did not certify consumed-source membership")
+    if report.get("consumed_source_manifest_sha256") != EXPECTED_CONSUMED_SOURCE_SHA256:
+        raise ValueError("exclusion provenance report source SHA mismatch")
+    return excluded, report
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--source-manifest", type=Path, required=True)
-    p.add_argument("--bulk", type=Path, required=True)
-    p.add_argument("--m13b-base-exclude", action="append", type=Path, default=[])
-    p.add_argument("--exclude", action="append", type=Path, default=[])
+    p.add_argument("--prior-exclusion-union-b64", type=Path, required=True)
+    p.add_argument("--prior-exclusion-report", type=Path, required=True)
     p.add_argument("--gate-a-output", type=Path, required=True)
     p.add_argument("--gate-b-output", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
     p.add_argument("--count-per-gate", type=int, default=100)
     args = p.parse_args()
 
+    if sha256(args.source_manifest) != EXPECTED_CONSUMED_SOURCE_SHA256:
+        raise ValueError("M19 transfer source is not the exact frozen consumed 1000")
+
     source = read_organisation_inputs(args.source_manifest)
-    source_orgs = [str(row["organisation_number"]) for row in source]
-    if len(source_orgs) != 1000 or len(set(source_orgs)) != 1000:
-        raise ValueError("M19 transfer requires exact frozen consumed 1000")
+    source_orgs_ordered = [str(row["organisation_number"]) for row in source]
+    source_orgs = set(source_orgs_ordered)
+    if len(source_orgs_ordered) != 1000 or len(source_orgs) != 1000:
+        raise ValueError("M19 transfer requires exactly 1000 unique consumed organisations")
 
-    profiles, snapshot = profiles_from_bulk(args.bulk, source_orgs)
+    excluded, provenance = read_exclusion_union(
+        args.prior_exclusion_union_b64,
+        args.prior_exclusion_report,
+        source_orgs=source_orgs,
+    )
 
-    base_excluded = set(KNOWN_RESEARCHED_ORGS)
-    exclusion_manifest_rows: list[dict[str, Any]] = []
-    for path in args.m13b_base_exclude:
-        values = read_orgs(path)
-        base_excluded |= values
-        exclusion_manifest_rows.append({
-            "role": "m13b_base_exclude",
-            "file": path.name,
-            "companies": len(values),
-            "sha256": sha256(path),
-        })
+    remaining = sorted(source_orgs - excluded)
+    if len(remaining) != 572:
+        raise ValueError(f"unexpected remaining consumed population: {len(remaining)} != 572")
 
-    m13b, m13b_sha = reconstruct_m13b(profiles, base_excluded=base_excluded)
-    excluded = base_excluded | m13b
-
-    for path in args.exclude:
-        values = read_orgs(path)
-        excluded |= values
-        exclusion_manifest_rows.append({
-            "role": "exclude",
-            "file": path.name,
-            "companies": len(values),
-            "sha256": sha256(path),
-        })
-
-    remaining = [org for org in source_orgs if org not in excluded]
-    remaining.sort()
     needed = args.count_per_gate * 2
-    if len(remaining) < needed:
-        raise ValueError(f"only {len(remaining)} unexcluded companies remain; need {needed}")
+    if args.count_per_gate < 1 or len(remaining) < needed:
+        raise ValueError(
+            f"invalid requested transfer size: remaining={len(remaining)}, needed={needed}"
+        )
 
     gate_a_orgs = remaining[: args.count_per_gate]
     gate_b_orgs = remaining[args.count_per_gate : needed]
@@ -159,30 +156,27 @@ def main() -> int:
     write_jsonl(args.gate_b_output, gate_b)
 
     report = {
-        "screen_type": "v10_m19_consumed_disjoint_transfer_freeze",
+        "screen_type": "v10_m19_consumed_disjoint_transfer_freeze_v2",
         "source_population_companies": 1000,
-        "excluded_companies": len(excluded),
+        "source_manifest_sha256": sha256(args.source_manifest),
+        "prior_exclusion_union_companies": len(excluded),
+        "prior_exclusion_union_sha256": EXPECTED_EXCLUSION_UNION_SHA256,
+        "prior_exclusion_provenance_schema": provenance.get("schema_version"),
         "remaining_uninspected_companies": len(remaining),
         "gate_a_companies": len(gate_a),
         "gate_b_companies": len(gate_b),
         "gate_a_gate_b_disjoint": True,
         "fresh_companies_used": 0,
-        "m13b_reconstructed_companies_excluded": len(m13b),
-        "m13b_reconstructed_manifest_sha256": m13b_sha,
-        "source_manifest_sha256": sha256(args.source_manifest),
-        "registry_snapshot_sha256": snapshot.get("registry_snapshot_sha256"),
         "gate_a_manifest_sha256": sha256(args.gate_a_output),
         "gate_b_manifest_sha256": sha256(args.gate_b_output),
-        "exclusion_manifests": exclusion_manifest_rows,
         "selection_rule": [
-            "start from the exact frozen already-consumed 1000-company population",
-            "exclude known researched/public-practice cases",
-            "reconstruct and exclude the entire frozen M13b cohort",
-            "exclude Q8 development, M10, PR137, M13, M14, M14b, M15, M16 and M17 cohorts",
+            "start from exact frozen already-consumed 1000-company population",
+            "subtract immutable source-relative prior-experiment exclusion union (428 organisations)",
             "sort remaining organisation numbers ascending",
             f"freeze first {args.count_per_gate} as M19 transfer Gate A",
             f"freeze next {args.count_per_gate} as M19 transfer Gate B",
-            "both gates are frozen before any retained webpage/profile output is observed",
+            "freeze both manifests before any retained webpage/profile output is observed",
+            "Gate B remains sealed until Gate A machine + complete manual evidence review pass",
         ],
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -190,14 +184,7 @@ def main() -> int:
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print(json.dumps({
-        "gate_a_companies": report["gate_a_companies"],
-        "gate_b_companies": report["gate_b_companies"],
-        "remaining_uninspected_companies": report["remaining_uninspected_companies"],
-        "gate_a_manifest_sha256": report["gate_a_manifest_sha256"],
-        "gate_b_manifest_sha256": report["gate_b_manifest_sha256"],
-        "fresh_companies_used": 0,
-    }, sort_keys=True))
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
