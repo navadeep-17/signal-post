@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.v9_measurement import FAMILY_FIELDS
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _script(name: str, filename: str):
