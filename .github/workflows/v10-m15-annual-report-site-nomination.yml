@@ -69,13 +69,11 @@ jobs:
             'sha256:e89e9f2d7294dea39168743e246ac680ed32dc9e5aad7039f01ff7ee54ff90fb'
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11483268561" --jq .digest)" = \
             'sha256:3e25ab6b869eaf87d7e213d00378e19a4413dd0dcf01ad0058a942324213ae32'
-          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11485329792" --jq .digest)" = \
-            'sha256:f6c2839a409dd3d9e2aa4bdd7e8ceeae04f94f4f7858ec374313a3fce0c72bcc'
 
       - name: Recover frozen consumed source, BRREG snapshot and exclusion cohorts
         run: |
           set -euo pipefail
-          mkdir -p frozen/source frozen/pr137 frozen/m10 frozen/m13 frozen/m14 frozen/m14b frozen/m13b
+          mkdir -p frozen/source frozen/pr137 frozen/m10 frozen/m13 frozen/m14 frozen/m14b
 
           gh run download 35246833190 --repo "$GITHUB_REPOSITORY" \
             --name final-release-manifest-1000 --dir frozen/source
@@ -118,27 +116,17 @@ jobs:
           test -n "$M14B"
           cp "$M14B" frozen/m14b-consumed-100.jsonl
 
-          curl -fL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/11485329792/zip" \
-            -o frozen/m13b.zip
-          unzip -q frozen/m13b.zip -d frozen/m13b
-          M13B="$(find frozen/m13b -type f -name 'm13b-consumed-100.jsonl' | head -n 1)"
-          test -n "$M13B"
-          cp "$M13B" frozen/m13b-consumed-100.jsonl
 
       - name: Freeze new consumed M15 20 before observing annual-report text
         run: |
           uv run python scripts/build_v10_m15_consumed_cohort.py \
             --source-manifest frozen/consumed-1000.jsonl \
             --bulk frozen/brreg-enheter.csv \
-            --exclude frozen/pr137-gate-a-20.jsonl \
-            --exclude frozen/m10-gate-b-100.jsonl \
-            --exclude frozen/m13-consumed-100.jsonl \
-            --exclude frozen/m14-consumed-100.jsonl \
-            --exclude frozen/m14b-consumed-100.jsonl \
-            --exclude frozen/m13b-consumed-100.jsonl \
+            --m13b-base-exclude frozen/pr137-gate-a-20.jsonl \
+            --m13b-base-exclude frozen/m13-consumed-100.jsonl \
+            --m13b-base-exclude frozen/m14-consumed-100.jsonl \
+            --m13b-base-exclude frozen/m14b-consumed-100.jsonl \
+            --extra-exclude frozen/m10-gate-b-100.jsonl \
             --output frozen/m15-consumed-20.jsonl \
             --report frozen/m15-cohort-report.json \
             --count 20
@@ -149,6 +137,8 @@ jobs:
           r=json.loads(Path("frozen/m15-cohort-report.json").read_text())
           assert r["selected_companies"] == 20, r
           assert r["fresh_companies_used"] == 0, r
+          assert r["reconstructed_m13b_companies_excluded"] == 100, r
+          assert r["reconstructed_m13b_manifest_sha256"] == "eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe", r
           assert r["eligible_after_exclusions"] >= 20, r
           print({
               "selected_companies": r["selected_companies"],
