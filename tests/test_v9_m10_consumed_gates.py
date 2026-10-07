@@ -211,9 +211,15 @@ def test_declared_social_profile_needs_matching_identity_guard_and_url() -> None
             "method": "final_h1c_secondary_identity_guard_v1",
         },
         {
+            "type": "primary_homepage_provenance",
+            "source_url": "https://example.no/",
+            "content_sha256": "a" * 64,
+        },
+        {
             "type": "company_homepage_declared_social_link",
             "platform": "instagram",
             "profile_url": "https://instagram.com/dengladegris",
+            "source_url": "https://example.no/",
         },
         {
             "type": "social_handle_identity_gate",
@@ -242,3 +248,96 @@ def test_declared_social_profile_needs_matching_identity_guard_and_url() -> None
         [_contract("999096298", [claim], [evidence])],
     )
     assert reject["evidence_defects"] == 1
+
+
+def test_direct_homepage_declaration_guard_is_visible_field_specific_social_proof() -> None:
+    profile_url = "https://instagram.com/emilsen_gruppen"
+    proof = [
+        {
+            "type": "website_identity_gate",
+            "status": "exact",
+            "score": 0.98,
+            "method": "v9_m12_late_registry_domain_identity_v1",
+        },
+        {
+            "type": "primary_homepage_provenance",
+            "source_url": "https://emilsenfisk.com/",
+            "content_sha256": "c" * 64,
+        },
+        {
+            "type": "company_homepage_declared_social_link",
+            "platform": "instagram",
+            "profile_url": profile_url,
+            "source_url": "https://emilsenfisk.com/",
+        },
+        {
+            "type": "direct_company_homepage_declaration_guard",
+            "score": 0.98,
+            "method": "deterministic_social_declaration_identity_v1",
+            "match_basis": "legal_name_tokens",
+            "profile_url": profile_url,
+            "source_url": "https://emilsenfisk.com/",
+            "matched_tokens": ["emilsen"],
+        },
+    ]
+    evidence = _evidence("social-direct", content_hash="c" * 64)
+    evidence["identity_proof"] = proof
+    evidence["source_url"] = "https://emilsenfisk.com/"
+    claim = {
+        "field": "external.profile_handle",
+        "availability": "available",
+        "value": profile_url,
+        "evidence_ids": ["social-direct"],
+    }
+    report, manual = audit_module.audit_new_publications(
+        [_contract("828829092")],
+        [_contract("828829092", [claim], [evidence])],
+    )
+    assert report["evidence_defects"] == 0
+    assert manual[0]["checks"]["field_specific_identity_scope_proof"] is True
+
+    claim["value"] = "https://instagram.com/not-emilsen"
+    reject, rows = audit_module.audit_new_publications(
+        [_contract("828829092")],
+        [_contract("828829092", [claim], [evidence])],
+    )
+    assert reject["evidence_defects"] == 1
+    assert rows[0]["checks"]["field_specific_identity_scope_proof"] is False
+
+
+def test_declared_social_link_without_handle_or_direct_guard_still_fails_closed() -> None:
+    profile_url = "https://linkedin.com/company/emilsen-gruppen"
+    proof = [
+        {
+            "type": "website_identity_gate",
+            "status": "exact",
+            "score": 0.98,
+            "method": "v9_m12_late_registry_domain_identity_v1",
+        },
+        {
+            "type": "primary_homepage_provenance",
+            "source_url": "https://emilsenfisk.com/",
+            "content_sha256": "d" * 64,
+        },
+        {
+            "type": "company_page_declared_social_link",
+            "platform": "linkedin",
+            "profile_url": profile_url,
+            "source_url": "https://emilsenfisk.com/",
+        },
+    ]
+    evidence = _evidence("social-weak", content_hash="d" * 64)
+    evidence["identity_proof"] = proof
+    evidence["source_url"] = "https://emilsenfisk.com/"
+    claim = {
+        "field": "external.profile_handle",
+        "availability": "available",
+        "value": profile_url,
+        "evidence_ids": ["social-weak"],
+    }
+    report, manual = audit_module.audit_new_publications(
+        [_contract("828829092")],
+        [_contract("828829092", [claim], [evidence])],
+    )
+    assert report["evidence_defects"] == 1
+    assert manual[0]["checks"]["field_specific_identity_scope_proof"] is False

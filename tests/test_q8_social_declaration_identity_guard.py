@@ -73,6 +73,14 @@ def test_preserves_readable_handle_that_matches_verified_site_brand() -> None:
     assert len(observations) == 1
     assert observations[0]["profile_url"] == "https://instagram.com/northstarstudio"
     assert observations[0]["strategy"] == "verified_company_homepage_declaration_c12_v1"
+    proof = observations[0]["identity_proof"]
+    declaration = next(item for item in proof if item.get("type") == "company_homepage_declared_social_link")
+    guard = next(item for item in proof if item.get("type") == "direct_company_homepage_declaration_guard")
+    assert declaration["source_url"] == "https://northstarstudio.no/"
+    assert guard["profile_url"] == "https://instagram.com/northstarstudio"
+    assert guard["match_basis"] == "verified_site_brand"
+    assert guard["method"] == "deterministic_social_declaration_identity_v1"
+    assert guard["score"] >= 0.95
 
 
 def test_preserves_readable_handle_that_matches_meaningful_legal_name_tokens() -> None:
@@ -86,6 +94,13 @@ def test_preserves_readable_handle_that_matches_meaningful_legal_name_tokens() -
     observations = company_site_social_observations(profile)
     assert len(observations) == 1
     assert observations[0]["profile_url"] == "https://facebook.com/alpinedesignstudio"
+    guard = next(
+        item
+        for item in observations[0]["identity_proof"]
+        if item.get("type") == "direct_company_homepage_declaration_guard"
+    )
+    assert guard["match_basis"] == "legal_name_tokens"
+    assert set(guard["matched_tokens"]) >= {"alpine", "design", "studio"}
 
 
 def test_existing_publishable_handle_assessment_remains_authoritative() -> None:
@@ -113,3 +128,10 @@ def test_opaque_youtube_channel_id_keeps_exact_homepage_declaration_rule() -> No
     observations = company_site_social_observations(profile)
     assert len(observations) == 1
     assert observations[0]["platform"] == "youtube"
+    guard = next(
+        item
+        for item in observations[0]["identity_proof"]
+        if item.get("type") == "direct_company_homepage_declaration_guard"
+    )
+    assert guard["match_basis"] == "opaque_platform_identifier"
+    assert guard["method"] == "opaque_profile_identifier_on_exact_homepage_v1"
