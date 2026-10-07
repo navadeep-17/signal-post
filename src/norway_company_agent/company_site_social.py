@@ -120,38 +120,54 @@ def _matching_handle_assessment(value: dict[str, Any], platform: str, profile_ur
     return None
 
 
-def _direct_declaration_identity_allowed(
+def _direct_declaration_identity_guard(
     *,
     profile: dict[str, Any],
     source_url: str,
     platform: str,
     profile_url: str,
     handle_assessment: dict[str, Any] | None,
-) -> bool:
-    """Reject readable vendor/theme handles that conflict with the verified company identity.
+) -> dict[str, Any] | None:
+    """Return explicit proof for the relaxed exact-homepage declaration rule.
 
-    A publishable existing handle assessment remains authoritative. Opaque platform IDs (for
-    example a YouTube channel ID) preserve the previously qualified exact-homepage rule. For
-    readable handles that failed/no handle assessment, require deterministic overlap with the
-    exact verified site's hostname or with meaningful legal-name tokens. This blocks template,
-    CMS and agency social links without introducing provider-specific blacklists.
+    A publishable social-handle assessment remains authoritative and is serialized separately.
+    Otherwise a direct declaration is allowed only when the readable identifier overlaps the
+    verified site brand / meaningful legal-name tokens, or the platform identifier is opaque.
+    The returned object is evaluator-visible proof; absence means abstain.
     """
 
     if handle_assessment is not None and handle_assessment.get("publishable"):
-        return True
+        return None
 
     identifier = _social_profile_identifier(platform, profile_url)
     if identifier is None:
-        return True
+        return {
+            "type": "direct_company_homepage_declaration_guard",
+            "score": 0.95,
+            "method": "opaque_profile_identifier_on_exact_homepage_v1",
+            "match_basis": "opaque_platform_identifier",
+            "profile_url": profile_url,
+            "source_url": source_url,
+            "matched_tokens": [],
+        }
+
     candidate = _compact_identity(identifier)
     if len(candidate) < 4:
-        return False
+        return None
 
     host = (urllib.parse.urlparse(source_url).hostname or "").casefold().removeprefix("www.")
     site_label = host.split(".", 1)[0]
     site_brand = _compact_identity(site_label)
     if len(site_brand) >= 4 and (candidate in site_brand or site_brand in candidate):
-        return True
+        return {
+            "type": "direct_company_homepage_declaration_guard",
+            "score": 0.98,
+            "method": "deterministic_social_declaration_identity_v1",
+            "match_basis": "verified_site_brand",
+            "profile_url": profile_url,
+            "source_url": source_url,
+            "matched_tokens": [site_label],
+        }
 
     name_tokens = [
         token
@@ -159,11 +175,17 @@ def _direct_declaration_identity_allowed(
         if token not in LEGAL_SUFFIXES and len(token) >= 4
     ]
     matched = [token for token in name_tokens if token in candidate or candidate in token]
-    if len(matched) >= 2:
-        return True
-    if len(matched) == 1 and len(matched[0]) >= 6:
-        return True
-    return False
+    if len(matched) >= 2 or (len(matched) == 1 and len(matched[0]) >= 6):
+        return {
+            "type": "direct_company_homepage_declaration_guard",
+            "score": 0.98,
+            "method": "deterministic_social_declaration_identity_v1",
+            "match_basis": "legal_name_tokens",
+            "profile_url": profile_url,
+            "source_url": source_url,
+            "matched_tokens": matched,
+        }
+    return None
 
 
 def _primary_page_provenance(
@@ -219,6 +241,7 @@ def _observation(
     retrieved_at: str,
     strategy: str,
     handle_assessment: dict[str, Any] | None = None,
+    direct_declaration_guard: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     observation_id = "company-site-handle-" + hashlib.sha256(
         f"{org}|{platform}|{profile_url}|{source_url}|{content_sha256}|{strategy}".encode("utf-8")
@@ -237,7 +260,7 @@ def _observation(
             "content_sha256": content_sha256,
         },
         {
-            "type": "company_page_declared_social_link",
+            "type": "company_homepage_declared_social_link",
             "platform": platform,
             "profile_url": profile_url,
             "source_url": source_url,
@@ -252,6 +275,8 @@ def _observation(
                 "matched_tokens": list(handle_assessment.get("matched_tokens") or []),
             }
         )
+    if direct_declaration_guard is not None:
+        proof.append(dict(direct_declaration_guard))
 
     return {
         "id": observation_id,
@@ -321,13 +346,15 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
             if not platform or not _safe_profile_url(platform, profile_url):
                 continue
             assessment = _matching_handle_assessment(value, platform, profile_url)
-            if not _direct_declaration_identity_allowed(
+            publishable_handle = bool(assessment and assessment.get("publishable"))
+            declaration_guard = _direct_declaration_identity_guard(
                 profile=profile,
                 source_url=source_url,
                 platform=platform,
                 profile_url=profile_url,
                 handle_assessment=assessment,
-            ):
+            )
+            if not publishable_handle and declaration_guard is None:
                 continue
             observations[(platform, profile_url)] = _observation(
                 org=org,
@@ -338,7 +365,8 @@ def company_site_social_observations(profile: dict[str, Any]) -> list[dict[str, 
                 content_sha256=content_sha256,
                 retrieved_at=retrieved_at,
                 strategy="verified_company_homepage_declaration_c12_v1",
-                handle_assessment=assessment if assessment and assessment.get("publishable") else None,
+                handle_assessment=assessment if publishable_handle else None,
+                direct_declaration_guard=declaration_guard,
             )
 
     if len(pages) == 1:
