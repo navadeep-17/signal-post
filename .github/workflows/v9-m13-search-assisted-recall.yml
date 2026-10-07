@@ -178,10 +178,19 @@ jobs:
           test "$(wc -l < shared/pr137-search-gate-a-20.jsonl)" -eq 20
           test "$(sha256sum shared/pr137-search-gate-a-20.jsonl | awk '{print $1}')" =             "$PRIOR_SEARCH_GATE_A_SHA256"
 
-      - name: Freeze one official BRREG snapshot for baseline and treatment
+      - name: Reuse exact M10 BRREG snapshot for baseline and treatment
         run: |
           set -euo pipefail
-          curl --fail --location --retry 3 --retry-delay 2             --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output shared/brreg-enheter.csv
+          mkdir -p shared/m10
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            'sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98'
+          gh run download 37567829642 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs \
+            --dir shared/m10
+          BULK="$(find shared/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
           test -s shared/brreg-enheter.csv
           (cd shared && sha256sum brreg-enheter.csv > brreg-enheter.sha256)
 
@@ -278,7 +287,13 @@ jobs:
           EXTRA=()
           COST="0"
           if test "${{ matrix.enable_search }}" = "true"; then
-            EXTRA+=(--enable-openai-web-search --max-search-calls "$MAX_SEARCH_CALLS")
+            EXTRA+=(
+              --enable-openai-web-search
+              --max-search-calls "$MAX_SEARCH_CALLS"
+              --search-evaluator-reproducible
+              --search-evaluator-supplied-credential
+              --search-rights-status "${{ inputs.rights_status }}"
+            )
             COST="${{ inputs.challenge_cost_budget_usd }}"
           fi
           uv run python scripts/run_signalpost_v8.py             --organisations ../shared/m13-consumed-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../out/output.jsonl             --report ../out/report.json             --product-output ../out/product.html             --work-dir ../out/work             --run-id "v9-m13-${{ matrix.side }}"             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd "$COST"             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4 --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110             --support-registry-timeout 420 --support-lookback-days 365             --support-events-per-company 5             "${EXTRA[@]}"
@@ -295,6 +310,11 @@ jobs:
           assert r["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, r
           if "${{ matrix.enable_search }}" == "true":
               assert r["source_policy"]["openai_web_search_enabled"] is True, r
+              assert r["source_policy"]["search_evaluator_reproducible"] is True, r
+              assert r["source_policy"]["search_evaluator_supplied_credential"] is True, r
+              assert r["source_policy"]["search_rights_status"] in {"approved", "contract_confirmed"}, r
+              contract = r["source_policy"]["openai_provider_contract"]
+              assert contract["allowed_for_live_v9_experiment"] is True, contract
               assert 0 < r["source_policy"]["search_api_requests"] <= 20, r
               assert r["source_policy"]["third_party_cost_usd"] > 0, r
               assert r["request_budget"]["provider_search_logical_request_ceiling"] == 20, r
