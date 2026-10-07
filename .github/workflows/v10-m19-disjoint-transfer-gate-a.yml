@@ -18,13 +18,14 @@ env:
   PYTHONUNBUFFERED: "1"
   QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
   FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+  EXCLUSION_UNION_SHA256: 5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7
   BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
 
 jobs:
   freeze:
     name: Freeze disjoint M19 Gate A and Gate B before page observation
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -47,117 +48,92 @@ jobs:
       - name: Run focused M19 tests and compile
         run: |
           uv run --with pytest pytest -q tests/test_v10_m19_registry_domain_identity_recovery.py
-          python -m py_compile             src/norway_company_agent/registry_domain_identity_recovery.py             scripts/replay_v10_m19_registry_domain_identity.py             scripts/build_v10_m19_transfer_cohorts.py
+          python -m py_compile \
+            src/norway_company_agent/registry_domain_identity_recovery.py \
+            scripts/replay_v10_m19_registry_domain_identity.py \
+            scripts/build_v10_m19_transfer_cohorts.py
 
-      - name: Verify immutable exclusion/source artifacts
+      - name: Verify immutable source artifacts
         run: |
           set -euo pipefail
-          declare -A EXPECTED=(
-            [10508036929]='sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
-            [11393772677]='sha256:b7dd01b666470d155d2c70274bb8d1cb2695abc9d2f331d6a41eafe447c023f8'
-            [11459496712]='sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98'
-            [11478129358]='sha256:fb33af0c411848cb2f9a8a37610dc8953afe12e1c9c19d5636767002a0e12f69'
-            [11482816122]='sha256:e89e9f2d7294dea39168743e246ac680ed32dc9e5aad7039f01ff7ee54ff90fb'
-            [11483268561]='sha256:3e25ab6b869eaf87d7e213d00378e19a4413dd0dcf01ad0058a942324213ae32'
-            [11495058383]='sha256:5cb2fefbf99933316b529fec15d0839ae86e0e6a4280b6b95ba5feb5bb1e00b7'
-            [11496698758]='sha256:7d6f04be0d5f15afe9707389475b63bdbf8ee0289aaa9092ac53348ee0a539a3'
-            [11498930253]='sha256:866b7291cd48337b88e38def208885fc3b900b4ab9f277d6fdd2b8e2accfa75d'
-            [11503395644]='sha256:80fc31b8ad7fde76dd573d96b0c4eeac4a5b4a36034d8d9771a68037dda1de89'
-          )
-          for id in "${!EXPECTED[@]}"; do
-            actual="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" --jq .digest)"
-            test "$actual" = "${EXPECTED[$id]}"
-          done
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10508036929" --jq .digest)" = \
+            'sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            'sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98'
 
-      - name: Recover exact consumed source, BRREG snapshot and exclusion cohorts
+      - name: Recover exact consumed source and frozen BRREG snapshot
         run: |
           set -euo pipefail
-          mkdir -p frozen/{source,pr137,m10,m13,m14,m14b,m15,m16,m17,m18}
+          mkdir -p frozen/source frozen/m10
 
-          gh run download 35246833190 --repo "$GITHUB_REPOSITORY"             --name final-release-manifest-1000 --dir frozen/source
+          gh run download 35246833190 --repo "$GITHUB_REPOSITORY" \
+            --name final-release-manifest-1000 --dir frozen/source
           SOURCE="$(find frozen/source -type f -name 'final-release-1000.jsonl' | head -n1)"
           test -n "$SOURCE"
           cp "$SOURCE" frozen/consumed-1000.jsonl
           test "$(wc -l < frozen/consumed-1000.jsonl)" -eq 1000
           test "$(sha256sum frozen/consumed-1000.jsonl | awk '{print $1}')" = "$FROZEN_CONSUMED_SOURCE_SHA256"
 
-          gh run download 37421325313 --repo "$GITHUB_REPOSITORY"             --name v9-consumed-baseline --dir frozen/pr137
-          PR137="$(find frozen/pr137 -type f -name 'gate-a-20.jsonl' | head -n1)"
-          test -n "$PR137"
-          cp "$PR137" frozen/pr137-gate-a-20.jsonl
-
-          gh run download 37567829642 --repo "$GITHUB_REPOSITORY"             --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
           BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n1)"
-          M10="$(find frozen/m10 -type f -name 'gate-b-100.jsonl' | head -n1)"
           test -n "$BULK"
-          test -n "$M10"
           cp "$BULK" frozen/brreg-enheter.csv
-          cp "$M10" frozen/m10-gate-b-100.jsonl
           test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
 
-          gh run download 37612496445 --repo "$GITHUB_REPOSITORY"             --name v9-m13-frozen-cohort --dir frozen/m13
-          M13="$(find frozen/m13 -type f -name 'm13-consumed-100.jsonl' | head -n1)"
-          test -n "$M13"
-          cp "$M13" frozen/m13-consumed-100.jsonl
-
-          gh run download 37622216471 --repo "$GITHUB_REPOSITORY"             --name v9-m14-frozen-inputs --dir frozen/m14
-          M14="$(find frozen/m14 -type f -name 'm14-consumed-100.jsonl' | head -n1)"
-          test -n "$M14"
-          cp "$M14" frozen/m14-consumed-100.jsonl
-
-          gh run download 37624617561 --repo "$GITHUB_REPOSITORY"             --name v9-m14b-frozen-inputs --dir frozen/m14b
-          M14B="$(find frozen/m14b -type f -name 'm14b-consumed-100.jsonl' | head -n1)"
-          test -n "$M14B"
-          cp "$M14B" frozen/m14b-consumed-100.jsonl
-
-          gh run download 37648478667 --repo "$GITHUB_REPOSITORY"             --name v10-m15-consumed-annual-report-site-screen --dir frozen/m15
-          M15="$(find frozen/m15 -type f -name 'm15-consumed-20.jsonl' | head -n1)"
-          test -n "$M15"
-          cp "$M15" frozen/m15-consumed-20.jsonl
-
-          gh run download 37650996920 --repo "$GITHUB_REPOSITORY"             --name v10-m16-consumed-annual-report-bare-domain --dir frozen/m16
-          M16="$(find frozen/m16 -type f -name 'm16-consumed-20.jsonl' | head -n1)"
-          test -n "$M16"
-          cp "$M16" frozen/m16-consumed-20.jsonl
-
-          gh run download 37654815990 --repo "$GITHUB_REPOSITORY"             --name v10-m17-consumed-osm-site-screen --dir frozen/m17
-          M17="$(find frozen/m17 -type f -name 'm17-consumed-20.jsonl' | head -n1)"
-          test -n "$M17"
-          cp "$M17" frozen/m17-consumed-20.jsonl
-
-          gh run download 37664001754 --repo "$GITHUB_REPOSITORY"             --name v10-m18-careers-projection-replay --dir frozen/m18
-          Q8="$(find frozen/m18 -type f -name 'q8-consumed-100.jsonl' | head -n1)"
-          test -n "$Q8"
-          cp "$Q8" frozen/q8-development-100.jsonl
-          test "$(wc -l < frozen/q8-development-100.jsonl)" -eq 100
-
-      - name: Freeze Gate A and Gate B together
+      - name: Verify committed exclusion provenance and freeze both transfer gates
         run: |
-          uv run python scripts/build_v10_m19_transfer_cohorts.py             --source-manifest frozen/consumed-1000.jsonl             --bulk frozen/brreg-enheter.csv             --m13b-base-exclude frozen/pr137-gate-a-20.jsonl             --m13b-base-exclude frozen/m13-consumed-100.jsonl             --m13b-base-exclude frozen/m14-consumed-100.jsonl             --m13b-base-exclude frozen/m14b-consumed-100.jsonl             --exclude frozen/q8-development-100.jsonl             --exclude frozen/m10-gate-b-100.jsonl             --exclude frozen/m15-consumed-20.jsonl             --exclude frozen/m16-consumed-20.jsonl             --exclude frozen/m17-consumed-20.jsonl             --gate-a-output frozen/m19-transfer-gate-a-100.jsonl             --gate-b-output frozen/m19-transfer-gate-b-100.jsonl             --report frozen/m19-transfer-freeze-report.json             --count-per-gate 100
-
+          set -euo pipefail
           python - <<'PY'
-          import json
+          import base64, gzip, hashlib, json
           from pathlib import Path
 
+          encoded=Path("evaluation/v10_m19_prior_exclusion_union.jsonl.gz.b64").read_text().strip()
+          raw=gzip.decompress(base64.b64decode(encoded, validate=True))
+          digest=hashlib.sha256(raw).hexdigest()
+          report=json.loads(Path("evaluation/v10_m19_prior_exclusion_union.report.json").read_text())
+          assert digest == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7", digest
+          assert report["union_manifest_sha256"] == digest, report
+          assert report["union_companies"] == 428, report
+          assert report["remaining_consumed_companies"] == 572, report
+          assert report["all_union_rows_are_in_consumed_source"] is True, report
+          print({
+              "union_companies": report["union_companies"],
+              "remaining_consumed_companies": report["remaining_consumed_companies"],
+              "union_manifest_sha256": digest,
+          })
+          PY
+
+          uv run python scripts/build_v10_m19_transfer_cohorts.py \
+            --source-manifest frozen/consumed-1000.jsonl \
+            --prior-exclusion-union-b64 evaluation/v10_m19_prior_exclusion_union.jsonl.gz.b64 \
+            --prior-exclusion-report evaluation/v10_m19_prior_exclusion_union.report.json \
+            --gate-a-output frozen/m19-transfer-gate-a-100.jsonl \
+            --gate-b-output frozen/m19-transfer-gate-b-100.jsonl \
+            --report frozen/m19-transfer-freeze-report.json \
+            --count-per-gate 100
+
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
           r=json.loads(Path("frozen/m19-transfer-freeze-report.json").read_text())
           a=[json.loads(x) for x in Path("frozen/m19-transfer-gate-a-100.jsonl").read_text().splitlines() if x.strip()]
           b=[json.loads(x) for x in Path("frozen/m19-transfer-gate-b-100.jsonl").read_text().splitlines() if x.strip()]
           ao={str(x["organisation_number"]) for x in a}
           bo={str(x["organisation_number"]) for x in b}
-
           assert len(a) == len(ao) == 100
           assert len(b) == len(bo) == 100
           assert not (ao & bo)
           assert r["fresh_companies_used"] == 0
-          assert r["gate_a_gate_b_disjoint"] is True
-          assert r["m13b_reconstructed_companies_excluded"] == 100
-          assert r["m13b_reconstructed_manifest_sha256"] == "eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe"
-          print(json.dumps({
+          assert r["prior_exclusion_union_companies"] == 428
+          assert r["prior_exclusion_union_sha256"] == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"
+          assert r["remaining_uninspected_companies"] == 572
+          print({
               "gate_a_manifest_sha256": r["gate_a_manifest_sha256"],
               "gate_b_manifest_sha256": r["gate_b_manifest_sha256"],
               "remaining_uninspected_companies": r["remaining_uninspected_companies"],
               "fresh_companies_used": 0,
-          }, sort_keys=True))
+          })
           PY
 
       - uses: actions/upload-artifact@v4
@@ -235,7 +211,27 @@ jobs:
         run: |
           mkdir -p baseline-out/work
           cd baseline
-          uv run python scripts/run_signalpost_v8.py             --organisations ../frozen/m19-transfer-gate-a-100.jsonl             --bulk ../frozen/brreg-enheter.csv             --output ../baseline-out/output.jsonl             --report ../baseline-out/report.json             --product-output ../baseline-out/product.html             --work-dir ../baseline-out/work             --run-id v10-m19-transfer-gate-a-qualified-v8             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../frozen/m19-transfer-gate-a-100.jsonl \
+            --bulk ../frozen/brreg-enheter.csv \
+            --output ../baseline-out/output.jsonl \
+            --report ../baseline-out/report.json \
+            --product-output ../baseline-out/product.html \
+            --work-dir ../baseline-out/work \
+            --run-id v10-m19-transfer-gate-a-qualified-v8 \
+            --expected-count 100 \
+            --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
 
       - name: Verify qualified V8 Gate A operating contract
         run: |
@@ -263,7 +259,14 @@ jobs:
         run: |
           mkdir -p result
           cd m19
-          uv run python scripts/replay_v10_m19_registry_domain_identity.py             --baseline-output ../baseline-out/output.jsonl             --profiles ../baseline-out/work/profiles.jsonl             --challenger-output ../result/challenger-output.jsonl             --report ../result/m19-transfer-a-report.json             --manual-audit ../result/manual-audit-required.jsonl             --mode transfer_a             --minimum-recoveries 1
+          uv run python scripts/replay_v10_m19_registry_domain_identity.py \
+            --baseline-output ../baseline-out/output.jsonl \
+            --profiles ../baseline-out/work/profiles.jsonl \
+            --challenger-output ../result/challenger-output.jsonl \
+            --report ../result/m19-transfer-a-report.json \
+            --manual-audit ../result/manual-audit-required.jsonl \
+            --mode transfer_a \
+            --minimum-recoveries 1
 
       - name: Enforce predeclared Gate A decision contract
         run: |
