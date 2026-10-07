@@ -91,7 +91,7 @@ jobs:
           if test -f m10-inputs/brreg-enheter.sha256; then
             (cd m10-inputs && sha256sum -c brreg-enheter.sha256)
           fi
-          sha256sum shared/brreg-enheter.csv > shared/brreg-enheter.sha256
+          (cd shared && sha256sum brreg-enheter.csv > brreg-enheter.sha256)
           echo "M12 reuses the exact pre-existing M10 registry snapshot; no post-strategy registry drift."
 
       - name: Build pre-registered M12 target from consumed source only
