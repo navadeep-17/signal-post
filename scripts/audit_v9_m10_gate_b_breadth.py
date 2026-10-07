@@ -200,6 +200,15 @@ def main() -> int:
     ):
         p.add_argument("--" + name.replace("_", "-"), type=Path, required=True)
     args = p.parse_args()
+    approval = load_json(args.gate_a_approval)
+    for filename, expected_key in (
+        (args.gate_a_manifest, "gate_a_manifest_sha256"),
+        (args.gate_b_manifest, "gate_b_manifest_sha256"),
+    ):
+        expected = str(approval.get(expected_key) or "")
+        observed = hashlib.sha256(filename.read_bytes()).hexdigest()
+        if not expected or expected != observed:
+            raise ValueError(f"retained cohort manifest SHA-256 mismatch: {filename}")
     result = evaluate(
         gate_a_manifest=load_jsonl(args.gate_a_manifest),
         gate_b_manifest=load_jsonl(args.gate_b_manifest),
