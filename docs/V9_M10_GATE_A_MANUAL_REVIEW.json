@@ -1,0 +1,126 @@
+{
+  "schema": "v9_m10_gate_a_manual_review_v1",
+  "reviewed_at_utc": "2026-10-07",
+  "reviewer": "ChatGPT (assistant; evidence-based manual inspection, not a named human reviewer)",
+  "human_signoff_claimed": false,
+  "scope": "Authorize consumed Gate B transfer evaluation only; NOT production promotion, fresh-cohort qualification, or release.",
+  "gate_a_run_id": 37565180008,
+  "gate_a_challenger_sha": "2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf",
+  "gate_a_baseline_sha": "72f1bf2892ec1c1e35674aa383433c9a37afdaca",
+  "gate_a_artifact_id": 11458838045,
+  "gate_a_artifact_digest": "sha256:928e9ff4f11eb2ad078b0455c66e574c6c6bb7ec6e2ef2a8ccce123a73808e9f",
+  "gate_a_manifest_sha256": "d5426a230ca07627891e197f45f7fbc8fcc1618dec6285b7e218464f6891561c",
+  "gate_b_manifest_sha256": "e153f8e4c08990c9a26485e88efdb63b7688443ed99e385c3d7abefb8c7e533c",
+  "consumed_source_sha256": "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26",
+  "machine_gate_decision": "MANUAL_AUDIT_REQUIRED",
+  "machine_evidence_defects": 0,
+  "gate_a_new_family_company_edges": 7,
+  "gate_a_lost_family_company_edges": 0,
+  "gate_a_new_publications": 11,
+  "gate_a_lost_publications": 0,
+  "all_publications_claim_scoped": true,
+  "manual_review_finalized": true,
+  "wrong_company_publications": 0,
+  "semantic_overclaims": 0,
+  "gate_b_consumed_eval_authorized": true,
+  "gate_b_fresh_eval_authorized": false,
+  "gate_b_production_promotion_authorized": false,
+  "special_note": "DEN GLADE GRIS AS 999096298 has a 2026 BRREG address warning/change; restaurant operator identity was independently corroborated from historical restaurant/food safety records for St. Olavs gate 33 and company-owned site. Do not rely on now-invalid registered-address equivalence.",
+  "references": [
+    "https://virksomhet.brreg.no/nb/oppslag/enheter/999096298",
+    "https://virksomhet.brreg.no/oppslag/enheter/927097532",
+    "https://virksomhet.brreg.no/nb/oppslag/enheter/979943377",
+    "https://entalpy.no/",
+    "https://entalpy.no/kontakt",
+    "https://volf.no/",
+    "https://www.dengladegris.no/",
+    "https://www.dengladegris.no/ledige-stillinger",
+    "https://regnskapsbasen.no/selskap/den-glade-gris-as-999096298",
+    "https://assets.website-files.com/5aabb3484dc7fe62cb3f222a/65a9171888a906b793cf1c3d_DGG_spiralhefte_jan2024_TRYKK.pdf"
+  ],
+  "approved_publications": [
+    {
+      "organisation_number": "927097532",
+      "field": "external.contact_email",
+      "value": "frank@entalpy.no",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Same-domain structured Organization email; company contact page names Frank and matches official Sandnes address."
+    },
+    {
+      "organisation_number": "927097532",
+      "field": "external.contact_phone",
+      "value": "+4790564983",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "First-party structured phone; first-party contact page separately confirms same number and official address."
+    },
+    {
+      "organisation_number": "927097532",
+      "field": "external.hiring_intent",
+      "value": {
+        "match_type": "no_vi_soker",
+        "source_url": "https://entalpy.no/"
+      },
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Company homepage explicitly says Vi søker; hiring intent only, not a verified currently open position."
+    },
+    {
+      "organisation_number": "979943377",
+      "field": "external.contact_email",
+      "value": "post@volf.no",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Exact-org-number structured Organization node on volf.no and same-domain email; distinct from registry firmapost alias, not treated as contradiction."
+    },
+    {
+      "organisation_number": "979943377",
+      "field": "external.contact_phone",
+      "value": "+4770275662",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Exact-org-number structured phone; independent business records corroborate phone and Håem Skodje address."
+    },
+    {
+      "organisation_number": "999096298",
+      "field": "official_website",
+      "value": "https://www.dengladegris.no/",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Exact restaurant legal name plus independently documented operating location St. Olavs gate 33, no reliance on current BRREG registered address."
+    },
+    {
+      "organisation_number": "999096298",
+      "field": "external.careers_page",
+      "value": {
+        "anchor_text": "Ledige stillinger",
+        "url": "https://www.dengladegris.no/ledige-stillinger"
+      },
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Company-site careers surface only. No currently active vacancy publication."
+    },
+    {
+      "organisation_number": "999096298",
+      "field": "external.profile_handle",
+      "value": "https://facebook.com/dengladegrisen",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Company-declared Facebook handle corroborated by company-authored Jan 2024 menu; not platform verified."
+    },
+    {
+      "organisation_number": "999096298",
+      "field": "external.profile_handle",
+      "value": "https://instagram.com/dengladegris",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Company-declared Instagram handle corroborated by company-authored Jan 2024 menu; not platform verified."
+    },
+    {
+      "organisation_number": "999096298",
+      "field": "external.contact_email",
+      "value": "booking@dengladegris.no",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Company first-party reservation/contact page displays email and retained same-domain provenance."
+    },
+    {
+      "organisation_number": "999096298",
+      "field": "external.contact_phone",
+      "value": "+4722111710",
+      "verdict": "APPROVED_AS_SCOPED",
+      "rationale": "Company first-party structured node and homepage show same contact phone; company restaurant identity independently corroborated."
+    }
+  ]
+}

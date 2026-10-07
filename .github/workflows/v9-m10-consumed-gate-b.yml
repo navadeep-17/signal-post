@@ -1,0 +1,291 @@
+name: V9 M10 Gate B Consumed 100
+
+on:
+  push:
+    branches:
+      - experiment/v9-m10-gate-b-consumed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m10-consumed-gate-b
+  cancel-in-progress: false
+
+jobs:
+  freeze-gate-b:
+    name: Authenticate Gate A approval and freeze consumed Gate B
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout review and verifier (NOT evaluator candidate)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: reviewer
+
+      - name: Verify exact Gate A artifact identity
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11458838045" \
+            --jq '[.id, .digest, .workflow_run.head_sha, .expired] | @tsv' \
+            | tee artifact-identity.tsv
+          python - <<'PY'
+          from pathlib import Path
+          columns = Path('artifact-identity.tsv').read_text().strip().split('\t')
+          assert columns == [
+              '11458838045',
+              'sha256:928e9ff4f11eb2ad078b0455c66e574c6c6bb7ec6e2ef2a8ccce123a73808e9f',
+              '2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf',
+              'false',
+          ], columns
+          PY
+
+      - name: Download immutable Gate A evidence and original consumed source
+        run: |
+          set -euo pipefail
+          mkdir -p gate-a frozen
+          gh run download 37565180008 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-a-consumed-20 \
+            --dir gate-a
+          gh run download 35246833190 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name final-release-manifest-1000 \
+            --dir frozen
+          SOURCE="$(find frozen -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" frozen-consumed-1000.jsonl
+          test "$(wc -l < frozen-consumed-1000.jsonl)" -eq 1000
+
+      - name: Fail-closed approval, evidence and cohort verification
+        run: |
+          python reviewer/scripts/verify_v9_m10_gate_a_approval.py \
+            --approval reviewer/docs/V9_M10_GATE_A_MANUAL_REVIEW.json \
+            --artifact gate-a \
+            --frozen-consumed frozen-consumed-1000.jsonl \
+            --report gate-b-eligibility.json
+
+      - name: Obtain one official BRREG snapshot for both evaluator executions
+        run: |
+          set -euo pipefail
+          mkdir -p inputs
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv' \
+            --output inputs/brreg-enheter.csv
+          test -s inputs/brreg-enheter.csv
+          (cd inputs && sha256sum brreg-enheter.csv > brreg-enheter.sha256)
+          cp gate-a/gate-b-consumed-100.jsonl inputs/gate-b-consumed-100.jsonl
+          cp gate-a/cohort-report.json inputs/cohort-report.json
+          cp gate-b-eligibility.json inputs/gate-b-eligibility.json
+          cp reviewer/docs/V9_M10_GATE_A_MANUAL_REVIEW.json inputs/gate-a-manual-review.json
+          test "$(wc -l < inputs/gate-b-consumed-100.jsonl)" -eq 100
+          echo "Gate B frozen: 100/100 previously consumed; candidate 2848ed5; no fresh."
+
+      - name: Upload single shared frozen evaluation inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m10-gate-b-frozen-inputs
+          retention-days: 30
+          if-no-files-found: error
+          path: inputs/
+
+  evaluator:
+    name: Frozen ${{ matrix.side }} 100
+    needs: freeze-gate-b
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - side: baseline
+            sha: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
+          - side: challenger
+            sha: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout immutable ${{ matrix.side }} code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+          path: code
+          fetch-depth: 1
+
+      - name: Verify evaluator SHA pin
+        run: |
+          test "$(git -C code rev-parse HEAD)" = "${{ matrix.sha }}"
+
+      - name: Download identical frozen Gate B cohort and BRREG snapshot
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-m10-gate-b-frozen-inputs
+          path: shared
+
+      - name: Check shared input provenance
+        run: |
+          set -euo pipefail
+          (cd shared && sha256sum -c brreg-enheter.sha256)
+          test "$(wc -l < shared/gate-b-consumed-100.jsonl)" -eq 100
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p = Path('shared')
+          eligibility = json.loads((p/'gate-b-eligibility.json').read_text())
+          cohort = json.loads((p/'cohort-report.json').read_text())
+          assert eligibility['decision'] == 'CONSUMED_GATE_B_AUTHORIZED_ONLY'
+          assert eligibility['fresh_qualification_authorized'] is False
+          assert eligibility['production_promotion_authorized'] is False
+          assert hashlib.sha256((p/'gate-b-consumed-100.jsonl').read_bytes()).hexdigest() == cohort['gate_b_manifest_sha256']
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          (cd code && uv sync --locked)
+          mkdir -p out
+
+      - name: Evaluate exact consumed 100 with frozen ${{ matrix.side }}
+        run: |
+          cd code
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/gate-b-consumed-100.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../out/output.jsonl \
+            --report ../out/report.json \
+            --product-output ../out/product.html \
+            --work-dir ../out/work \
+            --run-id v9-m10-gate-b-${{ matrix.side }} \
+            --expected-count 100 --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Preserve evaluator outputs without generated HTML or work dir
+        if: always()
+        run: |
+          rm -f out/product.html
+          rm -rf out/work
+
+      - name: Upload exact-side evaluator evidence (even if blocked)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m10-gate-b-${{ matrix.side }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/output.jsonl
+            out/report.json
+
+  transfer-audit:
+    name: Gate B family transfer, all publications, fail-closed machine gate
+    needs: [freeze-gate-b, evaluator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout exact previously validated challenger audit code
+        uses: actions/checkout@v4
+        with:
+          ref: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+          path: code
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked measurement dependencies
+        run: |
+          (cd code && uv sync --locked)
+          mkdir -p result
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m10-gate-b-frozen-inputs
+          path: shared
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m10-gate-b-baseline
+          path: baseline
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m10-gate-b-challenger
+          path: challenger
+
+      - name: Compare per-company coverage in all seven scored families
+        run: |
+          cd code
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline ../baseline/output.jsonl \
+            --challenger ../challenger/output.jsonl \
+            --report ../result/family-transfer.json \
+            --new-publications ../result/new-publications.jsonl \
+            --lost-publications ../result/lost-publications.jsonl
+
+      - name: Audit provenance for EVERY new publication
+        run: |
+          cd code
+          uv run python scripts/audit_v9_m10_publications.py \
+            --baseline ../baseline/output.jsonl \
+            --challenger ../challenger/output.jsonl \
+            --report ../result/publication-audit.json \
+            --manual-audit ../result/manual-audit-required.jsonl
+
+      - name: Machine screen B (never automatically PROMOTE)
+        run: |
+          cd code
+          uv run python scripts/decide_v9_m10_gate.py \
+            --cohort ../shared/cohort-report.json \
+            --baseline-report ../baseline/report.json \
+            --challenger-report ../challenger/report.json \
+            --family-report ../result/family-transfer.json \
+            --publication-report ../result/publication-audit.json \
+            --output ../result/m10-gate-b-machine-result.json \
+            --count 100
+
+      - name: Preserve full publication-review queue
+        if: always()
+        run: |
+          test ! -f result/manual-audit-required.jsonl || \
+            { wc -l result/manual-audit-required.jsonl; head -n 3 result/manual-audit-required.jsonl; }
+
+      - name: Upload Gate B comparison and manual-audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m10-gate-b-decision-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            result/
+            shared/gate-b-eligibility.json
+            shared/cohort-report.json
+            shared/brreg-enheter.sha256
+
