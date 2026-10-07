@@ -1,0 +1,92 @@
+name: V9 M12 Frozen Decision Replay
+
+on:
+  push:
+    branches:
+      - experiment/v9-m12-decision-replay
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: code
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify immutable source artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11474267504" --jq .digest)" =             'sha256:dadba1bfd90b28e443bd4021bfb16059f153aabdea2bdea600e9c1f132d146b3'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11473604563" --jq .digest)" =             'sha256:42252877533b4b741bcd1ab6f816d3534f14197c54ce85e201f34a8b75a35216'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11474073474" --jq .digest)" =             'sha256:370e117f4de808c6cdb3314c48422e6db4e9dadcb94b3a06e313d2f7e94c0e77'
+
+      - name: Download exact completed M12 evidence only
+        run: |
+          set -euo pipefail
+          mkdir -p baseline challenger frozen replay
+          gh run download 37602921129 --repo "$GITHUB_REPOSITORY"             --name v9-m12-baseline-v9 --dir baseline
+          gh run download 37602921129 --repo "$GITHUB_REPOSITORY"             --name v9-m12-challenger-m12 --dir challenger
+          gh run download 37602921129 --repo "$GITHUB_REPOSITORY"             --name v9-m12-consumed-decision-evidence --dir frozen
+          test -s baseline/output.jsonl
+          test -s baseline/report.json
+          test -s challenger/output.jsonl
+          test -s challenger/report.json
+          test -s frozen/result/family-transfer.json
+          test -s frozen/result/publication-audit.json
+          test -s frozen/result/manual-audit-required.jsonl
+          test -s frozen/shared/m12-cohort-report.json
+          test -s frozen/shared/m12-cohort-audit.jsonl
+
+      - name: Replay fail-closed M12 decision without evaluator requests
+        run: |
+          set -euo pipefail
+          set +e
+          python code/scripts/decide_v9_m12_breadth.py             --cohort-report frozen/shared/m12-cohort-report.json             --cohort-audit frozen/shared/m12-cohort-audit.jsonl             --baseline-report baseline/report.json             --challenger-report challenger/report.json             --baseline-output baseline/output.jsonl             --challenger-output challenger/output.jsonl             --family-report frozen/result/family-transfer.json             --publication-report frozen/result/publication-audit.json             --manual-publications frozen/result/manual-audit-required.jsonl             --output replay/m12-machine-result.json
+          rc=$?
+          set -e
+          test "$rc" -eq 1
+
+      - name: Assert the substantive blocker, not harness failure
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("replay/m12-machine-result.json").read_text())
+          assert r["machine_decision"] == "BLOCKED", r
+          assert r["companies"] == 100, r
+          assert r["total_new_family_company_edges"] == 3, r
+          assert r["total_lost_family_company_edges"] == 0, r
+          assert r["holdout_new_family_company_edges"] == 0, r
+          assert r["development_new_family_company_edges"] == 3, r
+          assert r["holdout_new_publications"] == 0, r
+          assert r["development_new_publications"] == 5, r
+          assert r["baseline_observed_request_charge"] == 1302, r
+          assert r["challenger_observed_request_charge"] == 1454, r
+          assert "observed_request_charge_not_increased" in r["errors"], r
+          assert "zero_evidence_defects" in r["errors"], r
+          assert "all_new_publications_have_reopenable_evidence" in r["errors"], r
+          assert r["fresh_qualification_authorized"] is False
+          assert r["production_promotion_authorized"] is False
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload replay decision
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m12-frozen-decision-replay
+          retention-days: 30
+          if-no-files-found: error
+          path: replay/m12-machine-result.json
