@@ -67,7 +67,7 @@ jobs:
         run: |
           cd challenger
           uv sync --locked
-          uv run --with pytest pytest -q             tests/test_v9_m12_late_registry_domain.py             tests/test_v9_m12_breadth_gate.py
+          uv run --with pytest pytest -q             tests/test_v9_m12_late_registry_domain.py             tests/test_v9_m12_breadth_gate.py             tests/test_h1g_final_runner_integration.py             tests/test_v9_email_domain.py             tests/test_v9_site_unlock.py
 
       - name: Recover exact frozen consumed 1000
         run: |
