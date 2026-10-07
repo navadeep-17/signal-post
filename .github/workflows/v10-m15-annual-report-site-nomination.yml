@@ -118,8 +118,8 @@ jobs:
           test -n "$M14B"
           cp "$M14B" frozen/m14b-consumed-100.jsonl
 
-          gh run download 37630162682 --repo "$GITHUB_REPOSITORY" \
-            --name v9-m13b-replacement-frozen-cohort --dir frozen/m13b
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11485329792/zip" > frozen/m13b.zip
+          unzip -q frozen/m13b.zip -d frozen/m13b
           M13B="$(find frozen/m13b -type f -name 'm13b-consumed-100.jsonl' | head -n 1)"
           test -n "$M13B"
           cp "$M13B" frozen/m13b-consumed-100.jsonl
