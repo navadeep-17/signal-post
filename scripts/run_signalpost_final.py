@@ -34,7 +34,9 @@ from norway_company_agent.workforce_contract import project_workforce_observatio
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
 )
-from norway_company_agent.h1g_hyphenated_no_recall import evaluate_hyphenated_no_fallback  # noqa: E402
+from norway_company_agent.v9_m12_late_registry_domain import (  # noqa: E402
+    evaluate_request_neutral_late_fallback,
+)
 from norway_company_agent.http import fetch_json  # noqa: E402
 from norway_company_agent.official import fetch_official_modules  # noqa: E402
 from norway_company_agent.output_contract import (  # noqa: E402
@@ -108,6 +110,7 @@ def _canonical_verified_site_source(profile: dict[str, Any]) -> str:
         "deterministic_legal_name_domain_guess": "h1c_deterministic_domain",
         "wikidata_official_website_candidate": "wikidata_candidate",
         "deterministic_legal_name_hyphenated_no_fallback": "h1g_hyphenated_no",
+        "registry_email_domain_late_brand_candidate_website": "m12_late_registry_domain",
     }
     return mapping.get(source_type, f"verified:{source_type}" if source_type else "verified:unknown")
 
@@ -142,28 +145,38 @@ def _enrich_profile(
         timeout=site_timeout,
     )
 
-    # H1g is deliberately last in website discovery. It receives the request count already
-    # consumed by H1d/H1e and can run only when two of the existing four logical site-request
-    # slots remain. This preserves Wikidata priority and does not raise the structural ceiling.
-    profile, h1g_result = evaluate_hyphenated_no_fallback(
+    # M12 preserves the existing four-logical-request site ceiling. When the normal
+    # deterministic/Wikidata path is unresolved and a non-generic BRREG email domain was
+    # deliberately rejected by M2 as "none", M12 may use that *existing final two-request
+    # slot* instead of H1g. The email domain is nomination only; exact page identity remains
+    # mandatory. Profiles outside that narrow condition retain the original H1g behavior.
+    profile, late_result = evaluate_request_neutral_late_fallback(
         profile,
         timeout=site_timeout,
         base_site_logical_requests=int(site_metrics.get("requests") or 0),
     )
-    site_metrics["h1g_candidate_available"] = bool(h1g_result.get("candidate_available"))
-    site_metrics["h1g_attempted"] = bool(h1g_result.get("attempted"))
-    site_metrics["h1g_verified"] = bool(h1g_result.get("verified"))
-    if h1g_result.get("skipped_reason"):
-        site_metrics["h1g_skipped_reason"] = str(h1g_result["skipped_reason"])
-    if h1g_result.get("guard_reasons"):
-        site_metrics["h1g_guard_reasons"] = list(h1g_result["guard_reasons"])
-    site_metrics["requests"] = int(site_metrics.get("requests") or 0) + int(h1g_result.get("requests_added") or 0)
-    site_metrics["bytes"] = int(site_metrics.get("bytes") or 0) + int(h1g_result.get("bytes_added") or 0)
+    site_metrics["late_fallback_candidate_available"] = bool(late_result.get("candidate_available"))
+    site_metrics["late_fallback_attempted"] = bool(late_result.get("attempted"))
+    site_metrics["late_fallback_verified"] = bool(late_result.get("verified"))
+    site_metrics["m12_strategy"] = str(late_result.get("m12_strategy") or "")
+    site_metrics["m12_candidate_attempted"] = bool(late_result.get("m12_candidate_attempted"))
+    if late_result.get("m12_registry_email_domain"):
+        site_metrics["m12_registry_email_domain"] = str(late_result["m12_registry_email_domain"])
+    if late_result.get("skipped_reason"):
+        site_metrics["late_fallback_skipped_reason"] = str(late_result["skipped_reason"])
+    if late_result.get("guard_reasons"):
+        site_metrics["late_fallback_guard_reasons"] = list(late_result["guard_reasons"])
+    site_metrics["requests"] = int(site_metrics.get("requests") or 0) + int(late_result.get("requests_added") or 0)
+    site_metrics["bytes"] = int(site_metrics.get("bytes") or 0) + int(late_result.get("bytes_added") or 0)
     site_metrics.setdefault("latencies_ms", []).extend(
-        int(value) for value in (h1g_result.get("latencies_ms") or []) if value is not None
+        int(value) for value in (late_result.get("latencies_ms") or []) if value is not None
     )
-    if h1g_result.get("verified"):
-        site_metrics["selected_source"] = "h1g_hyphenated_no"
+    if late_result.get("verified"):
+        site_metrics["selected_source"] = (
+            "m12_late_registry_domain"
+            if late_result.get("m12_candidate_attempted")
+            else "h1g_hyphenated_no"
+        )
         site_metrics["promoted"] = True
 
     site_logical_requests = int(site_metrics.get("requests") or 0)
@@ -468,6 +481,12 @@ def main() -> None:
         if "website_h1g_hyphenated_no_discovery" in (profile.get("evidence") or {})
     )
     h1g_verified = int(selected_sources.get("h1g_hyphenated_no") or 0)
+    m12_attempted = sum(
+        1
+        for profile in ordered_profiles
+        if "website_m12_late_registry_domain_discovery" in (profile.get("evidence") or {})
+    )
+    m12_verified = int(selected_sources.get("m12_late_registry_domain") or 0)
 
     handle_platform_counts = dict(
         sorted(Counter(str(item.get("platform") or "unknown") for item in profile_handle_observations).items())
@@ -522,6 +541,8 @@ def main() -> None:
             "wikidata_candidate_discovery_enabled": True,
             "wikidata_batch_size": WIKIDATA_BATCH_SIZE,
             "h1g_hyphenated_no_fallback_enabled": True,
+            "m12_request_neutral_late_registry_domain_enabled": True,
+            "m12_late_registry_domain_additional_request_slots": 0,
             "company_page_social_handle_extraction_enabled": True,
             "company_page_contact_email_extraction_enabled": True,
             "registry_workforce_snapshot_enabled": True,
@@ -566,6 +587,12 @@ def main() -> None:
             "h1g": {
                 "attempted": h1g_attempted,
                 "verified": h1g_verified,
+            },
+            "m12_late_registry_domain": {
+                "attempted": m12_attempted,
+                "verified": m12_verified,
+                "request_policy": "replaces H1g final two-request slot only",
+                "candidate_is_identity_proof": False,
             },
             "wikidata": {
                 "requests": shared_wikidata_logical_requests,
