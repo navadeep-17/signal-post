@@ -107,7 +107,7 @@ jobs:
 
           download_named 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
           BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
-          M10="$(find frozen/m10 -type f -name 'gate-b-100.jsonl' | head -n 1)"
+          M10="$(find frozen/m10 -type f -name 'gate-b-consumed-100.jsonl' | head -n 1)"
           test -n "$BULK"
           test -n "$M10"
           cp "$BULK" frozen/brreg-enheter.csv
