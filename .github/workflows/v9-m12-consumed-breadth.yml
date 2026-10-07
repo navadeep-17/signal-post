@@ -1,0 +1,272 @@
+name: V9 M12 Consumed Noncanary Breadth
+
+on:
+  push:
+    branches:
+      - experiment/v9-m12-late-registry-brand-fallback
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m12-consumed-noncanary-breadth
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  V9_BASELINE_SHA: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+  V8_MAIN_SHA: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
+  FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+
+jobs:
+  freeze-inputs:
+    name: Pre-register consumed development/holdout cohort
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact M12 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: challenger
+          fetch-depth: 100
+
+      - name: Verify M12 is isolated from unrelated evaluator changes
+        run: |
+          set -euo pipefail
+          git -C challenger fetch --quiet origin "$V9_BASELINE_SHA"
+          CHANGED="$(git -C challenger diff --name-only "$V9_BASELINE_SHA" HEAD)"
+          echo "$CHANGED"
+          while IFS= read -r path; do
+            case "$path" in
+              src/norway_company_agent/v9_m12_late_registry_domain.py|              scripts/run_signalpost_final.py|              scripts/build_v9_m12_consumed_cohort.py|              scripts/decide_v9_m12_breadth.py|              tests/test_v9_m12_late_registry_domain.py|              tests/test_v9_m12_breadth_gate.py|              .github/workflows/v9-m12-consumed-breadth.yml)
+                ;;
+              "") ;;
+              *)
+                echo "Unexpected M12 diff path: $path"
+                exit 1
+                ;;
+            esac
+          done <<< "$CHANGED"
+          # No dependency, general identity-gate, family-scoring, or evidence-audit edits.
+          git -C challenger diff --exit-code "$V9_BASELINE_SHA" HEAD --             pyproject.toml uv.lock             src/norway_company_agent/identity.py             src/norway_company_agent/v9_measurement.py             src/norway_company_agent/domain_discovery.py             src/norway_company_agent/final_site_discovery.py             src/norway_company_agent/zero_cost_registry_guard.py             src/norway_company_agent/h1g_hyphenated_no_recall.py             scripts/measure_v9_company_family_coverage.py             scripts/audit_v9_m10_publications.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked dependencies and focused M12 tests
+        run: |
+          cd challenger
+          uv sync --locked
+          uv run --with pytest pytest -q             tests/test_v9_m12_late_registry_domain.py             tests/test_v9_m12_breadth_gate.py
+
+      - name: Recover exact frozen consumed 1000
+        run: |
+          set -euo pipefail
+          mkdir -p frozen shared
+          gh run download 35246833190             --repo "$GITHUB_REPOSITORY"             --name final-release-manifest-1000             --dir frozen
+          SOURCE="$(find frozen -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" shared/consumed-1000.jsonl
+          test "$(wc -l < shared/consumed-1000.jsonl)" -eq 1000
+          test "$(sha256sum shared/consumed-1000.jsonl | awk '{print $1}')" =             "$FROZEN_CONSUMED_SOURCE_SHA256"
+
+      - name: Freeze one current official BRREG snapshot for both sides
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2             --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          sha256sum shared/brreg-enheter.csv > shared/brreg-enheter.sha256
+
+      - name: Build pre-registered M12 target from consumed source only
+        run: |
+          cd challenger
+          uv run python scripts/build_v9_m12_consumed_cohort.py             --source-manifest ../shared/consumed-1000.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/m12-consumed-100.jsonl             --audit ../shared/m12-cohort-audit.jsonl             --report ../shared/m12-cohort-report.json             --target-count 100
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("../shared/m12-cohort-report.json").read_text())
+          assert r["selected_companies"] == 100, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["unresearched_holdout_affected_companies"] > 0, r
+          assert not set(r["excluded_m10_positive_canaries"]) & {
+              row["organisation_number"]
+              for row in map(json.loads, Path("../shared/m12-consumed-100.jsonl").read_text().splitlines())
+          }
+          print("M12_PRE_REGISTERED", json.dumps(r, sort_keys=True))
+          PY
+
+      - name: Upload one frozen evaluator input bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m12-frozen-inputs
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/consumed-1000.jsonl
+            shared/brreg-enheter.csv
+            shared/brreg-enheter.sha256
+            shared/m12-consumed-100.jsonl
+            shared/m12-cohort-audit.jsonl
+            shared/m12-cohort-report.json
+
+  evaluator:
+    name: Frozen ${{ matrix.side }} 100
+    needs: freeze-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - side: baseline-v9
+            sha: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+          - side: challenger-m12
+            sha: ${{ github.sha }}
+    steps:
+      - name: Checkout exact ${{ matrix.side }} evaluator
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+          path: code
+          fetch-depth: 1
+
+      - name: Prove evaluator SHA
+        run: test "$(git -C code rev-parse HEAD)" = "${{ matrix.sha }}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m12-frozen-inputs
+          path: shared
+
+      - name: Verify shared inputs
+        run: |
+          set -euo pipefail
+          (cd shared && sha256sum -c brreg-enheter.sha256)
+          test "$(wc -l < shared/m12-consumed-100.jsonl)" -eq 100
+          test "$(sha256sum shared/consumed-1000.jsonl | awk '{print $1}')" =             "$FROZEN_CONSUMED_SOURCE_SHA256"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          (cd code && uv sync --locked)
+          mkdir -p out
+
+      - name: Evaluate exact consumed target
+        run: |
+          cd code
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/m12-consumed-100.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../out/output.jsonl             --report ../out/report.json             --product-output ../out/product.html             --work-dir ../out/work             --run-id v9-m12-${{ matrix.side }}             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000 --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4 --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110             --support-registry-timeout 420 --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Remove generated UI/work cache from retained result
+        if: always()
+        run: |
+          rm -f out/product.html
+          rm -rf out/work
+
+      - name: Upload exact-side output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m12-${{ matrix.side }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/output.jsonl
+            out/report.json
+
+  breadth-audit:
+    name: Unresearched breadth, regression and evidence gate
+    needs: [freeze-inputs, evaluator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout exact M12 audit/decision head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: code
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked measurement runtime
+        run: |
+          (cd code && uv sync --locked)
+          mkdir -p result
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m12-frozen-inputs
+          path: shared
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m12-baseline-v9
+          path: baseline
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m12-challenger-m12
+          path: challenger
+
+      - name: Compare all seven company families
+        run: |
+          cd code
+          uv run python scripts/measure_v9_company_family_coverage.py             --baseline ../baseline/output.jsonl             --challenger ../challenger/output.jsonl             --report ../result/family-transfer.json             --new-publications ../result/new-publications.jsonl             --lost-publications ../result/lost-publications.jsonl
+
+      - name: Audit every new publication using existing exact evidence screen
+        run: |
+          cd code
+          uv run python scripts/audit_v9_m10_publications.py             --baseline ../baseline/output.jsonl             --challenger ../challenger/output.jsonl             --report ../result/publication-audit.json             --manual-audit ../result/manual-audit-required.jsonl
+
+      - name: Decide M12 only from unresearched affected transfer
+        run: |
+          cd code
+          uv run python scripts/decide_v9_m12_breadth.py             --cohort-report ../shared/m12-cohort-report.json             --cohort-audit ../shared/m12-cohort-audit.jsonl             --baseline-report ../baseline/report.json             --challenger-report ../challenger/report.json             --baseline-output ../baseline/output.jsonl             --challenger-output ../challenger/output.jsonl             --family-report ../result/family-transfer.json             --publication-report ../result/publication-audit.json             --manual-publications ../result/manual-audit-required.jsonl             --output ../result/m12-machine-result.json
+
+      - name: Print bounded manual queue
+        if: always()
+        run: |
+          test ! -f result/m12-machine-result.json || cat result/m12-machine-result.json
+          if test -f result/manual-audit-required.jsonl; then
+            echo "MANUAL_ROWS=$(wc -l < result/manual-audit-required.jsonl)"
+            cat result/manual-audit-required.jsonl
+          fi
+
+      - name: Archive M12 consumed decision evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m12-consumed-decision-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            result/
+            shared/m12-consumed-100.jsonl
+            shared/m12-cohort-audit.jsonl
+            shared/m12-cohort-report.json
+            shared/brreg-enheter.sha256
