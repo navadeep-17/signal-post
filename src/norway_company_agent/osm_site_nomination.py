@@ -49,13 +49,38 @@ def _registry_address(profile: dict[str, Any]) -> dict[str, Any]:
         value = profile.get(key)
         if isinstance(value, dict) and value:
             return value
+
     raw = ((profile.get("evidence") or {}).get("registry") or {}).get("value")
     if isinstance(raw, dict):
         for key in ("forretningsadresse", "postadresse"):
             value = raw.get(key)
             if isinstance(value, dict) and value:
                 return value
-    return {}
+
+        # The frozen BRREG bulk CSV stores address columns as flattened keys.
+        for prefix in ("forretningsadresse", "postadresse"):
+            street = (
+                raw.get(f"{prefix}.adresse")
+                or raw.get(f"{prefix}.adresse.0")
+                or raw.get(f"{prefix}.adresselinje")
+            )
+            postcode = raw.get(f"{prefix}.postnummer")
+            municipality = raw.get(f"{prefix}.kommune")
+            if street or postcode or municipality:
+                if isinstance(street, str):
+                    streets = [street]
+                elif isinstance(street, list):
+                    streets = street
+                else:
+                    streets = []
+                return {
+                    "adresse": streets,
+                    "postnummer": postcode,
+                    "kommune": municipality,
+                }
+
+    municipality = str(profile.get("municipality") or "").strip()
+    return {"kommune": municipality} if municipality else {}
 
 
 def _address_query(profile: dict[str, Any]) -> str:
