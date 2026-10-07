@@ -170,7 +170,6 @@ jobs:
             --bulk frozen/brreg-enheter.csv \
             --output baseline/output.jsonl \
             --report baseline/report.json \
-            --product-output baseline/product.html \
             --work-dir baseline/work \
             --run-id v10-m15-baseline \
             --expected-count 20 \
