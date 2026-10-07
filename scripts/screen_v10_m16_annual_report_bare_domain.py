@@ -18,7 +18,7 @@ from pypdf import PdfReader
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from norway_company_agent.annual_report_bare_domain import (
+from norway_company_agent.annual_report_site_nomination import (
     evaluate_annual_report_site_candidates,
     extract_annual_report_bare_no_candidates,
 )
