@@ -1,0 +1,181 @@
+name: V10 Consumed Report Domain Diagnostics
+
+on:
+  push:
+    branches:
+      - research/v10-report-domain-diagnostics
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-consumed-report-domain-diagnostics
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/scripts
+  BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
+  M15_ARTIFACT_DIGEST: sha256:5cb2fefbf99933316b529fec15d0839ae86e0e6a4280b6b95ba5feb5bb1e00b7
+  M16_ARTIFACT_DIGEST: sha256:7d6f04be0d5f15afe9707389475b63bdbf8ee0289aaa9092ac53348ee0a539a3
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtime and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          uv sync --locked
+
+      - name: Run focused diagnostic tests and compile
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v10_report_domain_diagnostics.py \
+            tests/test_v10_m15_annual_report_site_nomination.py \
+            tests/test_v10_m16_annual_report_bare_domain.py
+          python -m py_compile \
+            scripts/research_v10_report_domain_diagnostics.py \
+            scripts/screen_v10_m16_annual_report_bare_domain.py \
+            src/norway_company_agent/annual_report_site_nomination.py
+
+      - name: Verify immutable source artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11495058383" --jq .digest)" = "$M15_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11496698758" --jq .digest)" = "$M16_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            'sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98'
+
+      - name: Recover consumed M15 and M16 artifacts plus BRREG snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/m15 frozen/m16 frozen/m10
+
+          download_named() {
+            run_id="$1"
+            artifact_name="$2"
+            target_dir="$3"
+            for attempt in 1 2 3; do
+              rm -rf "$target_dir"
+              mkdir -p "$target_dir"
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                --name "$artifact_name" --dir "$target_dir"; then
+                echo "RECOVERED_ARTIFACT=$artifact_name ATTEMPT=$attempt"
+                return 0
+              fi
+              echo "RETRY_ARTIFACT=$artifact_name ATTEMPT=$attempt" >&2
+              sleep "$((attempt * 2))"
+            done
+            echo "FAILED_ARTIFACT=$artifact_name" >&2
+            return 1
+          }
+
+          download_named 37648478667 v10-m15-consumed-annual-report-site-screen frozen/m15
+          download_named 37650996920 v10-m16-consumed-annual-report-bare-domain frozen/m16
+          download_named 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
+
+          M15_MANIFEST="$(find frozen/m15 -type f -name 'm15-consumed-20.jsonl' | head -n 1)"
+          M15_SCREEN="$(find frozen/m15 -type f -name 'm15-screen.jsonl' | head -n 1)"
+          M16_MANIFEST="$(find frozen/m16 -type f -name 'm16-consumed-20.jsonl' | head -n 1)"
+          M16_SCREEN="$(find frozen/m16 -type f -name 'm16-screen.jsonl' | head -n 1)"
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+
+          test -n "$M15_MANIFEST"
+          test -n "$M15_SCREEN"
+          test -n "$M16_MANIFEST"
+          test -n "$M16_SCREEN"
+          test -n "$BULK"
+
+          cp "$M15_MANIFEST" frozen/m15-consumed-20.jsonl
+          cp "$M15_SCREEN" frozen/m15-screen.jsonl
+          cp "$M16_MANIFEST" frozen/m16-consumed-20.jsonl
+          cp "$M16_SCREEN" frozen/m16-screen.jsonl
+          cp "$BULK" frozen/brreg-enheter.csv
+
+          test "$(wc -l < frozen/m15-consumed-20.jsonl)" -eq 20
+          test "$(wc -l < frozen/m16-consumed-20.jsonl)" -eq 20
+          test "$(wc -l < frozen/m15-screen.jsonl)" -eq 20
+          test "$(wc -l < frozen/m16-screen.jsonl)" -eq 20
+          test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a={json.loads(x)["organisation_number"] for x in Path("frozen/m15-consumed-20.jsonl").read_text().splitlines() if x.strip()}
+          b={json.loads(x)["organisation_number"] for x in Path("frozen/m16-consumed-20.jsonl").read_text().splitlines() if x.strip()}
+          assert len(a) == len(b) == 20
+          assert not (a & b), a & b
+          print({"combined_consumed_companies": 40, "m15_m16_overlap": 0})
+          PY
+
+      - name: Run research-only broader annual-report domain diagnostic
+        run: |
+          mkdir -p result
+          uv run python scripts/research_v10_report_domain_diagnostics.py \
+            --manifest frozen/m15-consumed-20.jsonl \
+            --prior-screen frozen/m15-screen.jsonl \
+            --manifest frozen/m16-consumed-20.jsonl \
+            --prior-screen frozen/m16-screen.jsonl \
+            --bulk frozen/brreg-enheter.csv \
+            --output result/report-domain-diagnostic.jsonl \
+            --report result/report-domain-diagnostic-report.json \
+            --verified result/research-verified-sites.jsonl \
+            --annual-timeout 60 \
+            --ocr-pages 8 \
+            --ocr-dpi 110 \
+            --site-timeout 6 \
+            --min-start-interval 2.1
+
+      - name: Enforce research-only interpretation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/report-domain-diagnostic-report.json").read_text())
+          assert r["research_only"] is True, r
+          assert r["promotion_authorized"] is False, r
+          assert r["fresh_qualification_authorized"] is False, r
+          assert r["companies"] == 40, r
+          assert r["registry_snapshot_sha256"] == "1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615", r
+          assert r["research_candidates_attempted"] <= 40, r
+          print(json.dumps({
+              "companies": r["companies"],
+              "baseline_verified_companies_skipped": r["baseline_verified_companies_skipped"],
+              "annual_reports_available": r["annual_reports_available"],
+              "companies_with_any_domain_mentions": r["companies_with_any_domain_mentions"],
+              "companies_with_untried_ranked_domain": r["companies_with_untried_ranked_domain"],
+              "research_candidates_attempted": r["research_candidates_attempted"],
+              "research_verified_websites": r["research_verified_websites"],
+              "candidate_site_requests": r["candidate_site_requests"],
+              "research_only": r["research_only"],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-consumed-report-domain-diagnostics
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            result/
