@@ -1,19 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load():
-    path = ROOT / "src" / "norway_company_agent" / "v9_m12_late_registry_domain.py"
-    spec = importlib.util.spec_from_file_location("m12_late_domain", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from norway_company_agent import v9_m12_late_registry_domain as m12
 
 
 def _profile(org: str, name: str, email: str, *, municipality: str = "TESTBY"):
@@ -39,7 +26,7 @@ def _profile(org: str, name: str, email: str, *, municipality: str = "TESTBY"):
 
 
 def test_collapses_malformed_multilabel_only_when_exact_legal_name() -> None:
-    m = _load()
+    m = m12
     p = _profile("828829092", "EMILSEN FISK AS", "post@emilsen.fisk.com")
     candidate = m.select_late_registry_domain_candidate(p)
     assert candidate
@@ -49,7 +36,7 @@ def test_collapses_malformed_multilabel_only_when_exact_legal_name() -> None:
 
 
 def test_unrelated_nonconsumer_registry_domain_is_late_nomination_only() -> None:
-    m = _load()
+    m = m12
     p = _profile("988936987", "ARILD BRÅTEN REGNSKAP AS", "vidar@abras.no")
     candidate = m.select_late_registry_domain_candidate(p)
     assert candidate
@@ -58,19 +45,19 @@ def test_unrelated_nonconsumer_registry_domain_is_late_nomination_only() -> None
 
 
 def test_consumer_mail_family_is_never_used_even_with_unlisted_tld() -> None:
-    m = _load()
+    m = m12
     p = _profile("936455298", "VESTNOR TRANSPORT AS", "person@hotmail.es")
     assert m.select_late_registry_domain_candidate(p) is None
 
 
 def test_existing_m2_name_related_domain_is_not_stolen_by_m12() -> None:
-    m = _load()
+    m = m12
     p = _profile("979943377", "VOLF AS", "post@volf.no")
     assert m.select_late_registry_domain_candidate(p) is None
 
 
 def test_exact_org_number_on_independently_fetched_page_can_verify_brand_domain() -> None:
-    m = _load()
+    m = m12
     p = _profile("988936987", "ARILD BRÅTEN REGNSKAP AS", "vidar@abras.no")
     website = {
         "status": "available",
@@ -91,7 +78,7 @@ def test_exact_org_number_on_independently_fetched_page_can_verify_brand_domain(
 
 
 def test_email_domain_itself_never_proves_identity() -> None:
-    m = _load()
+    m = m12
     p = _profile("988936987", "ARILD BRÅTEN REGNSKAP AS", "vidar@abras.no")
     website = {
         "status": "available",
@@ -111,7 +98,7 @@ def test_email_domain_itself_never_proves_identity() -> None:
 
 
 def test_late_slot_never_exceeds_existing_four_request_ceiling(monkeypatch) -> None:
-    m = _load()
+    m = m12
     p = _profile("988936987", "ARILD BRÅTEN REGNSKAP AS", "vidar@abras.no")
 
     def fake_fetch(url: str, *, source_type: str, timeout: float):
@@ -158,7 +145,7 @@ def test_late_slot_never_exceeds_existing_four_request_ceiling(monkeypatch) -> N
 
 
 def test_when_no_m12_candidate_original_h1g_behavior_is_preserved(monkeypatch) -> None:
-    m = _load()
+    m = m12
     p = _profile("979943377", "VOLF AS", "post@volf.no")
     marker = {"organisation_number": "979943377", "website": ""}
 
