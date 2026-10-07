@@ -124,3 +124,121 @@ def test_gate_a_contains_all_canaries_and_is_deterministic() -> None:
     assert [row["organisation_number"] for row in selected[:3]] == canaries
     assert len(selected) == 20
     assert len({row["organisation_number"] for row in selected}) == 20
+
+
+def test_typed_exact_site_proof_is_auditable_without_repeating_publishable_flag() -> None:
+    typed = [
+        {
+            "type": "website_identity_gate",
+            "status": "exact",
+            "score": 0.95,
+            "method": "deterministic_name_org_evidence_v4",
+        },
+        {
+            "type": "same_registered_domain_contact_email",
+            "email_domain": "volf.no",
+            "registered_domain": "volf.no",
+        },
+    ]
+    evidence = _evidence("contact", content_hash="b" * 64)
+    evidence["identity_proof"] = typed
+    evidence["source_url"] = "https://volf.no/"
+    evidence["claim_span"] = "schema.org Organization email post@volf.no"
+    contact = {
+        "field": "external.contact_email",
+        "availability": "available",
+        "value": "post@volf.no",
+        "evidence_ids": ["contact"],
+        "claim_scope": "structured exact-site same-domain contact",
+    }
+    report, manual = audit_module.audit_new_publications(
+        [_contract("979943377")],
+        [_contract("979943377", [contact], [evidence])],
+    )
+    assert report["evidence_defects"] == 0
+    assert report["new_publications"] == 1
+    assert manual[0]["checks"]["exact_publishable_identity_present"] is True
+    assert manual[0]["checks"]["field_specific_identity_scope_proof"] is True
+
+
+def test_unknown_or_low_score_typed_identity_must_still_fail_closed() -> None:
+    for proof in (
+        [{"status": "exact", "score": 1, "method": "arbitrary", "type": "unknown_type"}],
+        [{"status": "exact", "score": 0.70, "method": "deterministic", "type": "website_identity_gate"}],
+        [{"status": "exact", "score": 1, "type": "website_identity_gate"}],
+        [{"status": "exact", "score": 1, "method": "deterministic", "type": "website_identity_gate", "publishable": False}],
+    ):
+        assert audit_module._identity_publishable(proof) is False
+
+
+def test_same_site_identity_alone_cannot_authorize_cross_domain_email() -> None:
+    proof = [
+        {
+            "type": "website_identity_gate",
+            "status": "exact",
+            "score": 1.0,
+            "method": "deterministic_name_org_evidence_v4",
+        },
+        {
+            "type": "same_registered_domain_contact_email",
+            "email_domain": "volf.no",
+            "registered_domain": "volf.no",
+        },
+    ]
+    evidence = _evidence("email")
+    evidence["identity_proof"] = proof
+    claim = {
+        "field": "external.contact_email",
+        "availability": "available",
+        "value": "admin@different.no",
+        "evidence_ids": ["email"],
+    }
+    report, manual = audit_module.audit_new_publications(
+        [_contract("979943377")],
+        [_contract("979943377", [claim], [evidence])],
+    )
+    assert report["evidence_defects"] == 1
+    assert manual[0]["checks"]["exact_publishable_identity_present"] is True
+    assert manual[0]["checks"]["field_specific_identity_scope_proof"] is False
+
+
+def test_declared_social_profile_needs_matching_identity_guard_and_url() -> None:
+    proof = [
+        {
+            "type": "website_identity_gate",
+            "status": "exact",
+            "score": 0.98,
+            "method": "final_h1c_secondary_identity_guard_v1",
+        },
+        {
+            "type": "company_homepage_declared_social_link",
+            "platform": "instagram",
+            "profile_url": "https://instagram.com/dengladegris",
+        },
+        {
+            "type": "social_handle_identity_gate",
+            "score": 0.98,
+            "method": "deterministic_social_handle_identity_v1",
+        },
+    ]
+    evidence = _evidence("social")
+    evidence["identity_proof"] = proof
+    claim = {
+        "field": "external.profile_handle",
+        "availability": "available",
+        "value": "https://instagram.com/dengladegris",
+        "evidence_ids": ["social"],
+    }
+    report, manual = audit_module.audit_new_publications(
+        [_contract("999096298")],
+        [_contract("999096298", [claim], [evidence])],
+    )
+    assert report["evidence_defects"] == 0
+    assert manual[0]["checks"]["field_specific_identity_scope_proof"] is True
+
+    claim["value"] = "https://instagram.com/someone-else"
+    reject, _ = audit_module.audit_new_publications(
+        [_contract("999096298")],
+        [_contract("999096298", [claim], [evidence])],
+    )
+    assert reject["evidence_defects"] == 1
