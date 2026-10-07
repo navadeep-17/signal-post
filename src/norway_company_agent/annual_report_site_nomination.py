@@ -8,9 +8,13 @@ from typing import Any
 import tldextract
 
 from .domain_discovery import (
+    GENERIC_EMAIL_DOMAINS,
+    _domain_identity_strength,
     _page_contains_full_legal_name,
     _page_contains_org_number,
     _page_matches_registry_location,
+    distinctive_legal_name_tokens,
+    registry_email_domain_candidates,
 )
 from .final_site_discovery import (
     _has_conflicting_explicit_org_number,
@@ -18,6 +22,7 @@ from .final_site_discovery import (
     fetch_bounded_homepage,
 )
 from .identity import apply_website_identity_gate
+from .zero_cost_discovery import deterministic_domain_candidates
 from .zero_cost_registry_guard import apply_registry_risk_guard
 
 
@@ -27,6 +32,10 @@ URL_RE = re.compile(
 )
 WWW_RE = re.compile(
     r"(?i)\bwww\.[a-z0-9](?:[a-z0-9._-]{0,251}[a-z0-9])?\.[a-z]{2,63}\b"
+)
+
+BARE_NO_RE = re.compile(
+    r"(?i)(?<![a-z0-9.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+no\b"
 )
 
 EXCLUDED_REGISTERED_DOMAINS = {
@@ -139,6 +148,115 @@ def extract_annual_report_site_candidates(
         if len(by_domain) >= max_candidates:
             break
     return list(by_domain.values())
+
+
+def extract_annual_report_bare_no_candidates(
+    profile: dict[str, Any],
+    text: str,
+    *,
+    max_candidates: int = 3,
+) -> list[dict[str, Any]]:
+    """Nominate only genuinely new bare .no domains from an exact-org annual report.
+
+    Explicit http(s)/www candidates belong to M15. Registry-email and deterministic
+    compact/hyphenated legal-name domains belong to existing V8/H1 discovery. M16 keeps
+    only report-specific bare .no domains whose registered-domain label is compatible
+    with the legal name. As with M15, nomination never establishes website ownership.
+    """
+
+    if max_candidates < 1:
+        return []
+
+    org = re.sub(r"\D", "", str(profile.get("organisation_number") or ""))
+    raw_text = str(text or "")
+    if len(org) != 9 or org not in re.sub(r"\D", "", raw_text):
+        return []
+
+    already_tried: set[str] = set()
+    for item in deterministic_domain_candidates(profile, max_candidates=2).get("candidates") or []:
+        domain = str(item.get("domain") or "").casefold().rstrip(".")
+        if domain:
+            already_tried.add(domain)
+    for item in registry_email_domain_candidates(profile).get("candidates") or []:
+        domain = str(item.get("domain") or "").casefold().rstrip(".")
+        if domain:
+            already_tried.add(domain)
+    for item in extract_annual_report_site_candidates(profile, raw_text, max_candidates=20):
+        domain = str(item.get("domain") or "").casefold().rstrip(".")
+        if domain:
+            already_tried.add(domain)
+
+    legal_tokens = distinctive_legal_name_tokens(profile.get("name"))
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for match in BARE_NO_RE.finditer(raw_text):
+        token = match.group(0).casefold().rstrip(".")
+        if token.startswith("www."):
+            continue
+        prefix = raw_text[max(0, match.start() - 10):match.start()].casefold()
+        if prefix.endswith("http://") or prefix.endswith("https://"):
+            continue
+
+        registered = _registered_domain(token)
+        if (
+            not registered
+            or not registered.endswith(".no")
+            or registered in seen
+            or registered in already_tried
+            or registered in EXCLUDED_REGISTERED_DOMAINS
+            or registered in GENERIC_EMAIL_DOMAINS
+        ):
+            continue
+
+        strength = _domain_identity_strength(profile, registered)
+        if strength not in {"exact", "multi", "acronym"}:
+            continue
+
+        start = max(0, match.start() - 180)
+        end = min(len(raw_text), match.end() + 180)
+        context = " ".join(raw_text[start:end].split())
+        is_email_domain = match.start() > 0 and raw_text[match.start() - 1] == "@"
+
+        score = {"exact": 6, "multi": 5, "acronym": 4}[strength]
+        if is_email_domain:
+            score += 1
+        if org in re.sub(r"\D", "", context):
+            score += 2
+        context_folded = context.casefold()
+        if legal_tokens and all(token in context_folded for token in legal_tokens):
+            score += 1
+
+        seen.add(registered)
+        candidates.append(
+            {
+                "domain": registered,
+                "url": f"https://{registered}/",
+                "method": (
+                    "annual_report_email_domain"
+                    if is_email_domain
+                    else "annual_report_bare_no_domain"
+                ),
+                "identity_strength": strength,
+                "score": score,
+                "position": match.start(),
+                "evidence_span": context[:500],
+                "claim_scope": (
+                    "Exact-org official annual report contains this bare .no domain. "
+                    "The domain is only a discovery candidate; publication requires an "
+                    "independent first-party fetch and exact-company identity verification."
+                ),
+            }
+        )
+
+    candidates.sort(
+        key=lambda row: (
+            -int(row.get("score") or 0),
+            int(row.get("position") or 0),
+            str(row.get("domain") or ""),
+        )
+    )
+    return candidates[:max_candidates]
 
 
 def _quarantine(assessment: dict[str, Any], reason: str) -> dict[str, Any]:

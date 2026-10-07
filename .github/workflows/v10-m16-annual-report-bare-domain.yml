@@ -1,0 +1,250 @@
+name: V10 M16 Annual Report Bare Domain Screen
+
+on:
+  push:
+    branches:
+      - experiment/v10-m16-annual-report-bare-domain
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m16-annual-report-bare-domain
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONPATH: ${{ github.workspace }}/src
+  FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+  BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
+  M15_ARTIFACT_DIGEST: sha256:5cb2fefbf99933316b529fec15d0839ae86e0e6a4280b6b95ba5feb5bb1e00b7
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtime and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          uv sync --locked
+
+      - name: Run focused M16 tests and compile
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v10_m15_annual_report_site_nomination.py \
+            tests/test_v10_m16_annual_report_bare_domain.py
+          python -m py_compile \
+            src/norway_company_agent/annual_report_site_nomination.py \
+            scripts/build_v10_m15_consumed_cohort.py \
+            scripts/screen_v10_m16_annual_report_bare_domain.py
+
+      - name: Verify immutable input artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10508036929" --jq .digest)" = \
+            'sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11393772677" --jq .digest)" = \
+            'sha256:b7dd01b666470d155d2c70274bb8d1cb2695abc9d2f331d6a41eafe447c023f8'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            'sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11478129358" --jq .digest)" = \
+            'sha256:fb33af0c411848cb2f9a8a37610dc8953afe12e1c9c19d5636767002a0e12f69'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11482816122" --jq .digest)" = \
+            'sha256:e89e9f2d7294dea39168743e246ac680ed32dc9e5aad7039f01ff7ee54ff90fb'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11483268561" --jq .digest)" = \
+            'sha256:3e25ab6b869eaf87d7e213d00378e19a4413dd0dcf01ad0058a942324213ae32'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11495058383" --jq .digest)" = \
+            "$M15_ARTIFACT_DIGEST"
+
+      - name: Recover frozen consumed source, BRREG snapshot and prior cohorts
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/source frozen/pr137 frozen/m10 frozen/m13 frozen/m14 frozen/m14b frozen/m15
+
+          download_named() {
+            run_id="$1"
+            artifact_name="$2"
+            target_dir="$3"
+            for attempt in 1 2 3; do
+              rm -rf "$target_dir"
+              mkdir -p "$target_dir"
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                --name "$artifact_name" --dir "$target_dir"; then
+                echo "RECOVERED_ARTIFACT=$artifact_name ATTEMPT=$attempt"
+                return 0
+              fi
+              echo "RETRY_ARTIFACT=$artifact_name ATTEMPT=$attempt" >&2
+              sleep "$((attempt * 2))"
+            done
+            echo "FAILED_ARTIFACT=$artifact_name" >&2
+            return 1
+          }
+
+          download_named 35246833190 final-release-manifest-1000 frozen/source
+          SOURCE="$(find frozen/source -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" frozen/consumed-1000.jsonl
+          test "$(sha256sum frozen/consumed-1000.jsonl | awk '{print $1}')" = "$FROZEN_CONSUMED_SOURCE_SHA256"
+
+          download_named 37421325313 v9-consumed-baseline frozen/pr137
+          PR137="$(find frozen/pr137 -type f -name 'gate-a-20.jsonl' | head -n 1)"
+          test -n "$PR137"
+          cp "$PR137" frozen/pr137-gate-a-20.jsonl
+
+          download_named 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          M10="$(find frozen/m10 -type f -name 'gate-b-consumed-100.jsonl' | head -n 1)"
+          test -n "$BULK"
+          test -n "$M10"
+          cp "$BULK" frozen/brreg-enheter.csv
+          cp "$M10" frozen/m10-gate-b-100.jsonl
+          test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+
+          download_named 37612496445 v9-m13-frozen-cohort frozen/m13
+          M13="$(find frozen/m13 -type f -name 'm13-consumed-100.jsonl' | head -n 1)"
+          test -n "$M13"
+          cp "$M13" frozen/m13-consumed-100.jsonl
+
+          download_named 37622216471 v9-m14-frozen-inputs frozen/m14
+          M14="$(find frozen/m14 -type f -name 'm14-consumed-100.jsonl' | head -n 1)"
+          test -n "$M14"
+          cp "$M14" frozen/m14-consumed-100.jsonl
+
+          download_named 37624617561 v9-m14b-frozen-inputs frozen/m14b
+          M14B="$(find frozen/m14b -type f -name 'm14b-consumed-100.jsonl' | head -n 1)"
+          test -n "$M14B"
+          cp "$M14B" frozen/m14b-consumed-100.jsonl
+
+          download_named 37648478667 v10-m15-consumed-annual-report-site-screen frozen/m15
+          M15="$(find frozen/m15 -type f -name 'm15-consumed-20.jsonl' | head -n 1)"
+          test -n "$M15"
+          cp "$M15" frozen/m15-consumed-20.jsonl
+          test "$(wc -l < frozen/m15-consumed-20.jsonl)" -eq 20
+
+      - name: Freeze disjoint consumed M16 20 before observing annual-report text
+        run: |
+          uv run python scripts/build_v10_m15_consumed_cohort.py \
+            --source-manifest frozen/consumed-1000.jsonl \
+            --bulk frozen/brreg-enheter.csv \
+            --m13b-base-exclude frozen/pr137-gate-a-20.jsonl \
+            --m13b-base-exclude frozen/m13-consumed-100.jsonl \
+            --m13b-base-exclude frozen/m14-consumed-100.jsonl \
+            --m13b-base-exclude frozen/m14b-consumed-100.jsonl \
+            --extra-exclude frozen/m10-gate-b-100.jsonl \
+            --extra-exclude frozen/m15-consumed-20.jsonl \
+            --output frozen/m16-consumed-20.jsonl \
+            --report frozen/m16-cohort-report.json \
+            --count 20
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("frozen/m16-cohort-report.json").read_text())
+          prior={json.loads(x)["organisation_number"] for x in Path("frozen/m15-consumed-20.jsonl").read_text().splitlines() if x.strip()}
+          selected={json.loads(x)["organisation_number"] for x in Path("frozen/m16-consumed-20.jsonl").read_text().splitlines() if x.strip()}
+          assert r["selected_companies"] == 20, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["reconstructed_m13b_companies_excluded"] == 100, r
+          assert r["reconstructed_m13b_manifest_sha256"] == "eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe", r
+          assert r["eligible_after_exclusions"] >= 20, r
+          assert not (selected & prior), selected & prior
+          print({
+              "selected_companies": r["selected_companies"],
+              "eligible_after_exclusions": r["eligible_after_exclusions"],
+              "fresh_companies_used": r["fresh_companies_used"],
+              "target_manifest_sha256": r["target_manifest_sha256"],
+              "registry_snapshot_sha256": r["registry_snapshot_sha256"],
+              "disjoint_from_m15": True,
+          })
+          PY
+
+      - name: Run unchanged V8 base collector on identical 20
+        run: |
+          mkdir -p baseline/work
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations frozen/m16-consumed-20.jsonl \
+            --bulk frozen/brreg-enheter.csv \
+            --output baseline/output.jsonl \
+            --report baseline/report.json \
+            --product-output baseline/product.html \
+            --work-dir baseline/work \
+            --run-id v10-m16-baseline \
+            --expected-count 20 \
+            --workers 8 \
+            --site-timeout 6 \
+            --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110
+
+      - name: Screen new bare no domains from exact annual reports
+        run: |
+          mkdir -p result
+          uv run python scripts/screen_v10_m16_annual_report_bare_domain.py \
+            --manifest frozen/m16-consumed-20.jsonl \
+            --bulk frozen/brreg-enheter.csv \
+            --baseline-output baseline/output.jsonl \
+            --output result/m16-screen.jsonl \
+            --report result/m16-report.json \
+            --manual-audit result/m16-manual-audit.jsonl \
+            --annual-timeout 60 \
+            --ocr-pages 8 \
+            --ocr-dpi 110 \
+            --site-timeout 6 \
+            --max-site-candidates 1
+
+      - name: Enforce predeclared decision contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/m16-report.json").read_text())
+          assert r["companies"] == 20, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["minimum_net_new_verified_website_companies"] == 2, r
+          assert r["third_party_api_cost_usd"] == 0, r
+          assert r["search_api_requests"] == 0, r
+          assert r["publication_authorized"] is False, r
+          assert r["production_promotion_authorized"] is False, r
+          assert r["fresh_qualification_authorized"] is False, r
+          assert not r["evidence_defects"], r
+          assert not r["execution_errors"], r
+          assert r["machine_decision"] in {"SHELVE_LOW_YIELD", "MANUAL_AUDIT_REQUIRED"}, r
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m16-consumed-annual-report-bare-domain
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            frozen/m16-consumed-20.jsonl
+            frozen/m16-cohort-report.json
+            result/
+            baseline/report.json
