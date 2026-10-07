@@ -80,12 +80,19 @@ jobs:
           test "$(wc -l < shared/consumed-1000.jsonl)" -eq 1000
           test "$(sha256sum shared/consumed-1000.jsonl | awk '{print $1}')" =             "$FROZEN_CONSUMED_SOURCE_SHA256"
 
-      - name: Freeze one current official BRREG snapshot for both sides
+      - name: Reuse exact frozen M10 BRREG snapshot used to design M12
         run: |
           set -euo pipefail
-          curl --fail --location --retry 3 --retry-delay 2             --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output shared/brreg-enheter.csv
-          test -s shared/brreg-enheter.csv
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = "sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98"
+          mkdir -p m10-inputs
+          gh run download 37567829642             --repo "$GITHUB_REPOSITORY"             --name v9-m10-gate-b-frozen-inputs             --dir m10-inputs
+          test -s m10-inputs/brreg-enheter.csv
+          cp m10-inputs/brreg-enheter.csv shared/brreg-enheter.csv
+          if test -f m10-inputs/brreg-enheter.sha256; then
+            (cd m10-inputs && sha256sum -c brreg-enheter.sha256)
+          fi
           sha256sum shared/brreg-enheter.csv > shared/brreg-enheter.sha256
+          echo "M12 reuses the exact pre-existing M10 registry snapshot; no post-strategy registry drift."
 
       - name: Build pre-registered M12 target from consumed source only
         run: |
