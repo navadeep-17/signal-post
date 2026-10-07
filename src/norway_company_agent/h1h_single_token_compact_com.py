@@ -62,9 +62,9 @@ def qualify_single_token_compact_com_identity(
 ) -> dict[str, Any] | None:
     """Fail closed on guessed .com domains.
 
-    Exact target organisation number is sufficient. Otherwise the independently fetched page
-    must contain the complete distinctive legal name plus BRREG location corroboration.
-    Domain/name similarity alone never authorizes publication.
+    Exact target organisation number is required. A guessed single-token .com may be a
+    parent/group site that mentions a Norwegian affiliate, so legal-name/location similarity
+    alone never authorizes publication.
     """
     if not assessment or not assessment.get("publishable") or website.get("status") != "available":
         return assessment
@@ -88,22 +88,13 @@ def qualify_single_token_compact_com_identity(
             "method": "h1h_single_token_compact_com_identity_v1",
         }
 
-    if _page_contains_full_legal_name(profile, website) and _page_matches_registry_location(profile, website):
-        return {
-            **assessment,
-            "status": "exact",
-            "score": max(float(assessment.get("score") or 0.95), 0.98),
-            "publishable": True,
-            "reasons": [
-                *list(assessment.get("reasons") or []),
-                "H1h independently fetched .com homepage has full legal name plus BRREG location corroboration",
-            ],
-            "method": "h1h_single_token_compact_com_identity_v1",
-        }
-
+    # A guessed single-token .com is unusually collision-prone and may be a group/parent
+    # website that merely lists a Norwegian affiliate or location. Full legal-name +
+    # location text is therefore insufficient. H1h publication requires the exact target
+    # Norwegian organisation number on the independently fetched page.
     return _quarantine(
         assessment,
-        "H1h .com candidate lacks exact organisation-number or legal-name-plus-BRREG-location proof",
+        "H1h single-token .com candidate lacks exact target organisation-number proof",
     )
 
 
