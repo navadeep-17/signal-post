@@ -25,6 +25,7 @@ from norway_company_agent.synthesis import (  # noqa: E402
 )
 
 MIN_DEVELOPMENT_RECOVERIES = 2
+MIN_TRANSFER_RECOVERIES = 1
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -156,7 +157,20 @@ def main() -> int:
     p.add_argument("--challenger-output", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
     p.add_argument("--manual-audit", type=Path, required=True)
+    p.add_argument(
+        "--mode",
+        choices=("development", "transfer_a", "transfer_b"),
+        default="development",
+    )
+    p.add_argument("--minimum-recoveries", type=int)
     args = p.parse_args()
+    minimum_recoveries = (
+        int(args.minimum_recoveries)
+        if args.minimum_recoveries is not None
+        else (MIN_DEVELOPMENT_RECOVERIES if args.mode == "development" else MIN_TRANSFER_RECOVERIES)
+    )
+    if minimum_recoveries < 1:
+        raise ValueError("minimum recoveries must be positive")
 
     baseline = read_jsonl(args.baseline_output)
     profiles = profile_index(args.profiles)
@@ -248,18 +262,25 @@ def main() -> int:
 
     if errors:
         decision = "BLOCKED"
-    elif len(recovered_orgs) >= MIN_DEVELOPMENT_RECOVERIES:
-        decision = "DEVELOPMENT_SIGNAL_REQUIRES_DISJOINT_TRANSFER"
-    else:
+    elif len(recovered_orgs) < minimum_recoveries:
         decision = "SHELVE_LOW_YIELD"
+    elif args.mode == "development":
+        decision = "DEVELOPMENT_SIGNAL_REQUIRES_DISJOINT_TRANSFER"
+    elif args.mode == "transfer_a":
+        decision = "TRANSFER_A_MANUAL_AUDIT_REQUIRED"
+    else:
+        decision = "TRANSFER_B_MANUAL_AUDIT_REQUIRED"
 
     report = {
         "milestone": "M19",
-        "screen": "offline_q8_development_registry_domain_composite_identity",
+        "screen": f"offline_{args.mode}_registry_domain_composite_identity",
         "companies": 100,
         "machine_decision": decision,
-        "development_cohort_only": True,
+        "evaluation_mode": args.mode,
+        "development_cohort_only": args.mode == "development",
+        "minimum_recoveries": minimum_recoveries,
         "minimum_development_recoveries": MIN_DEVELOPMENT_RECOVERIES,
+        "minimum_transfer_recoveries": MIN_TRANSFER_RECOVERIES,
         "baseline_available_website_companies": baseline_available,
         "challenger_available_website_companies": challenger_available,
         "net_new_verified_website_companies": len(recovered_orgs),
@@ -277,8 +298,9 @@ def main() -> int:
         "fresh_qualification_authorized": False,
         "builderr_score_claimed": False,
         "transfer_requirement": (
-            "Q8 is a development/research cohort for this rule. Any positive result must be "
-            "retested on a disjoint already-consumed holdout selected before observing its retained pages."
+            "Q8 development positives require disjoint consumed transfer. Transfer A positives require "
+            "100% manual row review before the already-frozen Gate B may run. Transfer B positives still "
+            "do not authorize fresh qualification or production without an explicit promotion decision."
         ),
     }
 
