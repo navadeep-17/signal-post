@@ -96,6 +96,17 @@ def project_careers_page_claims(
             "retrieved_at": retrieved_at,
             "content_sha256": website_hash,
             "claim_span": str(careers.get("evidence_span") or f"Homepage careers link: {careers_url}"),
+            "extraction_method": "verified_homepage_same_company_host_careers_link_v1",
+            "identity_proof": {
+                "method": assessment.get("method"),
+                "status": assessment.get("status"),
+                "score": assessment.get("score"),
+                "publishable": bool(assessment.get("publishable")),
+                "homepage_url": final_url,
+                "homepage_content_sha256": website_hash,
+                "careers_url": careers_url,
+                "same_snapshot_homepage_declaration": True,
+            },
         }
         claims.append(
             {

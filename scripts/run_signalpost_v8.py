@@ -18,6 +18,7 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
     project_canonical_profile,
     validate_canonical_projection,
 )
+from norway_company_agent.careers_contract import project_careers_page_claims  # noqa: E402
 from norway_company_agent.external_precision_guard import project_external_precision_guard  # noqa: E402
 from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
@@ -195,6 +196,8 @@ def _project_q4_feed_activity(
     contract_errors: list[dict[str, str]] = []
     canonical_errors: list[dict[str, str]] = []
     synthesis_errors: list[dict[str, str]] = []
+    careers_claims = 0
+    careers_companies = 0
     feed_claims = 0
     feed_companies = 0
     precision_removed_claims = 0
@@ -205,16 +208,37 @@ def _project_q4_feed_activity(
         profile = profiles_by_org.get(org)
         if profile is None:
             raise ValueError(f"V8 retained profile missing for {org}")
-        before = sum(
+        careers_before = sum(
             1
             for claim in row.get("claims") or []
+            if isinstance(claim, dict) and claim.get("field") == "external.careers_page"
+        )
+        with_careers = project_careers_page_claims(row, profile)
+        careers_after_projection = sum(
+            1
+            for claim in with_careers.get("claims") or []
+            if isinstance(claim, dict) and claim.get("field") == "external.careers_page"
+        )
+
+        before = sum(
+            1
+            for claim in with_careers.get("claims") or []
             if isinstance(claim, dict) and claim.get("field") == "external.company_update"
         )
-        with_feed = project_first_party_feed_updates(row, profile)
+        with_feed = project_first_party_feed_updates(with_careers, profile)
         guarded = project_external_precision_guard(with_feed)
         removed = max(0, len(with_feed.get("claims") or []) - len(guarded.get("claims") or []))
         precision_removed_claims += removed
         precision_removed_companies += int(removed > 0)
+        careers_after_guard = sum(
+            1
+            for claim in guarded.get("claims") or []
+            if isinstance(claim, dict) and claim.get("field") == "external.careers_page"
+        )
+        careers_added = max(0, careers_after_guard - careers_before)
+        careers_claims += careers_added
+        careers_companies += int(careers_added > 0)
+
         after = sum(
             1
             for claim in guarded.get("claims") or []
@@ -252,6 +276,17 @@ def _project_q4_feed_activity(
     canonical_report = dict(report.get("canonical_projection") or {})
     canonical_report.update(_canonical_metrics(projected))
     canonical_report["validation_errors"] = canonical_errors
+    canonical_report["careers_presence_projection"] = {
+        "claim_field": "external.careers_page",
+        "canonical_type": "hiring.careers_page",
+        "published_claims": careers_claims,
+        "companies_with_published_claims": careers_companies,
+        "network_requests_added_by_projection": 0,
+        "source_boundary": (
+            "exact verified homepage -> same-company-host careers link retained in the same homepage snapshot; "
+            "this is careers/hiring presence only and does not assert an active vacancy"
+        ),
+    }
     canonical_report["q4_feed_activity_projection"] = {
         "claim_field": "external.company_update",
         "canonical_type": "public.company_update",
@@ -269,6 +304,7 @@ def _project_q4_feed_activity(
         "schema_version": SYNTHESIS_SCHEMA_VERSION,
         "companies": len(projected),
         "q4_feed_activity_context_enabled": True,
+        "careers_presence_context_enabled": True,
         "validation_errors": synthesis_errors,
     }
     report["external_precision_guard"] = {

@@ -33,7 +33,7 @@ The current public rule is **65/100 overall**. The four score dimensions are wei
 | Exact-company website publication | candidate discovery never replaces exact-company proof | PASS implementation |
 | Strict job publication | verified site + detail URL + specific title + job marker + apply action | PASS |
 | Strict company-update publication | verified site + detail URL + specific title + explicit date | PASS |
-| Generic careers/news indexes rejected | section roots do not become facts | PASS |
+| Careers/news semantic boundary | verified same-company careers surface may become `hiring.careers_page` presence only; generic news indexes remain rejected; active jobs still require strict role evidence | PASS |
 | Social claim boundary | company page declared URL; platform itself is not fetched | PASS |
 | Contact-email boundary | retained first-party evidence + verified-site domain agreement | PASS |
 | Official registry currentness | bounded exact-org BRREG update feed | PASS |
