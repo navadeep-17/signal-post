@@ -18,7 +18,8 @@ env:
   PYTHONUNBUFFERED: "1"
   QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
   FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
-  EXCLUSION_UNION_SHA256: 5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7\n  EXCLUSION_ORG_LIST_SHA256: d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451
+  EXCLUSION_UNION_SHA256: 5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7
+  EXCLUSION_ORG_LIST_SHA256: d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451
   BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
 
 jobs:
@@ -124,7 +125,9 @@ jobs:
           assert not (ao & bo)
           assert r["fresh_companies_used"] == 0
           assert r["prior_exclusion_union_companies"] == 428
-          assert r["prior_exclusion_org_list_sha256"] == "d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451"\n          assert r["prior_exclusion_union_sha256"] == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"\n          assert r["remaining_uninspected_companies"] == 572
+          assert r["prior_exclusion_org_list_sha256"] == "d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451"
+          assert r["prior_exclusion_union_sha256"] == "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"
+          assert r["remaining_uninspected_companies"] == 572
           print({
               "gate_a_manifest_sha256": r["gate_a_manifest_sha256"],
               "gate_b_manifest_sha256": r["gate_b_manifest_sha256"],
