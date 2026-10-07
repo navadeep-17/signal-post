@@ -171,6 +171,7 @@ def domain_mentions(profile: dict[str, Any], text: str) -> list[dict[str, Any]]:
             "explicit_m15_form": explicit_form or domain in explicit,
             "generic_or_service": generic,
             "negative_context_hits": negative_hits,
+            "negative_context_disqualified": bool(negative_hits),
             "evidence_span": context[:600],
             "position": match.start(),
         }
@@ -296,6 +297,7 @@ def main() -> int:
             if not mention["already_tried"]
             and not mention["explicit_m15_form"]
             and not mention["generic_or_service"]
+            and not mention["negative_context_disqualified"]
             and int(mention["score"]) >= 2
         ]
         if not eligible:
