@@ -1,0 +1,191 @@
+name: V9 M10 Gate B Consumed 100
+
+on:
+  push:
+    branches:
+      - experiment/v9-m10-consumed-gate-b
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumed-gate-b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout exact Gate B candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: challenger
+          fetch-depth: 1
+
+      - name: Checkout immutable V8 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
+          path: baseline
+          fetch-depth: 1
+
+      - name: Prove identical qualified M10 application and tests
+        run: |
+          mkdir -p shared/out
+          git -C baseline rev-parse HEAD | tee shared/out/baseline-sha.txt
+          git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
+          test "$(cat shared/out/baseline-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
+          test "$(cat shared/out/challenger-sha.txt)" = "${{ github.sha }}"
+          git -C challenger fetch --quiet --depth=1 origin 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+          git -C challenger diff --exit-code 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf HEAD --             src scripts tests pyproject.toml uv.lock
+          echo 'GATE_B_APP_CODE_EQUALS_APPROVED_GATE_A=PASS'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install annual-report runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+
+      - name: Install locked dependencies
+        run: |
+          (cd baseline && uv sync --locked)
+          (cd challenger && uv sync --locked)
+
+      - name: Download and verify manually approved Gate A artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/artifacts/11458838045 --jq '.digest')" =             'sha256:928e9ff4f11eb2ad078b0455c66e574c6c6bb7ec6e2ef2a8ccce123a73808e9f'
+          mkdir -p shared/gate-a
+          gh run download 37565180008             --repo "$GITHUB_REPOSITORY"             --name v9-m10-gate-a-consumed-20             --dir shared/gate-a
+          test -f shared/gate-a/cohort-report.json
+          test -f shared/gate-a/m10-gate-a-machine-result.json
+          test -f shared/gate-a/gate-a-consumed-20.jsonl
+          test -f shared/gate-a/gate-b-consumed-100.jsonl
+          test -f shared/gate-a/brreg-snapshot.sha256
+          test "$(cat shared/gate-a/challenger-sha.txt)" = '2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf'
+          test "$(cat shared/gate-a/baseline-sha.txt)" = '72f1bf2892ec1c1e35674aa383433c9a37afdaca'
+          cp shared/gate-a/gate-b-consumed-100.jsonl shared/out/consumed-100-manifest.jsonl
+          cp shared/gate-a/cohort-report.json shared/out/cohort-report.json
+          cp shared/gate-a/brreg-snapshot.sha256 shared/out/gate-a-brreg-snapshot.sha256
+          sha256sum shared/out/consumed-100-manifest.jsonl | tee shared/out/consumed-100-manifest.sha256
+
+      - name: Prove cohort locked, consumed, and Gate A manually authorized
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          root=Path("shared/gate-a")
+          q=json.loads((root/"cohort-report.json").read_text())
+          a=json.loads((root/"m10-gate-a-machine-result.json").read_text())
+          assert q["source_manifest_companies"] == 1000 and q["fresh_companies_used"] == 0, q
+          assert q["gate_a_companies"] == 20 and q["gate_b_companies"] == 100, q
+          assert a["machine_decision"] == "MANUAL_AUDIT_REQUIRED" and a["errors"] == [], a
+          assert a["new_external_publications"] == 11 and a["lost_external_publications"] == 0, a
+          assert a["new_family_company_edges"] == 7 and a["lost_family_company_edges"] == 0, a
+          assert a["manual_audit_rows"] == 11, a
+
+          def rows(name):
+              raw=(root/name).read_bytes()
+              return [json.loads(s) for s in raw.splitlines() if s.strip()], hashlib.sha256(raw).hexdigest()
+          small, a_sha=rows("gate-a-consumed-20.jsonl")
+          large, b_sha=rows("gate-b-consumed-100.jsonl")
+          assert len(small) == 20 and len(large) == 100, (len(small),len(large))
+          assert a_sha==q["gate_a_manifest_sha256"] and b_sha==q["gate_b_manifest_sha256"], q
+          ao=[x["organisation_number"] for x in small]
+          bo=[x["organisation_number"] for x in large]
+          assert len(set(ao))==20 and len(set(bo))==100 and set(ao)<=set(bo)
+          assert set(q["required_canaries"]) <= set(ao), q
+          assert all(x.get("evaluation_split")=="v9_m10_consumed_gate_b" for x in large)
+          review=Path("challenger/docs/V9_M10_GATE_A_PRECISION_AUDIT.md").read_text()
+          assert "37565180008" in review and "11/11" in review
+          assert "2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf" in review
+          print("GATE_B_CONSUMED_100_MANIFEST_LOCKED",b_sha)
+          PY
+
+      - name: Re-acquire shared BRREG snapshot and fail closed on drift
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 240             'https://data.brreg.no/enhetsregisteret/api/enheter/lastned/csv'             --output shared/brreg-enheter.csv
+          test -s shared/brreg-enheter.csv
+          EXPECTED_SHA="$(awk '{print $1}' shared/gate-a/brreg-snapshot.sha256)"
+          ACTUAL_SHA="$(sha256sum shared/brreg-enheter.csv | awk '{print $1}')"
+          echo "Gate A snapshot sha256=$EXPECTED_SHA"
+          echo "Gate B snapshot sha256=$ACTUAL_SHA"
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo 'FAIL CLOSED: registry snapshot changed since approved Gate A; do not compare mismatched snapshots.'
+            exit 1
+          fi
+          sha256sum shared/brreg-enheter.csv | tee shared/out/brreg-snapshot.sha256
+
+      - name: Execute frozen V8 baseline on locked Gate B 100
+        run: |
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/out/consumed-100-manifest.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/baseline-output.jsonl             --report ../shared/out/baseline-report.json             --product-output ../shared/out/baseline-product.html             --work-dir ../shared/out/baseline-work             --run-id v9-m10-gate-b-baseline             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000 --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4 --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110             --support-registry-timeout 420 --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Execute integrated V9 challenger on identical Gate B 100
+        run: |
+          cd challenger
+          uv run python scripts/run_signalpost_v8.py             --organisations ../shared/out/consumed-100-manifest.jsonl             --bulk ../shared/brreg-enheter.csv             --output ../shared/out/challenger-output.jsonl             --report ../shared/out/challenger-report.json             --product-output ../shared/out/challenger-product.html             --work-dir ../shared/out/challenger-work             --run-id v9-m10-gate-b-challenger             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000 --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4 --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110             --support-registry-timeout 420 --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Measure all seven company-family deltas
+        run: |
+          cd challenger
+          uv run python scripts/measure_v9_company_family_coverage.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/family-transfer.json             --new-publications ../shared/out/new-publications.jsonl             --lost-publications ../shared/out/lost-publications.jsonl
+
+      - name: Audit every new external publication and evidence linkage
+        run: |
+          cd challenger
+          uv run python scripts/audit_v9_m10_publications.py             --baseline ../shared/out/baseline-output.jsonl             --challenger ../shared/out/challenger-output.jsonl             --report ../shared/out/publication-audit.json             --manual-audit ../shared/out/manual-audit-required.jsonl
+
+      - name: Machine gate with manual review still mandatory
+        run: |
+          cd challenger
+          uv run python scripts/decide_v9_m10_gate.py             --cohort ../shared/out/cohort-report.json             --baseline-report ../shared/out/baseline-report.json             --challenger-report ../shared/out/challenger-report.json             --family-report ../shared/out/family-transfer.json             --publication-report ../shared/out/publication-audit.json             --output ../shared/out/m10-gate-b-machine-result.json             --count 100
+
+      - name: Print complete new publication manual queue
+        if: always()
+        run: |
+          if test -f shared/out/manual-audit-required.jsonl; then
+            cat shared/out/manual-audit-required.jsonl
+          fi
+
+      - name: Remove product HTML from archived evidence
+        if: always()
+        run: rm -f shared/out/baseline-product.html shared/out/challenger-product.html
+
+      - name: Archive Gate B consumed validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m10-gate-b-consumed-100
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/out/baseline-sha.txt
+            shared/out/challenger-sha.txt
+            shared/out/consumed-100-manifest.jsonl
+            shared/out/consumed-100-manifest.sha256
+            shared/out/cohort-report.json
+            shared/out/gate-a-brreg-snapshot.sha256
+            shared/out/brreg-snapshot.sha256
+            shared/out/baseline-report.json
+            shared/out/challenger-report.json
+            shared/out/baseline-output.jsonl
+            shared/out/challenger-output.jsonl
+            shared/out/family-transfer.json
+            shared/out/new-publications.jsonl
+            shared/out/lost-publications.jsonl
+            shared/out/publication-audit.json
+            shared/out/manual-audit-required.jsonl
+            shared/out/m10-gate-b-machine-result.json
