@@ -41,6 +41,7 @@ from norway_company_agent.h1g_hyphenated_no_recall import (  # noqa: E402
 )
 from norway_company_agent.v9_m13_budget import allocate_m13_search_budget  # noqa: E402
 from norway_company_agent.v9_m13_search_slot import evaluate_m13_search_slot  # noqa: E402
+from norway_company_agent.v9_openai_websearch_v2 import provider_readiness  # noqa: E402
 from norway_company_agent.http import fetch_json  # noqa: E402
 from norway_company_agent.official import fetch_official_modules  # noqa: E402
 from norway_company_agent.output_contract import (  # noqa: E402
@@ -293,7 +294,7 @@ def _external_observation_audit(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="One-command Signalpost evaluator runner using only qualified zero-cost sources."
+        description="One-command Signalpost evaluator runner with qualified sources and optional evaluator-supplied search."
     )
     parser.add_argument("--organisations", required=True, help="JSON/JSONL/text organisation-number input")
     parser.add_argument("--bulk", required=True, help="Frozen BRREG entity bulk CSV")
@@ -308,6 +309,13 @@ def main() -> None:
     parser.add_argument("--max-challenge-requests", type=int, default=DEFAULT_MAX_CHALLENGE_REQUESTS)
     parser.add_argument("--max-third-party-cost-usd", type=float, default=0.0)
     parser.add_argument("--enable-openai-web-search", action="store_true")
+    parser.add_argument("--search-evaluator-reproducible", action="store_true")
+    parser.add_argument("--search-evaluator-supplied-credential", action="store_true")
+    parser.add_argument(
+        "--search-rights-status",
+        choices=("unknown", "approved", "contract_confirmed"),
+        default="unknown",
+    )
     parser.add_argument(
         "--max-search-calls",
         type=int,
@@ -337,6 +345,7 @@ def main() -> None:
         parser.error("--max-third-party-cost-usd cannot be negative")
     if args.max_search_calls < 0:
         parser.error("--max-search-calls cannot be negative")
+    provider_preflight: dict[str, Any] | None = None
     if args.enable_openai_web_search:
         if args.max_search_calls < 1:
             parser.error("--enable-openai-web-search requires --max-search-calls >= 1")
@@ -344,6 +353,27 @@ def main() -> None:
             parser.error("--enable-openai-web-search requires a positive --max-third-party-cost-usd")
         if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
             parser.error("--enable-openai-web-search requires OPENAI_API_KEY")
+        if not args.search_evaluator_reproducible:
+            parser.error("--enable-openai-web-search requires --search-evaluator-reproducible")
+        if not args.search_evaluator_supplied_credential:
+            parser.error("--enable-openai-web-search requires --search-evaluator-supplied-credential")
+        if args.search_rights_status == "unknown":
+            parser.error("--enable-openai-web-search requires approved/contract-confirmed --search-rights-status")
+        provider_preflight = provider_readiness(
+            max_searches=args.max_search_calls,
+            evaluator_key_available=(
+                args.search_evaluator_reproducible
+                and args.search_evaluator_supplied_credential
+            ),
+            rights_status=args.search_rights_status,
+            challenge_cost_budget_usd=args.max_third_party_cost_usd,
+            project_third_party_budget_usd=args.max_third_party_cost_usd,
+        )
+        if not provider_preflight.get("allowed_for_live_v9_experiment"):
+            parser.error(
+                "OpenAI web-search provider contract is not approved for live M13 experiment: "
+                + ",".join(provider_preflight.get("reasons") or [])
+            )
     elif args.max_search_calls != 0:
         parser.error("--max-search-calls must be 0 unless --enable-openai-web-search is set")
     if args.max_wall_runtime_seconds < 1:
@@ -680,6 +710,10 @@ def main() -> None:
             ),
             "openai_web_search_model": "gpt-6-luna" if args.enable_openai_web_search else None,
             "openai_search_results_are_publication_evidence": False,
+            "openai_provider_contract": provider_preflight,
+            "search_evaluator_reproducible": bool(args.search_evaluator_reproducible),
+            "search_evaluator_supplied_credential": bool(args.search_evaluator_supplied_credential),
+            "search_rights_status": args.search_rights_status,
             "search_target_count": len(search_target_orgs),
             "search_target_mode": search_target_mode,
             "max_search_calls": provider_search_logical_request_ceiling,
