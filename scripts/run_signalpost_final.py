@@ -34,6 +34,7 @@ from norway_company_agent.workforce_contract import project_workforce_observatio
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
 )
+from norway_company_agent.h1g_hyphenated_no_recall import evaluate_hyphenated_no_fallback  # noqa: E402
 from norway_company_agent.v9_m12_late_registry_domain import (  # noqa: E402
     evaluate_request_neutral_late_fallback,
 )
@@ -154,12 +155,23 @@ def _enrich_profile(
         profile,
         timeout=site_timeout,
         base_site_logical_requests=int(site_metrics.get("requests") or 0),
+        h1g_evaluator=evaluate_hyphenated_no_fallback,
     )
     site_metrics["late_fallback_candidate_available"] = bool(late_result.get("candidate_available"))
     site_metrics["late_fallback_attempted"] = bool(late_result.get("attempted"))
     site_metrics["late_fallback_verified"] = bool(late_result.get("verified"))
     site_metrics["m12_strategy"] = str(late_result.get("m12_strategy") or "")
     site_metrics["m12_candidate_attempted"] = bool(late_result.get("m12_candidate_attempted"))
+    # Preserve the frozen H1g report keys for unaffected profiles and regression tests.
+    site_metrics["h1g_candidate_available"] = bool(
+        late_result.get("candidate_available") and not late_result.get("m12_candidate_attempted")
+    )
+    site_metrics["h1g_attempted"] = bool(
+        late_result.get("attempted") and not late_result.get("m12_candidate_attempted")
+    )
+    site_metrics["h1g_verified"] = bool(
+        late_result.get("verified") and not late_result.get("m12_candidate_attempted")
+    )
     if late_result.get("m12_registry_email_domain"):
         site_metrics["m12_registry_email_domain"] = str(late_result["m12_registry_email_domain"])
     if late_result.get("skipped_reason"):
