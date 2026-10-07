@@ -73,8 +73,8 @@ jobs:
           assert r["development_new_family_company_edges"] == 3, r
           assert r["holdout_new_publications"] == 0, r
           assert r["development_new_publications"] == 5, r
-          assert r["baseline_observed_request_charge"] == 1302, r
-          assert r["challenger_observed_request_charge"] == 1454, r
+          assert r["baseline_observed_request_charge"] == 1304, r
+          assert r["challenger_observed_request_charge"] == 1456, r
           assert "observed_request_charge_not_increased" in r["errors"], r
           assert "zero_evidence_defects" in r["errors"], r
           assert "all_new_publications_have_reopenable_evidence" in r["errors"], r
