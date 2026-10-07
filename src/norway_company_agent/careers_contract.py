@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import urllib.parse
 from typing import Any
 
 
@@ -15,6 +16,50 @@ def _confidence(website: dict[str, Any]) -> float:
     except (TypeError, ValueError):
         score = 0.95
     return max(0.0, min(1.0, score))
+
+
+def _host(url: str) -> str:
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").casefold().rstrip(".")
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def _same_verified_host(left: str, right: str) -> bool:
+    a = _host(left)
+    b = _host(right)
+    return bool(a and b and a == b)
+
+
+def _typed_sitemap_identity_proof(
+    *,
+    assessment: dict[str, Any],
+    final_url: str,
+    website_hash: str,
+    sitemap_url: str,
+    sitemap_hash: str,
+    careers_url: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "website_identity_gate",
+            "status": assessment.get("status"),
+            "score": assessment.get("score"),
+            "publishable": assessment.get("publishable"),
+            "method": assessment.get("method"),
+        },
+        {
+            "type": "same_verified_host_sitemap_careers_surface",
+            "verified_website_url": final_url,
+            "verified_website_content_sha256": website_hash,
+            "sitemap_url": sitemap_url,
+            "sitemap_content_sha256": sitemap_hash,
+            "careers_url": careers_url,
+            "same_verified_host": True,
+            "method": "same_verified_host_sitemap_urlset_v1",
+        },
+    ]
 
 
 def project_careers_page_claims(
@@ -110,6 +155,85 @@ def project_careers_page_claims(
                 "platform": "company_site",
                 "signal_type": "careers_page",
                 "claim_scope": str(careers.get("claim_scope") or ""),
+            }
+        )
+        seen_urls.add(careers_url)
+
+    sitemap = ((profile.get("evidence") or {}).get("website_sitemap_careers") or {})
+    sitemap_value = sitemap.get("value") if isinstance(sitemap.get("value"), dict) else {}
+    careers_url = str(sitemap_value.get("careers_url") or "").strip()
+    sitemap_url = str(sitemap.get("source_url") or "").strip()
+    sitemap_hash = str(sitemap.get("content_sha256") or "").strip()
+    sitemap_retrieved_at = sitemap.get("retrieved_at")
+    bound_verified_url = str(sitemap_value.get("verified_website_url") or "").strip()
+    bound_website_hash = str(sitemap_value.get("verified_website_content_sha256") or "").strip()
+    sitemap_assessment = (
+        sitemap_value.get("identity_assessment")
+        if isinstance(sitemap_value.get("identity_assessment"), dict)
+        else {}
+    )
+    try:
+        sitemap_identity_score = float(sitemap_assessment.get("score") or 0)
+    except (TypeError, ValueError):
+        sitemap_identity_score = 0.0
+
+    if (
+        sitemap.get("status") == "available"
+        and careers_url.startswith(("http://", "https://"))
+        and careers_url not in seen_urls
+        and sitemap_url.startswith(("http://", "https://"))
+        and len(sitemap_hash) == 64
+        and sitemap_retrieved_at
+        and bound_verified_url == final_url
+        and bound_website_hash == website_hash
+        and _same_verified_host(sitemap_url, final_url)
+        and _same_verified_host(careers_url, final_url)
+        and sitemap_assessment.get("status") == "exact"
+        and sitemap_assessment.get("publishable") is True
+        and sitemap_identity_score >= 0.95
+        and bool(str(sitemap_assessment.get("method") or "").strip())
+        and sitemap_value.get("lastmod_used_as_publication_date") is False
+    ):
+        evidence_id = _evidence_id(org, careers_url, sitemap_hash)
+        evidence_by_id[evidence_id] = {
+            "id": evidence_id,
+            "source_url": sitemap_url,
+            "source_class": "company_owned",
+            "retrieved_at": sitemap_retrieved_at,
+            "content_sha256": sitemap_hash,
+            "claim_span": (
+                f"Same-host sitemap lists careers surface: {careers_url}"
+            )[:1000],
+            "identity_proof": _typed_sitemap_identity_proof(
+                assessment=sitemap_assessment,
+                final_url=final_url,
+                website_hash=website_hash,
+                sitemap_url=sitemap_url,
+                sitemap_hash=sitemap_hash,
+                careers_url=careers_url,
+            ),
+            "extraction_method": "verified_company_sitemap_careers_surface_v1",
+        }
+        claims.append(
+            {
+                "field": managed_field,
+                "value": {
+                    "url": careers_url,
+                    "anchor_text": None,
+                },
+                "availability": "available",
+                "confidence": max(_confidence(website), sitemap_identity_score),
+                "evidence_ids": [evidence_id],
+                "platform": "company_site",
+                "signal_type": "careers_page",
+                "claim_scope": str(
+                    sitemap_value.get("claim_scope")
+                    or (
+                        "Exact verified company site's same-host sitemap lists a generic careers/hiring surface. "
+                        "This proves careers-surface presence only and does not assert recruitment intent "
+                        "or a currently open vacancy."
+                    )
+                ),
             }
         )
         seen_urls.add(careers_url)
