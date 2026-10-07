@@ -1,0 +1,368 @@
+name: V9 M14b Disjoint Compact COM Replication
+
+on:
+  push:
+    branches:
+      - experiment/v9-m14b-compact-com-replication
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v9-m14b-disjoint-replication
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  V9_BASE_SHA: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+  M14_EVALUATOR_SHA: 3a3414d2b9a43a17ab2770f10282caa5dbfb7a58
+  FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+  PRIOR_SEARCH_GATE_A_SHA256: f2177abd0bd0d6202f9fe47fd00b8def06b21c01fdf4c864c1f3b68f80b160d5
+  M10_FROZEN_INPUT_ARTIFACT_DIGEST: sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98
+  M14_FROZEN_INPUT_ARTIFACT_DIGEST: sha256:e89e9f2d7294dea39168743e246ac680ed32dc9e5aad7039f01ff7ee54ff90fb
+
+jobs:
+  freeze-inputs:
+    name: Freeze disjoint M14b treatment and controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked harness runtime
+        run: |
+          cd harness
+          uv sync --locked
+
+      - name: Prove evaluator implementation is frozen
+        run: |
+          set -euo pipefail
+          git -C harness fetch --quiet --depth=1 origin "$M14_EVALUATOR_SHA"
+          git -C harness diff --exit-code "$M14_EVALUATOR_SHA" HEAD -- \
+            src scripts/run_signalpost_final.py scripts/run_signalpost_v8.py \
+            scripts/run_signalpost_v7.py scripts/run_signalpost_v2.py \
+            scripts/decide_v9_m14_compact_com.py scripts/audit_v9_m10_publications.py \
+            scripts/measure_v9_company_family_coverage.py \
+            tests/test_h1h_single_token_compact_com.py \
+            tests/test_v9_m14_consumed_cohort.py \
+            tests/test_v9_m14_compact_com_decision.py
+
+      - name: Run replication-harness test
+        run: |
+          cd harness
+          uv run --with pytest pytest -q tests/test_v9_m14b_replication.py
+
+      - name: Verify immutable upstream artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10508036929" --jq .digest)" = \
+            'sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11393772677" --jq .digest)" = \
+            'sha256:b7dd01b666470d155d2c70274bb8d1cb2695abc9d2f331d6a41eafe447c023f8'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459496712" --jq .digest)" = \
+            "$M10_FROZEN_INPUT_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11482816122" --jq .digest)" = \
+            "$M14_FROZEN_INPUT_ARTIFACT_DIGEST"
+
+      - name: Recover consumed source, prior search set, prior M14 cohort and BRREG snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p shared/source shared/pr137 shared/m10 shared/m14
+          gh run download 35246833190 --repo "$GITHUB_REPOSITORY" \
+            --name final-release-manifest-1000 --dir shared/source
+          SOURCE="$(find shared/source -type f -name 'final-release-1000.jsonl' | head -n 1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" shared/consumed-1000.jsonl
+          test "$(sha256sum shared/consumed-1000.jsonl | awk '{print $1}')" = "$FROZEN_CONSUMED_SOURCE_SHA256"
+          test "$(wc -l < shared/consumed-1000.jsonl)" -eq 1000
+
+          gh run download 37421325313 --repo "$GITHUB_REPOSITORY" \
+            --name v9-consumed-baseline --dir shared/pr137
+          PRIOR="$(find shared/pr137 -type f -name 'gate-a-20.jsonl' | head -n 1)"
+          test -n "$PRIOR"
+          cp "$PRIOR" shared/pr137-gate-a-20.jsonl
+          test "$(sha256sum shared/pr137-gate-a-20.jsonl | awk '{print $1}')" = "$PRIOR_SEARCH_GATE_A_SHA256"
+
+          gh run download 37622216471 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m14-frozen-inputs --dir shared/m14
+          PRIOR_M14="$(find shared/m14 -type f -name 'm14-consumed-100.jsonl' | head -n 1)"
+          test -n "$PRIOR_M14"
+          cp "$PRIOR_M14" shared/prior-m14-consumed-100.jsonl
+          test "$(wc -l < shared/prior-m14-consumed-100.jsonl)" -eq 100
+
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir shared/m10
+          BULK="$(find shared/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          (cd shared && sha256sum brreg-enheter.csv > brreg-enheter.sha256)
+
+      - name: Pre-register disjoint replication cohort
+        run: |
+          cd harness
+          uv run python scripts/build_v9_m14b_replication_cohort.py \
+            --source-manifest ../shared/consumed-1000.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --prior-search-manifest ../shared/pr137-gate-a-20.jsonl \
+            --prior-m14-manifest ../shared/prior-m14-consumed-100.jsonl \
+            --output ../shared/m14b-consumed-100.jsonl \
+            --audit ../shared/m14b-cohort-audit.jsonl \
+            --report ../shared/m14b-cohort-report.json \
+            --treated-count 20 --control-count 80
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("../shared/m14b-cohort-report.json").read_text())
+          rows=[json.loads(x) for x in Path("../shared/m14b-cohort-audit.jsonl").read_text().splitlines() if x.strip()]
+          prior={json.loads(x)["organisation_number"] for x in Path("../shared/prior-m14-consumed-100.jsonl").read_text().splitlines() if x.strip()}
+          selected={x["organisation_number"] for x in rows}
+          assert r["selected_companies"] == 100, r
+          assert r["treated_companies"] == 20, r
+          assert r["control_companies"] == 80, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["replication_disjoint_from_prior_m14"] is True, r
+          assert not (selected & prior), (selected & prior)
+          assert sum(x["bucket"] == "m14_single_token_compact_com" for x in rows) == 20
+          assert sum(x["bucket"] == "m14_multi_token_control" for x in rows) == 80
+          print("M14B_PRE_REGISTERED", json.dumps(r, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v9-m14b-frozen-inputs
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            shared/m14b-consumed-100.jsonl
+            shared/m14b-cohort-audit.jsonl
+            shared/m14b-cohort-report.json
+            shared/prior-m14-consumed-100.jsonl
+            shared/brreg-enheter.sha256
+
+  evaluator:
+    name: M14b ${{ matrix.side }} 100
+    needs: freeze-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - side: baseline-v9
+            ref: 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
+          - side: challenger-m14-frozen
+            ref: 3a3414d2b9a43a17ab2770f10282caa5dbfb7a58
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          path: code
+          fetch-depth: 1
+
+      - name: Prove exact evaluator SHA
+        run: test "$(git -C code rev-parse HEAD)" = "${{ matrix.ref }}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m14b-frozen-inputs
+          path: shared
+
+      - name: Recover identical frozen BRREG bytes
+        run: |
+          set -euo pipefail
+          mkdir -p shared/m10
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-frozen-inputs --dir shared/m10
+          BULK="$(find shared/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" shared/brreg-enheter.csv
+          (cd shared && sha256sum -c brreg-enheter.sha256)
+          test "$(wc -l < shared/m14b-consumed-100.jsonl)" -eq 100
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr unzip
+          cd code
+          uv sync --locked
+          mkdir -p ../out
+
+      - name: Run exact side
+        run: |
+          cd code
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../shared/m14b-consumed-100.jsonl \
+            --bulk ../shared/brreg-enheter.csv \
+            --output ../out/output.jsonl \
+            --report ../out/report.json \
+            --product-output ../out/product.html \
+            --work-dir ../out/work \
+            --run-id "v9-m14b-${{ matrix.side }}" \
+            --expected-count 100 \
+            --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Verify side contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("out/report.json").read_text())
+          assert r["passed"] is True, r
+          assert r["expected_count"] == r["final_objects"] == 100, r
+          assert r["source_policy"]["third_party_cost_usd"] == 0.0, r
+          assert r["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, r
+          assert r["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, r
+          assert r["runtime"]["wall_runtime_seconds"] <= 2400, r
+          print(json.dumps({
+              "requests":r["request_budget"]["observed_conservative_challenge_request_charge"],
+              "theorem":r["request_budget"]["theoretical_challenge_request_charge_ceiling"],
+              "runtime":r["runtime"]["wall_runtime_seconds"],
+              "verified_sites":r["site_discovery"]["profiles_with_verified_site"],
+          },indent=2))
+          PY
+
+      - name: Remove UI/cache before upload
+        if: always()
+        run: |
+          rm -f out/product.html
+          rm -rf out/work/internal-envelopes.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v9-m14b-${{ matrix.side }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            out/output.jsonl
+            out/report.json
+            out/work/profiles.jsonl
+
+  audit:
+    name: M14b replication breadth and evidence gate
+    needs: [freeze-inputs, evaluator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3a3414d2b9a43a17ab2770f10282caa5dbfb7a58
+          path: code
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install frozen M14 measurement runtime
+        run: |
+          cd code
+          uv sync --locked
+          mkdir -p ../result
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m14b-frozen-inputs
+          path: shared
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m14b-baseline-v9
+          path: baseline
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-m14b-challenger-m14-frozen
+          path: challenger
+
+      - name: Compare all seven external company families
+        run: |
+          cd code
+          uv run python scripts/measure_v9_company_family_coverage.py \
+            --baseline ../baseline/output.jsonl \
+            --challenger ../challenger/output.jsonl \
+            --report ../result/family-transfer.json \
+            --new-publications ../result/new-publications.jsonl \
+            --lost-publications ../result/lost-publications.jsonl
+
+      - name: Audit every new publication
+        run: |
+          cd code
+          uv run python scripts/audit_v9_m10_publications.py \
+            --baseline ../baseline/output.jsonl \
+            --challenger ../challenger/output.jsonl \
+            --report ../result/publication-audit.json \
+            --manual-audit ../result/manual-audit-required.jsonl
+
+      - name: Apply unchanged M14 decision bar
+        run: |
+          cd code
+          uv run python scripts/decide_v9_m14_compact_com.py \
+            --cohort-report ../shared/m14b-cohort-report.json \
+            --cohort-audit ../shared/m14b-cohort-audit.jsonl \
+            --baseline-report ../baseline/report.json \
+            --challenger-report ../challenger/report.json \
+            --baseline-output ../baseline/output.jsonl \
+            --challenger-output ../challenger/output.jsonl \
+            --family-report ../result/family-transfer.json \
+            --publication-report ../result/publication-audit.json \
+            --manual-publications ../result/manual-audit-required.jsonl \
+            --output ../result/m14b-machine-result.json
+
+      - name: Print replication result
+        if: always()
+        run: |
+          test ! -f result/m14b-machine-result.json || cat result/m14b-machine-result.json
+          if test -f result/manual-audit-required.jsonl; then
+            echo "MANUAL_ROWS=$(wc -l < result/manual-audit-required.jsonl)"
+            cat result/manual-audit-required.jsonl
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v9-m14b-replication-decision-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            result/
+            shared/m14b-consumed-100.jsonl
+            shared/m14b-cohort-audit.jsonl
+            shared/m14b-cohort-report.json
+            shared/brreg-enheter.sha256
