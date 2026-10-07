@@ -28,7 +28,7 @@ jobs:
       - name: Checkout immutable V8 baseline
         uses: actions/checkout@v4
         with:
-          ref: 72f1bf2892ec1e35674aa383433c9a37afdaca
+          ref: 72f1bf2892ec1c1e35674aa383433c9a37afdaca
           path: baseline
           fetch-depth: 1
 
@@ -37,7 +37,7 @@ jobs:
           mkdir -p shared/out
           git -C baseline rev-parse HEAD | tee shared/out/baseline-sha.txt
           git -C challenger rev-parse HEAD | tee shared/out/challenger-sha.txt
-          test "$(cat shared/out/baseline-sha.txt)" = "72f1bf2892ec1e35674aa383433c9a37afdaca"
+          test "$(cat shared/out/baseline-sha.txt)" = "72f1bf2892ec1c1e35674aa383433c9a37afdaca"
           test "$(cat shared/out/challenger-sha.txt)" = "${{ github.sha }}"
           git -C challenger fetch --quiet --depth=1 origin 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf
           git -C challenger diff --exit-code 2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf HEAD --             src scripts tests pyproject.toml uv.lock
@@ -74,7 +74,7 @@ jobs:
           test -f shared/gate-a/gate-b-consumed-100.jsonl
           test -f shared/gate-a/brreg-snapshot.sha256
           test "$(cat shared/gate-a/challenger-sha.txt)" = '2848ed505103b3cbb0a3bf8d6313ee1ba7a25ecf'
-          test "$(cat shared/gate-a/baseline-sha.txt)" = '72f1bf2892ec1e35674aa383433c9a37afdaca'
+          test "$(cat shared/gate-a/baseline-sha.txt)" = '72f1bf2892ec1c1e35674aa383433c9a37afdaca'
           cp shared/gate-a/gate-b-consumed-100.jsonl shared/out/consumed-100-manifest.jsonl
           cp shared/gate-a/cohort-report.json shared/out/cohort-report.json
           cp shared/gate-a/brreg-snapshot.sha256 shared/out/gate-a-brreg-snapshot.sha256
