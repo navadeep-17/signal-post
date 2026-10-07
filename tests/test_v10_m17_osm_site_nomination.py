@@ -149,3 +149,26 @@ def test_name_only_page_without_registry_location_never_authorizes(monkeypatch) 
     q = osm.qualify_osm_candidate_identity(_profile(), website, assessment)
     assert q is not None
     assert q["publishable"] is False
+
+
+def test_flattened_bulk_registry_address_is_supported() -> None:
+    profile = {
+        "organisation_number": "999096298",
+        "name": "DEN GLADE GRIS AS",
+        "municipality": "OSLO",
+        "evidence": {
+            "registry": {
+                "status": "available",
+                "value": {
+                    "forretningsadresse.kommune": "OSLO",
+                    "forretningsadresse.postnummer": "0166",
+                    "forretningsadresse.adresse": "St. Olavs gate 33",
+                },
+            },
+            "website": {"status": "not_found"},
+        },
+    }
+    query = osm._address_query(profile)
+    assert "St. Olavs gate 33" in query
+    assert "0166" in query
+    assert "OSLO" in query
