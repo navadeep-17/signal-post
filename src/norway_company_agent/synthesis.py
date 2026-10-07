@@ -190,6 +190,7 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     locations = _facts_by_type(contract, "registered_location")
     workforce = _first(contract, "workforce_snapshot")
     website = _first(contract, "website")
+    careers = _facts_by_type(contract, "careers_page")
     jobs = _facts_by_type(contract, "job_posting")
     updates = _facts_by_type(contract, "company_update")
     social = _facts_by_type(contract, "social_profile")
@@ -264,11 +265,21 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     if website:
         external_bits.append(f"Verified company website: {website.get('value')}.")
         external_facts.append(website)
+    if careers:
+        external_bits.append(
+            f"Verified company-owned careers surface(s) published: {len(careers)}. "
+            "This is hiring presence only and does not establish an active vacancy."
+        )
+        external_facts.extend(careers)
     if jobs:
         external_bits.append(f"Strict job postings published: {len(jobs)}.")
         external_facts.extend(jobs)
+    elif careers:
+        external_bits.append(
+            "No strict active job posting is established by the current careers-surface evidence."
+        )
     else:
-        external_bits.append("No strict job posting is published for this run.")
+        external_bits.append("No qualified careers surface or strict job posting is published for this run.")
     if updates:
         external_bits.append(f"Dated company updates published: {len(updates)}.")
         external_facts.extend(updates)
@@ -326,7 +337,11 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         if not data_areas.get(key):
             unknowns.append(f"No qualified {label} fact is published.")
     if not jobs:
-        unknowns.append("No strict job posting is published.")
+        unknowns.append(
+            "No strict active job posting is established by the current evidence."
+            if careers
+            else "No qualified careers surface or strict job posting is published."
+        )
     if not updates:
         unknowns.append("No dated company update is published.")
 
@@ -381,11 +396,18 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
     size_text = "; ".join(size_parts).capitalize() + "." if size_parts else "No qualified size metric is published."
 
     leader_text = organisation_bits[0] if leader else "No qualified current leadership fact is published."
-    hiring_text = (
-        f"{len(jobs)} strict job posting(s) are published."
-        if jobs
-        else "No strict job posting is published for this run."
-    )
+    if jobs:
+        hiring_text = f"{len(jobs)} strict job posting(s) are published."
+        hiring_facts = [*careers, *jobs]
+    elif careers:
+        hiring_text = (
+            f"{len(careers)} verified company-owned careers surface(s) are published. "
+            "This is a hiring-presence signal only; no active vacancy is established."
+        )
+        hiring_facts = careers
+    else:
+        hiring_text = "No qualified careers surface or strict job posting is published for this run."
+        hiring_facts = []
     footprint_parts: list[str] = []
     if website:
         footprint_parts.append(f"verified website {website.get('value')}")
@@ -400,7 +422,7 @@ def build_company_synthesis(contract: dict[str, Any]) -> dict[str, Any]:
         "what_does_it_do": _decision_item("what_does_it_do", " ".join(identity_bits), identity_facts, evidence_by_id),
         "how_big_is_it": _decision_item("how_big_is_it", size_text, [fact for fact in [workforce, revenue, operating] if fact], evidence_by_id),
         "who_runs_it": _decision_item("who_runs_it", leader_text, [leader] if leader else [], evidence_by_id),
-        "hiring": _decision_item("hiring", hiring_text, jobs, evidence_by_id),
+        "hiring": _decision_item("hiring", hiring_text, hiring_facts, evidence_by_id),
         "digital_footprint": _decision_item("digital_footprint", digital_text, [fact for fact in [website, *social, *updates] if fact], evidence_by_id),
         "what_changed": {
             "key": "what_changed",
