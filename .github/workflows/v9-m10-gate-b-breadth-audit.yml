@@ -1,0 +1,94 @@
+name: V9 M10 Gate B Breadth Audit (No Evaluator Requests)
+
+on:
+  push:
+    branches:
+      - experiment/v9-m10-gate-b-breadth-audit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence-only:
+    name: Compare frozen Gate A/B publications and 80-company incremental breadth
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout isolated post-run audit code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: reviewer
+
+      - name: Confirm canonical V8 and V9 evaluator code was not altered
+        run: |
+          set -euo pipefail
+          git -C reviewer fetch --quiet --depth=1 origin c7e15478414367789a164ff6d918727a49453cd1
+          git -C reviewer diff --exit-code c7e15478414367789a164ff6d918727a49453cd1 HEAD -- \
+            src pyproject.toml uv.lock scripts/run_signalpost_v8.py scripts/run_signalpost_v7.py \
+            scripts/run_signalpost_v2.py scripts/run_signalpost_final.py \
+            scripts/audit_v9_m10_publications.py scripts/decide_v9_m10_gate.py
+
+      - name: Validate exact approved evidence archive digests
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11458838045" --jq .digest)" = \
+            'sha256:928e9ff4f11eb2ad078b0455c66e574c6c6bb7ec6e2ef2a8ccce123a73808e9f'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11459639663" --jq .digest)" = \
+            'sha256:f33211ff123dd58c59b56d74d4d5910f7dbb7e87629e785ade54878c93955119'
+
+      - name: Read archived Gate A and governing Gate B without any evaluator run
+        run: |
+          set -euo pipefail
+          mkdir -p audit/a audit/b
+          gh run download 37565180008 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-a-consumed-20 --dir audit/a
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
+            --name v9-m10-gate-b-decision-evidence --dir audit/b
+          test -s audit/a/manual-audit-required.jsonl
+          test -s audit/a/gate-a-consumed-20.jsonl
+          test -s audit/a/gate-b-consumed-100.jsonl
+          test -s audit/b/result/manual-audit-required.jsonl
+          test -s audit/b/result/m10-gate-b-machine-result.json
+
+      - name: Produce exact publication provenance and incremental breadth decision
+        run: |
+          set -euo pipefail
+          python reviewer/scripts/audit_v9_m10_gate_b_breadth.py \
+            --gate-a-manifest audit/a/gate-a-consumed-20.jsonl \
+            --gate-b-manifest audit/a/gate-b-consumed-100.jsonl \
+            --gate-a-manual audit/a/manual-audit-required.jsonl \
+            --gate-b-manual audit/b/result/manual-audit-required.jsonl \
+            --gate-a-family audit/a/family-transfer.json \
+            --gate-b-family audit/b/result/family-transfer.json \
+            --gate-b-machine audit/b/result/m10-gate-b-machine-result.json \
+            --gate-a-approval reviewer/docs/V9_M10_GATE_A_MANUAL_REVIEW.json \
+            --output audit/gate-b-incremental-breadth.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("audit/gate-b-incremental-breadth.json").read_text())
+          assert r["gate_b_companies"]==100 and r["additional_gate_b_companies"]==80
+          assert r["gate_b_publications"]==11 and r["identical_retained_gate_a_publications_in_gate_b"]==11
+          assert r["gate_b_only_new_publication_tuples"]==0
+          assert r["additional_80_new_publication_tuples"]==0
+          assert r["gate_a_new_family_company_edges"]==r["gate_b_new_family_company_edges"]==7
+          assert r["gate_b_publications_all_from_forced_canaries"] is True
+          assert r["decision"]=="HOLD_BREADTH_CANARY_ONLY"
+          assert r["production_promotion_authorized"] is False
+          print("M10 BREADTH AUDIT: 11/11 reused canary publications, 0 on 80 holdout; HOLD.")
+          PY
+
+      - name: Upload read-only breadth audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-m10-gate-b-breadth-audit
+          if-no-files-found: warn
+          retention-days: 30
+          path: audit/gate-b-incremental-breadth.json
