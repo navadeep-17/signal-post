@@ -19,7 +19,7 @@ from .final_site_discovery import (
     _publishable,
     fetch_bounded_homepage,
 )
-from .h1g_hyphenated_no_recall import evaluate_hyphenated_no_fallback
+from .h1g_hyphenated_no_recall import evaluate_hyphenated_no_fallback, hyphenated_no_candidate
 from .identity import apply_website_identity_gate
 from .zero_cost_registry_guard import apply_registry_risk_guard
 
@@ -68,6 +68,12 @@ def select_late_registry_domain_candidate(profile: dict[str, Any]) -> dict[str, 
 
     Candidate morphology is never ownership proof.
     """
+    # Strict observed-request neutrality: M12 can only substitute a final probe that
+    # the frozen baseline H1g path would itself have a deterministic candidate for.
+    # Single-token/no-H1g profiles therefore remain untouched.
+    if hyphenated_no_candidate(profile) is None:
+        return None
+
     plan = registry_email_domain_candidates(profile)
     if not plan.get("eligible"):
         return None
