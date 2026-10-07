@@ -35,6 +35,9 @@ from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
 )
 from norway_company_agent.h1g_hyphenated_no_recall import evaluate_hyphenated_no_fallback  # noqa: E402
+from norway_company_agent.h1h_single_token_compact_com import (  # noqa: E402
+    evaluate_single_token_compact_com_fallback,
+)
 from norway_company_agent.http import fetch_json  # noqa: E402
 from norway_company_agent.official import fetch_official_modules  # noqa: E402
 from norway_company_agent.output_contract import (  # noqa: E402
@@ -108,6 +111,7 @@ def _canonical_verified_site_source(profile: dict[str, Any]) -> str:
         "deterministic_legal_name_domain_guess": "h1c_deterministic_domain",
         "wikidata_official_website_candidate": "wikidata_candidate",
         "deterministic_legal_name_hyphenated_no_fallback": "h1g_hyphenated_no",
+        "deterministic_single_token_compact_com_fallback": "h1h_single_token_compact_com",
     }
     return mapping.get(source_type, f"verified:{source_type}" if source_type else "verified:unknown")
 
@@ -164,6 +168,34 @@ def _enrich_profile(
     )
     if h1g_result.get("verified"):
         site_metrics["selected_source"] = "h1g_hyphenated_no"
+        site_metrics["promoted"] = True
+
+    # M14/H1h is strictly additive inside existing request headroom. It can run only when
+    # H1g has no usable multi-token candidate (single distinctive legal-name token) and the
+    # final two logical site-request slots are still unused.
+    profile, h1h_result = evaluate_single_token_compact_com_fallback(
+        profile,
+        timeout=site_timeout,
+        base_site_logical_requests=int(site_metrics.get("requests") or 0),
+    )
+    site_metrics["h1h_candidate_available"] = bool(h1h_result.get("candidate_available"))
+    site_metrics["h1h_attempted"] = bool(h1h_result.get("attempted"))
+    site_metrics["h1h_verified"] = bool(h1h_result.get("verified"))
+    if h1h_result.get("skipped_reason"):
+        site_metrics["h1h_skipped_reason"] = str(h1h_result["skipped_reason"])
+    if h1h_result.get("guard_reasons"):
+        site_metrics["h1h_guard_reasons"] = list(h1h_result["guard_reasons"])
+    site_metrics["requests"] = int(site_metrics.get("requests") or 0) + int(
+        h1h_result.get("requests_added") or 0
+    )
+    site_metrics["bytes"] = int(site_metrics.get("bytes") or 0) + int(
+        h1h_result.get("bytes_added") or 0
+    )
+    site_metrics.setdefault("latencies_ms", []).extend(
+        int(value) for value in (h1h_result.get("latencies_ms") or []) if value is not None
+    )
+    if h1h_result.get("verified"):
+        site_metrics["selected_source"] = "h1h_single_token_compact_com"
         site_metrics["promoted"] = True
 
     site_logical_requests = int(site_metrics.get("requests") or 0)
@@ -468,6 +500,12 @@ def main() -> None:
         if "website_h1g_hyphenated_no_discovery" in (profile.get("evidence") or {})
     )
     h1g_verified = int(selected_sources.get("h1g_hyphenated_no") or 0)
+    h1h_attempted = sum(
+        1
+        for profile in ordered_profiles
+        if "website_h1h_compact_com_discovery" in (profile.get("evidence") or {})
+    )
+    h1h_verified = int(selected_sources.get("h1h_single_token_compact_com") or 0)
 
     handle_platform_counts = dict(
         sorted(Counter(str(item.get("platform") or "unknown") for item in profile_handle_observations).items())
@@ -522,6 +560,7 @@ def main() -> None:
             "wikidata_candidate_discovery_enabled": True,
             "wikidata_batch_size": WIKIDATA_BATCH_SIZE,
             "h1g_hyphenated_no_fallback_enabled": True,
+            "h1h_single_token_compact_com_fallback_enabled": True,
             "company_page_social_handle_extraction_enabled": True,
             "company_page_contact_email_extraction_enabled": True,
             "registry_workforce_snapshot_enabled": True,
@@ -566,6 +605,11 @@ def main() -> None:
             "h1g": {
                 "attempted": h1g_attempted,
                 "verified": h1g_verified,
+            },
+            "h1h": {
+                "attempted": h1h_attempted,
+                "verified": h1h_verified,
+                "policy": "single-token legal-name compact .com only in otherwise-idle final two site requests",
             },
             "wikidata": {
                 "requests": shared_wikidata_logical_requests,
