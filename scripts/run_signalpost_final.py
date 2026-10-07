@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -34,7 +35,12 @@ from norway_company_agent.workforce_contract import project_workforce_observatio
 from norway_company_agent.final_site_discovery import (  # noqa: E402
     MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE,
 )
-from norway_company_agent.h1g_hyphenated_no_recall import evaluate_hyphenated_no_fallback  # noqa: E402
+from norway_company_agent.h1g_hyphenated_no_recall import (  # noqa: E402
+    evaluate_hyphenated_no_fallback,
+    hyphenated_no_candidate,
+)
+from norway_company_agent.v9_m13_budget import allocate_m13_search_budget  # noqa: E402
+from norway_company_agent.v9_m13_search_slot import evaluate_m13_search_slot  # noqa: E402
 from norway_company_agent.http import fetch_json  # noqa: E402
 from norway_company_agent.official import fetch_official_modules  # noqa: E402
 from norway_company_agent.output_contract import (  # noqa: E402
@@ -108,6 +114,7 @@ def _canonical_verified_site_source(profile: dict[str, Any]) -> str:
         "deterministic_legal_name_domain_guess": "h1c_deterministic_domain",
         "wikidata_official_website_candidate": "wikidata_candidate",
         "deterministic_legal_name_hyphenated_no_fallback": "h1g_hyphenated_no",
+        "v9_m13_search_candidate_website": "m13_search_candidate",
     }
     return mapping.get(source_type, f"verified:{source_type}" if source_type else "verified:unknown")
 
@@ -118,6 +125,8 @@ def _enrich_profile(
     budget: RunBudget,
     site_timeout: float,
     wikidata_candidate: dict[str, Any] | None,
+    search_enabled: bool = False,
+    search_api_key: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     # One official attempt per endpoint. Redirects are bounded separately and covered by
     # the conservative challenge charge multiplier.
@@ -142,14 +151,18 @@ def _enrich_profile(
         timeout=site_timeout,
     )
 
-    # H1g is deliberately last in website discovery. It receives the request count already
-    # consumed by H1d/H1e and can run only when two of the existing four logical site-request
-    # slots remain. This preserves Wikidata priority and does not raise the structural ceiling.
-    profile, h1g_result = evaluate_hyphenated_no_fallback(
+    # M13 can replace H1g's existing final two-request site slot with one independently
+    # verified search-nominated page. The provider call is accounted separately and reserved
+    # from annual-report capacity by the structural theorem. Search output is nomination only.
+    profile, m13_result = evaluate_m13_search_slot(
         profile,
+        enabled=search_enabled,
+        api_key=search_api_key,
         timeout=site_timeout,
         base_site_logical_requests=int(site_metrics.get("requests") or 0),
+        h1g_evaluator=evaluate_hyphenated_no_fallback,
     )
+    h1g_result = m13_result.get("h1g_result") or {}
     site_metrics["h1g_candidate_available"] = bool(h1g_result.get("candidate_available"))
     site_metrics["h1g_attempted"] = bool(h1g_result.get("attempted"))
     site_metrics["h1g_verified"] = bool(h1g_result.get("verified"))
@@ -157,14 +170,45 @@ def _enrich_profile(
         site_metrics["h1g_skipped_reason"] = str(h1g_result["skipped_reason"])
     if h1g_result.get("guard_reasons"):
         site_metrics["h1g_guard_reasons"] = list(h1g_result["guard_reasons"])
-    site_metrics["requests"] = int(site_metrics.get("requests") or 0) + int(h1g_result.get("requests_added") or 0)
-    site_metrics["bytes"] = int(site_metrics.get("bytes") or 0) + int(h1g_result.get("bytes_added") or 0)
-    site_metrics.setdefault("latencies_ms", []).extend(
-        int(value) for value in (h1g_result.get("latencies_ms") or []) if value is not None
-    )
-    if h1g_result.get("verified"):
-        site_metrics["selected_source"] = "h1g_hyphenated_no"
-        site_metrics["promoted"] = True
+
+    if h1g_result:
+        site_metrics["requests"] = int(site_metrics.get("requests") or 0) + int(h1g_result.get("requests_added") or 0)
+        site_metrics["bytes"] = int(site_metrics.get("bytes") or 0) + int(h1g_result.get("bytes_added") or 0)
+        site_metrics.setdefault("latencies_ms", []).extend(
+            int(value) for value in (h1g_result.get("latencies_ms") or []) if value is not None
+        )
+        if h1g_result.get("verified"):
+            site_metrics["selected_source"] = "h1g_hyphenated_no"
+            site_metrics["promoted"] = True
+    else:
+        site_metrics["requests"] = int(site_metrics.get("requests") or 0) + int(
+            m13_result.get("candidate_fetch_logical_requests") or 0
+        )
+        site_metrics["bytes"] = int(site_metrics.get("bytes") or 0) + int(
+            m13_result.get("candidate_fetch_bytes") or 0
+        )
+        site_metrics.setdefault("latencies_ms", []).extend(
+            int(value)
+            for value in (m13_result.get("candidate_fetch_latencies_ms") or [])
+            if value is not None
+        )
+        if m13_result.get("verified"):
+            site_metrics["selected_source"] = "m13_search_candidate"
+            site_metrics["promoted"] = True
+
+    site_metrics["m13_search"] = {
+        "strategy": m13_result.get("strategy"),
+        "search_eligible": bool(m13_result.get("search_eligible")),
+        "provider_attempted": bool(m13_result.get("provider_attempted")),
+        "provider_api_requests": int(m13_result.get("provider_api_requests") or 0),
+        "provider_web_search_calls": int(m13_result.get("provider_web_search_calls") or 0),
+        "provider_estimated_cost_usd": float(m13_result.get("provider_estimated_cost_usd") or 0.0),
+        "provider_status": m13_result.get("provider_status"),
+        "candidate_count": int(m13_result.get("candidate_count") or 0),
+        "candidate_fetch_attempted": bool(m13_result.get("candidate_fetch_attempted")),
+        "verified": bool(m13_result.get("verified")),
+        "registry_risk_reasons": list(m13_result.get("registry_risk_reasons") or []),
+    }
 
     site_logical_requests = int(site_metrics.get("requests") or 0)
     if site_logical_requests > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
@@ -179,7 +223,9 @@ def _enrich_profile(
     attach_company_site_contact_email_observations(profile)
     attach_registry_workforce_observations(profile)
 
-    logical_requests = official_logical_requests + site_logical_requests
+    provider_api_requests = int(m13_result.get("provider_api_requests") or 0)
+    provider_cost_usd = float(m13_result.get("provider_estimated_cost_usd") or 0.0)
+    logical_requests = official_logical_requests + site_logical_requests + provider_api_requests
     conservative_charge = budget.charge_requests(logical_requests)
     latencies = [int(result.elapsed_ms) for result in official_results if result.elapsed_ms is not None]
     latencies.extend(int(value) for value in site_metrics.get("latencies_ms") or [] if value is not None)
@@ -192,12 +238,18 @@ def _enrich_profile(
         "requests": conservative_charge,
         "bytes": bytes_received,
         "latencies_ms": latencies,
-        "third_party_cost_usd": THIRD_PARTY_COST_USD,
+        "third_party_cost_usd": provider_cost_usd,
+        "search_api_requests": provider_api_requests,
+        "search_web_tool_calls": int(m13_result.get("provider_web_search_calls") or 0),
+        "search_provider_cost_usd": provider_cost_usd,
+        "m13_search_strategy": m13_result.get("strategy"),
     }
     return profile, {
         "organisation_number": profile["organisation_number"],
         "official_logical_requests": official_logical_requests,
         "site_logical_requests": site_logical_requests,
+        "provider_api_requests": provider_api_requests,
+        "provider_cost_usd": provider_cost_usd,
         "logical_requests": logical_requests,
         "conservative_challenge_request_charge": conservative_charge,
         "site": site_metrics,
