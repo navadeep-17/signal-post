@@ -13,7 +13,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from norway_company_agent.annual_report_workforce import latest_account_year, registry_employee_count
 from norway_company_agent.batch import profiles_from_bulk, read_organisation_inputs
+from norway_company_agent.h1g_hyphenated_no_recall import hyphenated_no_candidate
 
+
+M13B_TARGET_MANIFEST_SHA256 = "eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe"
 
 KNOWN_RESEARCHED_ORGS = {
     "927097532", "979943377", "999096298",  # M10 positive canaries
@@ -28,6 +31,13 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _jsonl_bytes(rows: list[dict[str, Any]]) -> bytes:
+    return "".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+        for row in rows
+    ).encode("utf-8")
+
+
 def _read_orgs(path: Path) -> set[str]:
     values = {
         str(row["organisation_number"])
@@ -40,17 +50,56 @@ def _read_orgs(path: Path) -> set[str]:
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
-        encoding="utf-8",
-    )
+    path.write_bytes(_jsonl_bytes(rows))
+
+
+def _reconstruct_m13b(
+    profiles: list[dict[str, Any]],
+    *,
+    base_excluded: set[str],
+) -> tuple[set[str], str]:
+    eligible: list[str] = []
+    for profile in profiles:
+        org = str(profile.get("organisation_number") or "")
+        if org in base_excluded:
+            continue
+        if str(profile.get("website") or "").strip():
+            continue
+        if hyphenated_no_candidate(profile) is None:
+            continue
+        eligible.append(org)
+    eligible.sort()
+    if len(eligible) < 100:
+        raise ValueError(f"cannot reconstruct M13b: only {len(eligible)} eligible")
+
+    selected = eligible[:100]
+    manifest = [
+        {
+            "organisation_number": org,
+            "evaluation_split": "v9_m13b_consumed_search_replacement",
+            "sample_slice": (
+                "m13b_search_holdout"
+                if index < 20
+                else "m13b_control_unsearched"
+            ),
+        }
+        for index, org in enumerate(selected)
+    ]
+    digest = hashlib.sha256(_jsonl_bytes(manifest)).hexdigest()
+    if digest != M13B_TARGET_MANIFEST_SHA256:
+        raise ValueError(
+            "reconstructed M13b manifest SHA mismatch: "
+            f"{digest} != {M13B_TARGET_MANIFEST_SHA256}"
+        )
+    return set(selected), digest
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--source-manifest", type=Path, required=True)
     p.add_argument("--bulk", type=Path, required=True)
-    p.add_argument("--exclude", action="append", type=Path, default=[])
+    p.add_argument("--m13b-base-exclude", action="append", type=Path, default=[])
+    p.add_argument("--extra-exclude", action="append", type=Path, default=[])
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
     p.add_argument("--count", type=int, default=20)
@@ -61,13 +110,14 @@ def main() -> int:
     if len(source_orgs) != 1000 or len(set(source_orgs)) != 1000:
         raise ValueError("M15 requires the exact frozen consumed 1000-company source")
 
-    excluded = set(KNOWN_RESEARCHED_ORGS)
+    m13b_base_excluded = set(KNOWN_RESEARCHED_ORGS)
     exclusion_hashes: list[dict[str, Any]] = []
-    for path in args.exclude:
+    for path in args.m13b_base_exclude:
         values = _read_orgs(path)
-        excluded |= values
+        m13b_base_excluded |= values
         exclusion_hashes.append(
             {
+                "role": "m13b_base_exclude",
                 "path": path.name,
                 "sha256": _sha256(path),
                 "companies": len(values),
@@ -75,6 +125,24 @@ def main() -> int:
         )
 
     profiles, snapshot = profiles_from_bulk(args.bulk, source_orgs)
+    reconstructed_m13b, reconstructed_m13b_sha = _reconstruct_m13b(
+        profiles,
+        base_excluded=m13b_base_excluded,
+    )
+
+    excluded = set(m13b_base_excluded) | reconstructed_m13b
+    for path in args.extra_exclude:
+        values = _read_orgs(path)
+        excluded |= values
+        exclusion_hashes.append(
+            {
+                "role": "extra_exclude",
+                "path": path.name,
+                "sha256": _sha256(path),
+                "companies": len(values),
+            }
+        )
+
     candidates: list[dict[str, Any]] = []
     for profile in profiles:
         org = str(profile.get("organisation_number") or "")
@@ -107,6 +175,8 @@ def main() -> int:
         "eligible_after_exclusions": len(candidates),
         "fresh_companies_used": 0,
         "known_researched_orgs_excluded": len(KNOWN_RESEARCHED_ORGS),
+        "reconstructed_m13b_companies_excluded": len(reconstructed_m13b),
+        "reconstructed_m13b_manifest_sha256": reconstructed_m13b_sha,
         "external_exclusion_manifests": exclusion_hashes,
         "source_manifest_sha256": _sha256(args.source_manifest),
         "target_manifest_sha256": _sha256(args.output),
@@ -114,7 +184,9 @@ def main() -> int:
         "registry_snapshot_missing_count": snapshot.get("missing_count"),
         "selection_rule": [
             "start with exact frozen already-consumed 1000-company population",
-            "exclude all supplied prior experiment/search cohort manifests",
+            "reconstruct M13b from its frozen deterministic selector inputs",
+            "require reconstructed M13b manifest SHA to equal its previously frozen target SHA",
+            "exclude reconstructed M13b plus supplied prior experiment/search cohorts",
             "exclude known M10 positive canaries, M12 research cases and Builderr public examples",
             "require no registry website",
             "require latest submitted accounts year",
@@ -132,6 +204,8 @@ def main() -> int:
                 "selected_companies": report["selected_companies"],
                 "eligible_after_exclusions": report["eligible_after_exclusions"],
                 "fresh_companies_used": 0,
+                "reconstructed_m13b_companies_excluded": report["reconstructed_m13b_companies_excluded"],
+                "reconstructed_m13b_manifest_sha256": report["reconstructed_m13b_manifest_sha256"],
                 "target_manifest_sha256": report["target_manifest_sha256"],
                 "registry_snapshot_sha256": report["registry_snapshot_sha256"],
             },
