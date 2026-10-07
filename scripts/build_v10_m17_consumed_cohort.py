@@ -97,15 +97,29 @@ def _address(profile: dict[str, Any]) -> dict[str, Any]:
             value = raw.get(key)
             if isinstance(value, dict) and value:
                 return value
-    return {}
+        for prefix in ("forretningsadresse", "postadresse"):
+            street = (
+                raw.get(f"{prefix}.adresse")
+                or raw.get(f"{prefix}.adresse.0")
+                or raw.get(f"{prefix}.adresselinje")
+            )
+            postcode = raw.get(f"{prefix}.postnummer")
+            municipality = raw.get(f"{prefix}.kommune")
+            if street or postcode or municipality:
+                return {
+                    "adresse": [street] if isinstance(street, str) and street else [],
+                    "postnummer": postcode,
+                    "kommune": municipality,
+                }
+    municipality = str(profile.get("municipality") or "").strip()
+    return {"kommune": municipality} if municipality else {}
 
 
 def _address_is_usable(profile: dict[str, Any]) -> bool:
     value = _address(profile)
-    street = value.get("adresse")
     municipality = value.get("kommune") or profile.get("municipality")
     postcode = value.get("postnummer")
-    return bool(street and (municipality or postcode))
+    return bool(municipality or postcode)
 
 
 def main() -> int:
