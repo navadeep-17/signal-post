@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 22
     env:
       GH_TOKEN: ${{ github.token }}
+      PYTHONPATH: ${{ github.workspace }}/m13/src
     steps:
       - name: Checkout exact M13 head
         uses: actions/checkout@v4
