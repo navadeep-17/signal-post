@@ -263,15 +263,18 @@ def evaluate_hyphenated_no_fallback(
         )
     if base_site_requests is None:
         result["skipped_reason"] = "base_site_request_accounting_unavailable"
-        result["activity_feed_skipped_reason"] = "website_not_verified"\n        result["sitemap_careers_skipped_reason"] = "website_not_verified"
+        result["activity_feed_skipped_reason"] = "website_not_verified"
+        result["sitemap_careers_skipped_reason"] = "website_not_verified"
         return row, result
     if not candidate:
         result["skipped_reason"] = "no_distinct_hyphenated_no_candidate"
         result["activity_feed_skipped_reason"] = "website_not_verified"
+        result["sitemap_careers_skipped_reason"] = "website_not_verified"
         return row, result
     if base_site_requests + 2 > MAX_LOGICAL_SITE_REQUESTS_PER_PROFILE:
         result["skipped_reason"] = "site_request_budget_consumed"
         result["activity_feed_skipped_reason"] = "website_not_verified"
+        result["sitemap_careers_skipped_reason"] = "website_not_verified"
         return row, result
 
     result["attempted"] = True
@@ -291,7 +294,8 @@ def evaluate_hyphenated_no_fallback(
     result["post_site_logical_requests"] = post_site_requests
     result["bytes_added"] = int(operations.get("bytes") or 0)
     result["latencies_ms"] = [int(value) for value in operations.get("latencies_ms") or []]
-    result["activity_feed_skipped_reason"] = "h1g_consumed_spare_slot"\n    result["sitemap_careers_skipped_reason"] = "h1g_consumed_spare_slot"
+    result["activity_feed_skipped_reason"] = "h1g_consumed_spare_slot"
+    result["sitemap_careers_skipped_reason"] = "h1g_consumed_spare_slot"
 
     record["source_class"] = "company_owned_candidate"
     gated = apply_website_identity_gate(row, record)
