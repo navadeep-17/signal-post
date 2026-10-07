@@ -156,3 +156,27 @@ def test_name_only_without_location_never_authorizes_single_token_com(monkeypatc
     assert q is not None
     assert q["publishable"] is False
     assert q["status"] == "review"
+
+
+def test_full_name_plus_location_without_exact_org_number_still_rejects_group_site(monkeypatch) -> None:
+    website = {
+        "status": "available",
+        "source_url": "https://primo.com/",
+        "value": {},
+    }
+    assessment = {
+        "status": "exact",
+        "score": 0.98,
+        "publishable": True,
+        "method": "fixture",
+        "reasons": [],
+    }
+    monkeypatch.setattr(h1h, "_has_conflicting_explicit_org_number", lambda profile, website: False)
+    monkeypatch.setattr(h1h, "_page_contains_org_number", lambda profile, website: False)
+    monkeypatch.setattr(h1h, "_page_contains_full_legal_name", lambda profile, website: True)
+    monkeypatch.setattr(h1h, "_page_matches_registry_location", lambda profile, website: True)
+    q = h1h.qualify_single_token_compact_com_identity(_profile(name="PRIMO AS"), website, assessment)
+    assert q is not None
+    assert q["publishable"] is False
+    assert q["status"] == "review"
+    assert "exact target organisation-number proof" in " ".join(q["reasons"])
