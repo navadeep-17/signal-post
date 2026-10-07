@@ -1,0 +1,24 @@
+{
+  "all_union_rows_are_in_consumed_source": true,
+  "construction_note": "Union contains only organisations that are members of the exact frozen consumed 1000. Cohort references outside that source are retained in source_cohorts but cannot affect M19 consumed transfer selection.",
+  "consumed_source_companies": 1000,
+  "consumed_source_manifest_sha256": "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26",
+  "known_researched_or_public_orgs": ["811413682","811730912","828829092","870418892","883971752","896488562","898321622","911546221","914384729","923609016","927097532","936455298","976533194","979436661","979943377","988936987","992784229","996405524","999096298"],
+  "remaining_consumed_companies": 572,
+  "schema_version": "v10_m19_prior_exclusion_union_v1",
+  "source_cohorts": {
+    "known_researched_or_public": {"companies":19,"companies_in_consumed_1000":15,"companies_outside_consumed_1000":4},
+    "m10": {"artifact_digest":"sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98","artifact_id":11459496712,"companies":100,"companies_in_consumed_1000":100,"companies_outside_consumed_1000":0,"manifest_file":"gate-b-consumed-100.jsonl","manifest_sha256":"e153f8e4c08990c9a26485e88efdb63b7688443ed99e385c3d7abefb8c7e533c","run_id":37567829642},
+    "m13": {"artifact_digest":"sha256:fb33af0c411848cb2f9a8a37610dc8953afe12e1c9c19d5636767002a0e12f69","artifact_id":11478129358,"companies":100,"companies_in_consumed_1000":100,"companies_outside_consumed_1000":0,"manifest_file":"m13-consumed-100.jsonl","manifest_sha256":"f08a3e6a162f1b28d05260188eecd59912139c209ff20ff08249a73f897a876a","run_id":37612496445},
+    "m13b": {"artifact_digest":"sha256:f6c2839a409dd3d9e2aa4bdd7e8ceeae04f94f4f7858ec374313a3fce0c72bcc","artifact_id":11485329792,"companies":100,"companies_in_consumed_1000":100,"companies_outside_consumed_1000":0,"manifest_file":"m13b-consumed-100.jsonl","manifest_sha256":"eddd8ed807f1116a3fd2d780b21796d546717fd3a27ee7983d8a89d14d891cbe","run_id":37630162682},
+    "m14": {"artifact_digest":"sha256:e89e9f2d7294dea39168743e246ac680ed32dc9e5aad7039f01ff7ee54ff90fb","artifact_id":11482816122,"companies":100,"companies_in_consumed_1000":100,"companies_outside_consumed_1000":0,"manifest_file":"m14-consumed-100.jsonl","manifest_sha256":"d65547b7f9c047767b3d28521d8103c4d1ccb2cef153b8f32dab1bab7af792fc","run_id":37622216471},
+    "m14b": {"artifact_digest":"sha256:3e25ab6b869eaf87d7e213d00378e19a4413dd0dcf01ad0058a942324213ae32","artifact_id":11483268561,"companies":100,"companies_in_consumed_1000":100,"companies_outside_consumed_1000":0,"manifest_file":"m14b-consumed-100.jsonl","manifest_sha256":"2023ae9f29d9ed0e3f5f36bbe2ec59b88e2a5ed3211570f20219adb0927b0bf5","run_id":37624617561},
+    "m15": {"artifact_digest":"sha256:5cb2fefbf99933316b529fec15d0839ae86e0e6a4280b6b95ba5feb5bb1e00b7","artifact_id":11495058383,"companies":20,"companies_in_consumed_1000":20,"companies_outside_consumed_1000":0,"manifest_file":"m15-consumed-20.jsonl","manifest_sha256":"3817c46cb9d1eacd1b53b5b24b4f470dd78f760a72600df4a8276392574a4e27","run_id":37648478667},
+    "m16": {"artifact_digest":"sha256:7d6f04be0d5f15afe9707389475b63bdbf8ee0289aaa9092ac53348ee0a539a3","artifact_id":11496698758,"companies":20,"companies_in_consumed_1000":20,"companies_outside_consumed_1000":0,"manifest_file":"m16-consumed-20.jsonl","manifest_sha256":"9a8faf77c4f8cadf0064d35218e421a597199bec78572125131e92cbda68f94a","run_id":37650996920},
+    "m17": {"artifact_digest":"sha256:866b7291cd48337b88e38def208885fc3b900b4ab9f277d6fdd2b8e2accfa75d","artifact_id":11498930253,"companies":20,"companies_in_consumed_1000":20,"companies_outside_consumed_1000":0,"manifest_file":"m17-consumed-20.jsonl","manifest_sha256":"5b3a88da93e6d7accce0448ccf6ad357490f5e80efde781ff7f2f18104a36620","run_id":37654815990},
+    "pr137": {"artifact_digest":"sha256:b7dd01b666470d155d2c70274bb8d1cb2695abc9d2f331d6a41eafe447c023f8","artifact_id":11393772677,"companies":20,"companies_in_consumed_1000":0,"companies_outside_consumed_1000":20,"manifest_file":"gate-a-20.jsonl","manifest_sha256":"f2177abd0bd0d6202f9fe47fd00b8def06b21c01fdf4c864c1f3b68f80b160d5","run_id":37421325313},
+    "q8": {"artifact_digest":"sha256:80fc31b8ad7fde76dd573d96b0c4eeac4a5b4a36034d8d9771a68037dda1de89","artifact_id":11503395644,"companies":100,"companies_in_consumed_1000":0,"companies_outside_consumed_1000":100,"manifest_file":"q8-consumed-100.jsonl","manifest_sha256":"444304a8ac88154efceb121b61efecfa6541b16b4682f9f6bd5dc8f0b7c44b1b","run_id":37664001754}
+  },
+  "union_companies": 428,
+  "union_manifest_sha256": "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"
+}
