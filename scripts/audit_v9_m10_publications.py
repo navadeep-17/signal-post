@@ -99,17 +99,51 @@ def _supplemental_claim_precision(field: str, claim_value: Any, evidence_rows: l
             ):
                 return True
         elif field == "external.profile_handle":
-            homepage = typed.get("company_homepage_declared_social_link") or {}
+            homepage = (
+                typed.get("company_homepage_declared_social_link")
+                or typed.get("company_page_declared_social_link")
+                or {}
+            )
+            provenance = typed.get("primary_homepage_provenance") or {}
             social = typed.get("social_handle_identity_gate") or {}
-            try:
-                score = float(social.get("score") or 0)
-            except (TypeError, ValueError):
-                score = 0.0
-            if (
+            direct = typed.get("direct_company_homepage_declaration_guard") or {}
+            source_url = str(evidence.get("source_url") or "")
+            content_hash = str(evidence.get("content_sha256") or "")
+            declaration_bound = (
                 homepage.get("profile_url") == claim_value
-                and score >= 0.95
-                and bool(social.get("method"))
-            ):
+                and str(homepage.get("source_url") or source_url) == source_url
+                and provenance.get("source_url") == source_url
+                and provenance.get("content_sha256") == content_hash
+                and bool(source_url)
+                and len(content_hash) == 64
+            )
+            try:
+                social_score = float(social.get("score") or 0)
+            except (TypeError, ValueError):
+                social_score = 0.0
+            social_guard = (
+                social_score >= 0.95
+                and bool(str(social.get("method") or "").strip())
+            )
+            try:
+                direct_score = float(direct.get("score") or 0)
+            except (TypeError, ValueError):
+                direct_score = 0.0
+            direct_guard = (
+                direct.get("profile_url") == claim_value
+                and direct.get("source_url") == source_url
+                and direct_score >= 0.95
+                and str(direct.get("method") or "") in {
+                    "deterministic_social_declaration_identity_v1",
+                    "opaque_profile_identifier_on_exact_homepage_v1",
+                }
+                and str(direct.get("match_basis") or "") in {
+                    "verified_site_brand",
+                    "legal_name_tokens",
+                    "opaque_platform_identifier",
+                }
+            )
+            if declaration_bound and (social_guard or direct_guard):
                 return True
     return False
 
