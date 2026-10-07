@@ -80,21 +80,37 @@ jobs:
           set -euo pipefail
           mkdir -p frozen/source frozen/pr137 frozen/m10 frozen/m13 frozen/m14 frozen/m14b frozen/m15 frozen/m16
 
-          gh run download 35246833190 --repo "$GITHUB_REPOSITORY" \
-            --name final-release-manifest-1000 --dir frozen/source
+          download_named_artifact() {
+            run_id="$1"
+            artifact_name="$2"
+            destination="$3"
+            echo "RECOVER_ARTIFACT run=$run_id name=$artifact_name"
+            for attempt in 1 2 3; do
+              rm -rf "$destination"
+              mkdir -p "$destination"
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir "$destination"; then
+                echo "RECOVER_ARTIFACT_OK run=$run_id name=$artifact_name attempt=$attempt"
+                return 0
+              fi
+              echo "RECOVER_ARTIFACT_RETRY run=$run_id name=$artifact_name attempt=$attempt" >&2
+              sleep 3
+            done
+            echo "RECOVER_ARTIFACT_FAILED run=$run_id name=$artifact_name" >&2
+            return 1
+          }
+
+          download_named_artifact 35246833190 final-release-manifest-1000 frozen/source
           SOURCE="$(find frozen/source -type f -name 'final-release-1000.jsonl' | head -n 1)"
           test -n "$SOURCE"
           cp "$SOURCE" frozen/consumed-1000.jsonl
           test "$(sha256sum frozen/consumed-1000.jsonl | awk '{print $1}')" = "$FROZEN_CONSUMED_SOURCE_SHA256"
 
-          gh run download 37421325313 --repo "$GITHUB_REPOSITORY" \
-            --name v9-consumed-baseline --dir frozen/pr137
+          download_named_artifact 37421325313 v9-consumed-baseline frozen/pr137
           PR137="$(find frozen/pr137 -type f -name 'gate-a-20.jsonl' | head -n 1)"
           test -n "$PR137"
           cp "$PR137" frozen/pr137-gate-a-20.jsonl
 
-          gh run download 37567829642 --repo "$GITHUB_REPOSITORY" \
-            --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
+          download_named_artifact 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
           BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
           M10="$(find frozen/m10 -type f -name 'gate-b-100.jsonl' | head -n 1)"
           test -n "$BULK"
@@ -103,32 +119,27 @@ jobs:
           cp "$M10" frozen/m10-gate-b-100.jsonl
           test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
 
-          gh run download 37612496445 --repo "$GITHUB_REPOSITORY" \
-            --name v9-m13-frozen-cohort --dir frozen/m13
+          download_named_artifact 37612496445 v9-m13-frozen-cohort frozen/m13
           M13="$(find frozen/m13 -type f -name 'm13-consumed-100.jsonl' | head -n 1)"
           test -n "$M13"
           cp "$M13" frozen/m13-consumed-100.jsonl
 
-          gh run download 37622216471 --repo "$GITHUB_REPOSITORY" \
-            --name v9-m14-frozen-inputs --dir frozen/m14
+          download_named_artifact 37622216471 v9-m14-frozen-inputs frozen/m14
           M14="$(find frozen/m14 -type f -name 'm14-consumed-100.jsonl' | head -n 1)"
           test -n "$M14"
           cp "$M14" frozen/m14-consumed-100.jsonl
 
-          gh run download 37624617561 --repo "$GITHUB_REPOSITORY" \
-            --name v9-m14b-frozen-inputs --dir frozen/m14b
+          download_named_artifact 37624617561 v9-m14b-frozen-inputs frozen/m14b
           M14B="$(find frozen/m14b -type f -name 'm14b-consumed-100.jsonl' | head -n 1)"
           test -n "$M14B"
           cp "$M14B" frozen/m14b-consumed-100.jsonl
 
-          gh run download 37648478667 --repo "$GITHUB_REPOSITORY" \
-            --name v10-m15-consumed-annual-report-site-screen --dir frozen/m15
+          download_named_artifact 37648478667 v10-m15-consumed-annual-report-site-screen frozen/m15
           M15="$(find frozen/m15 -type f -name 'm15-consumed-20.jsonl' | head -n 1)"
           test -n "$M15"
           cp "$M15" frozen/m15-consumed-20.jsonl
 
-          gh run download 37650996920 --repo "$GITHUB_REPOSITORY" \
-            --name v10-m16-consumed-annual-report-bare-domain --dir frozen/m16
+          download_named_artifact 37650996920 v10-m16-consumed-annual-report-bare-domain frozen/m16
           M16="$(find frozen/m16 -type f -name 'm16-consumed-20.jsonl' | head -n 1)"
           test -n "$M16"
           cp "$M16" frozen/m16-consumed-20.jsonl
