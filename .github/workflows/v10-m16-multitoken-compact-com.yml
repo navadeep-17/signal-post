@@ -1,0 +1,198 @@
+name: V10 M16 Multi-token Compact COM Screen
+
+on:
+  push:
+    branches:
+      - experiment/v10-m16-multitoken-compact-com
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m16-multitoken-compact-com
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  V8_BASE_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
+  M15_RUN_ID: "37648478667"
+  M15_ARTIFACT_ID: "11495058383"
+  M15_ARTIFACT_DIGEST: "sha256:5cb2fefbf99933316b529fec15d0839ae86e0e6a4280b6b95ba5feb5bb1e00b7"
+  M15_MANIFEST_SHA256: "3817c46cb9d1eacd1b53b5b24b4f470dd78f760a72600df4a8276392574a4e27"
+  M10_FROZEN_INPUT_ARTIFACT_ID: "11459496712"
+  M10_FROZEN_INPUT_ARTIFACT_DIGEST: "sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98"
+  BRREG_SNAPSHOT_SHA256: "1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615"
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact M16 head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: m16
+          fetch-depth: 1
+
+      - name: Checkout exact qualified V8 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.V8_BASE_SHA }}
+          path: v8
+          fetch-depth: 1
+
+      - name: Prove exact baseline SHA
+        run: test "$(git -C v8 rev-parse HEAD)" = "$V8_BASE_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtimes and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          (cd m16 && uv sync --locked)
+          (cd v8 && uv sync --locked)
+
+      - name: Run focused M16 tests and compile
+        run: |
+          cd m16
+          uv run --with pytest pytest -q tests/test_v10_m16_multitoken_compact_com.py
+          python -m py_compile \
+            src/norway_company_agent/h1i_multitoken_compact_com.py \
+            scripts/screen_v10_m16_multitoken_compact_com.py
+
+      - name: Verify immutable M15 and BRREG artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M15_ARTIFACT_ID" --jq .digest)" = "$M15_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M10_FROZEN_INPUT_ARTIFACT_ID" --jq .digest)" = "$M10_FROZEN_INPUT_ARTIFACT_DIGEST"
+
+      - name: Recover consumed M15 development cohort and frozen BRREG
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/m15 frozen/m10
+
+          download_named() {
+            run_id="$1"
+            artifact_name="$2"
+            target_dir="$3"
+            for attempt in 1 2 3; do
+              rm -rf "$target_dir"
+              mkdir -p "$target_dir"
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                --name "$artifact_name" --dir "$target_dir"; then
+                echo "RECOVERED_ARTIFACT=$artifact_name ATTEMPT=$attempt"
+                return 0
+              fi
+              sleep "$((attempt * 2))"
+            done
+            return 1
+          }
+
+          download_named "$M15_RUN_ID" v10-m15-consumed-annual-report-site-screen frozen/m15
+          M15="$(find frozen/m15 -type f -name 'm15-consumed-20.jsonl' | head -n 1)"
+          test -n "$M15"
+          cp "$M15" frozen/m16-development-20.jsonl
+          test "$(wc -l < frozen/m16-development-20.jsonl)" -eq 20
+          test "$(sha256sum frozen/m16-development-20.jsonl | awk '{print $1}')" = "$M15_MANIFEST_SHA256"
+
+          download_named 37567829642 v9-m10-gate-b-frozen-inputs frozen/m10
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$BULK"
+          cp "$BULK" frozen/brreg-enheter.csv
+          test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+
+      - name: Run exact qualified V8 on identical consumed 20
+        run: |
+          mkdir -p baseline/work
+          cd v8
+          uv run python scripts/run_signalpost_v8.py \
+            --organisations ../frozen/m16-development-20.jsonl \
+            --bulk ../frozen/brreg-enheter.csv \
+            --output ../baseline/output.jsonl \
+            --report ../baseline/report.json \
+            --product-output ../baseline/product.html \
+            --work-dir ../baseline/work \
+            --run-id v10-m16-v8-baseline \
+            --expected-count 20 \
+            --workers 8 --site-timeout 6 --wikidata-timeout 8 \
+            --max-challenge-requests 2000 \
+            --max-third-party-cost-usd 0 \
+            --max-wall-runtime-seconds 2400 \
+            --annual-workforce-workers 4 \
+            --annual-workforce-timeout 60 \
+            --annual-workforce-min-start-interval 2.1 \
+            --annual-workforce-ocr-pages 8 \
+            --annual-workforce-ocr-dpi 110 \
+            --support-registry-timeout 420 \
+            --support-lookback-days 365 \
+            --support-events-per-company 5
+
+      - name: Verify V8 baseline contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("baseline/report.json").read_text())
+          assert r["passed"] is True, r
+          assert r["expected_count"] == r["final_objects"] == 20, r
+          assert r["source_policy"]["third_party_cost_usd"] == 0.0, r
+          assert r["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, r
+          assert r["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, r
+          assert r["runtime"]["wall_runtime_seconds"] <= 2400, r
+          PY
+
+      - name: Screen compact-com replacement only where H1g actually spent its slot
+        run: |
+          mkdir -p result
+          cd m16
+          PYTHONPATH=src uv run python scripts/screen_v10_m16_multitoken_compact_com.py \
+            --profiles ../baseline/work/profiles.jsonl \
+            --output ../result/m16-screen.jsonl \
+            --report ../result/m16-report.json \
+            --manual-audit ../result/m16-manual-audit.jsonl \
+            --site-timeout 6
+
+      - name: Enforce predeclared M16 decision contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/m16-report.json").read_text())
+          assert r["companies"] == 20, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["minimum_net_new_verified_website_companies"] == 2, r
+          assert r["structural_site_request_ceiling_increase"] == 0, r
+          assert r["replacement_logical_requests_per_company_ceiling"] == 2, r
+          assert r["third_party_api_cost_usd"] == 0.0, r
+          assert r["search_api_requests"] == 0, r
+          assert r["publication_authorized"] is False, r
+          assert r["production_promotion_authorized"] is False, r
+          assert r["fresh_qualification_authorized"] is False, r
+          assert not r["evidence_defects"], r
+          assert not r["execution_errors"], r
+          assert r["machine_decision"] in {"SHELVE_LOW_YIELD", "MANUAL_AUDIT_REQUIRED"}, r
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m16-multitoken-compact-com-screen
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            frozen/m16-development-20.jsonl
+            result/
+            baseline/report.json
