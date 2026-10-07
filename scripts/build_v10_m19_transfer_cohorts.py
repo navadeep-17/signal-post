@@ -7,13 +7,26 @@ import json
 from pathlib import Path
 from typing import Any
 
-from norway_company_agent.batch import read_organisation_inputs
-
 
 EXPECTED_CONSUMED_SOURCE_SHA256 = "80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26"
 EXPECTED_EXCLUSION_ORG_LIST_SHA256 = "d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451"
 EXPECTED_EXCLUSION_UNION_SHA256 = "5a1ac106dde4033d68a2751b6d0e15cf3b267c54286c27e45856cea8d5c966b7"
 EXPECTED_EXCLUSION_UNION_COMPANIES = 428
+
+
+def read_organisation_inputs(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        if not isinstance(item, dict):
+            raise ValueError(f"{path}:{lineno}: expected JSON object")
+        org = str(item.get("organisation_number") or "")
+        if len(org) != 9 or not org.isdigit():
+            raise ValueError(f"{path}:{lineno}: invalid organisation_number")
+        rows.append(item)
+    return rows
 
 
 def sha256_bytes(value: bytes) -> str:
