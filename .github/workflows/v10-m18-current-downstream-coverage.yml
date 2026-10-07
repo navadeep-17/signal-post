@@ -1,0 +1,230 @@
+name: V10 M18 Current Downstream Coverage Audit
+
+on:
+  push:
+    branches:
+      - audit/v10-m18-current-downstream-coverage
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m18-current-downstream-coverage
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
+  LEGACY_1000_ARTIFACT_ID: "10507814620"
+  LEGACY_1000_ARTIFACT_DIGEST: "sha256:8cdaad00c48f1d0af811fb947c97f258fdeb26d8336767f8c8e2db7d7f15e37e"
+  M10_FROZEN_ARTIFACT_ID: "11459496712"
+  M10_FROZEN_ARTIFACT_DIGEST: "sha256:01e100b09c5e71d630facaab2fdcc006767c3c241d0e3450ac8d8075cbf21e98"
+  BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout M18 audit harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          fetch-depth: 1
+
+      - name: Checkout exact qualified V8 evaluator
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.QUALIFIED_V8_SHA }}
+          path: code
+          fetch-depth: 1
+
+      - name: Prove exact evaluator SHA
+        run: test "$(git -C code rev-parse HEAD)" = "$QUALIFIED_V8_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install exact qualified V8 runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          cd code
+          uv sync --locked
+
+      - name: Verify immutable consumed artifacts
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$LEGACY_1000_ARTIFACT_ID" --jq .digest)" = "$LEGACY_1000_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M10_FROZEN_ARTIFACT_ID" --jq .digest)" = "$M10_FROZEN_ARTIFACT_DIGEST"
+
+      - name: Recover legacy 1000 aggregate, M10 exclusion and BRREG snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/legacy frozen/m10
+          gh run download 35246833190 --repo "$GITHUB_REPOSITORY"             --name final-release-1000-aggregate --dir frozen/legacy
+          LEGACY="$(find frozen/legacy -type f -name 'final-release-1000-output.jsonl' | head -n 1)"
+          test -n "$LEGACY"
+          cp "$LEGACY" frozen/final-release-1000-output.jsonl
+          test "$(wc -l < frozen/final-release-1000-output.jsonl)" -eq 1000
+
+          gh run download 37567829642 --repo "$GITHUB_REPOSITORY"             --name v9-m10-gate-b-frozen-inputs --dir frozen/m10
+          M10="$(find frozen/m10 -type f -name 'gate-b-100.jsonl' | head -n 1)"
+          BULK="$(find frozen/m10 -type f -name 'brreg-enheter.csv' | head -n 1)"
+          test -n "$M10"
+          test -n "$BULK"
+          cp "$M10" frozen/m10-gate-b-100.jsonl
+          cp "$BULK" frozen/brreg-enheter.csv
+          test "$(wc -l < frozen/m10-gate-b-100.jsonl)" -eq 100
+          test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+
+      - name: Freeze deterministic consumed verified-site cohort
+        run: |
+          python harness/scripts/build_v10_m18_consumed_site_cohort.py             --legacy-output frozen/final-release-1000-output.jsonl             --m10-exclude frozen/m10-gate-b-100.jsonl             --output frozen/m18-consumed-20.jsonl             --report frozen/m18-cohort-report.json             --count 20
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("frozen/m18-cohort-report.json").read_text())
+          assert r["selected_companies"] == 20, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["legacy_company_owned_site_eligible_after_exclusions"] >= 20, r
+          print({
+              "selected_companies": r["selected_companies"],
+              "eligible": r["legacy_company_owned_site_eligible_after_exclusions"],
+              "fresh_companies_used": r["fresh_companies_used"],
+              "target_manifest_sha256": r["target_manifest_sha256"],
+          })
+          PY
+
+      - name: Run exact current qualified V8 on identical 20
+        run: |
+          mkdir -p out/work result
+          cd code
+          uv run python scripts/run_signalpost_v8.py             --organisations ../frozen/m18-consumed-20.jsonl             --bulk ../frozen/brreg-enheter.csv             --output ../out/output.jsonl             --report ../out/report.json             --product-output ../out/product.html             --work-dir ../out/work             --run-id v10-m18-current-downstream-audit             --expected-count 20             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Measure current downstream coverage
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows=[json.loads(x) for x in Path("out/output.jsonl").read_text().splitlines() if x.strip()]
+          run=json.loads(Path("out/report.json").read_text())
+          assert len(rows)==20
+          assert run["passed"] is True, run
+
+          fields={
+              "verified_website":{"official_website"},
+              "social_profile":{"external.profile_handle"},
+              "careers_surface":{"external.careers_page"},
+              "job_posting":{"external.job_posting"},
+              "dated_company_update":{"external.company_update"},
+              "external_contact":{"external.contact_email","external.contact_phone"},
+          }
+          org_sets={k:set() for k in fields}
+          careers_only=[]
+          website_without_any_downstream=[]
+          detail=[]
+
+          for row in rows:
+              org=str(row.get("organisation_number") or "")
+              available={
+                  str(c.get("field") or "")
+                  for c in (row.get("claims") or [])
+                  if isinstance(c,dict)
+                  and c.get("availability")=="available"
+                  and c.get("value") not in (None,"")
+              }
+              for family,fset in fields.items():
+                  if available & fset:
+                      org_sets[family].add(org)
+              if "external.careers_page" in available and "external.job_posting" not in available:
+                  careers_only.append(org)
+              if "official_website" in available and not (
+                  available & {
+                      "external.profile_handle","external.careers_page",
+                      "external.job_posting","external.company_update",
+                      "external.contact_email","external.contact_phone",
+                  }
+              ):
+                  website_without_any_downstream.append(org)
+              detail.append({
+                  "organisation_number":org,
+                  "website":"official_website" in available,
+                  "social":"external.profile_handle" in available,
+                  "careers":"external.careers_page" in available,
+                  "job":"external.job_posting" in available,
+                  "update":"external.company_update" in available,
+                  "contact":bool(available & {"external.contact_email","external.contact_phone"}),
+              })
+
+          verified=len(org_sets["verified_website"])
+          careers=len(org_sets["careers_surface"])
+          jobs=len(org_sets["job_posting"])
+          updates=len(org_sets["dated_company_update"])
+          if verified < 10:
+              hint="INSUFFICIENT_CURRENT_VERIFIED_SITE_SAMPLE"
+          elif len(careers_only) >= 2:
+              hint="CAREERS_DEPTH_IS_TESTABLE"
+          elif careers == 0 and updates == 0:
+              hint="FIRST_PARTY_DISCOVERY_STILL_SPARSE"
+          else:
+              hint="NO_SINGLE_CLEAR_DOWNSTREAM_GAP"
+
+          report={
+              "audit":"v10_m18_current_downstream_coverage",
+              "companies":20,
+              "fresh_companies_used":0,
+              "qualified_v8_sha":"200f056a5a60cad23610a3958b6bec62dfb624a5",
+              "coverage":{k:{"companies":len(v),"rate":round(len(v)/20,4)} for k,v in org_sets.items()},
+              "careers_without_job_companies":len(careers_only),
+              "careers_without_job_orgs":sorted(careers_only),
+              "verified_website_without_any_downstream":len(website_without_any_downstream),
+              "verified_website_without_any_downstream_orgs":sorted(website_without_any_downstream),
+              "decision_hint":hint,
+              "third_party_api_cost_usd":run["source_policy"]["third_party_cost_usd"],
+              "observed_conservative_requests":run["request_budget"]["observed_conservative_challenge_request_charge"],
+              "theoretical_request_ceiling":run["request_budget"]["theoretical_challenge_request_charge_ceiling"],
+              "runtime_seconds":run["runtime"]["wall_runtime_seconds"],
+              "per_company":detail,
+          }
+          Path("result/m18-downstream-gap.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
+          print(json.dumps({
+              "coverage":report["coverage"],
+              "careers_without_job_companies":report["careers_without_job_companies"],
+              "verified_website_without_any_downstream":report["verified_website_without_any_downstream"],
+              "decision_hint":report["decision_hint"],
+              "requests":report["observed_conservative_requests"],
+              "theorem":report["theoretical_request_ceiling"],
+              "runtime_seconds":report["runtime_seconds"],
+          },indent=2,sort_keys=True))
+          PY
+
+      - name: Remove UI/cache before upload
+        if: always()
+        run: |
+          rm -f out/product.html
+          rm -rf out/work/internal-envelopes.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m18-current-downstream-coverage
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            frozen/m18-consumed-20.jsonl
+            frozen/m18-cohort-report.json
+            result/m18-downstream-gap.json
+            out/report.json
