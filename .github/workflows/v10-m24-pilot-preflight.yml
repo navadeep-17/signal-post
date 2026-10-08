@@ -1,0 +1,59 @@
+name: V10 M24 Pilot Preflight - No Provider Calls
+
+on:
+  push:
+    branches:
+      - experiment/v10-m24-consumed-pilot-readiness
+    paths:
+      - '.github/workflows/v10-m24-pilot-preflight.yml'
+      - 'scripts/check_v10_m24_pilot_gate.py'
+      - 'tests/test_v10_m24_pilot_gate.py'
+      - 'evaluation/v10_m24_consumed_dev_20.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Prove frozen pilot cannot start without external authorisation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install pinned dependencies
+        run: uv sync --locked
+      - name: Run offline adversarial tests
+        run: uv run --with pytest pytest -q tests/test_v10_m24_pilot_gate.py
+      - name: Assert gates default blocked with no API traffic
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/check_v10_m24_pilot_gate.py
+          python scripts/check_v10_m24_pilot_gate.py \
+            --manifest evaluation/v10_m24_consumed_dev_20.json \
+            --output /tmp/pilot-gate.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('/tmp/pilot-gate.json').read_text())
+          assert report['decision']=='BLOCKED_PENDING_INDEPENDENT_PROVIDER_AND_ENGINEERING_REVIEW'
+          assert report['frozen_development_count']==20
+          assert len(report['missing_or_unattested_items'])==8
+          assert not report['live_provider_authorized']
+          assert not report['production_promotion_authorized']
+          assert report['external_requests_performed']==0
+          assert not report['provider_permission_independently_verified']
+          print('M24 PILOT PREFLIGHT: PASS (blocked, zero provider calls)')
+          PY
+      - name: Reject accidental provider network or key handling in offline preflight
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source=Path('scripts/check_v10_m24_pilot_gate.py').read_text()
+          for prohibited in ('urllib.request', 'requests.', 'httpx.', 'urlopen(', 'TAVILY_API_KEY', 'api.tavily.com'):
+            assert prohibited not in source, prohibited
+          print('M24 PREFLIGHT ONLY: No external HTTP or key intake')
+          PY
