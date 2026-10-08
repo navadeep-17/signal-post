@@ -1,0 +1,211 @@
+name: V10 M19 Disjoint Consumed Transfer Gate B
+
+on:
+  push:
+    branches:
+      - experiment/v10-m19-registry-domain-composite-identity
+    paths:
+      - .github/workflows/v10-m19-disjoint-transfer-gate-b.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m19-disjoint-consumed-transfer-gate-b
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
+  M19_EXPERIMENT_SHA: 716cd229bcc3a4811b24209722ddce165d24b61c
+  GATE_A_RUN_ID: "37670190338"
+  GATE_A_EVIDENCE_ARTIFACT_ID: "11505218381"
+  GATE_A_EVIDENCE_ARTIFACT_DIGEST: sha256:45a9fb18b6c8e05e7f7d90106de223fc31cf71e50ba6306d9c72c95118503bc9
+  FROZEN_COHORT_ARTIFACT_ID: "11503904766"
+  FROZEN_COHORT_ARTIFACT_DIGEST: sha256:c51ac8be9f7e325cf9eb9c8ef3bdba24416953ed4abd4255b160656838c9107c
+  GATE_A_MANIFEST_SHA256: 4a9ff2027bf1c5d17beb48742d717cfab2b143f8ed7abf892dbc3056cea3c7e6
+  GATE_B_MANIFEST_SHA256: 3fc5fdd69ee4c650dc3e6daa32cde3bf5cb14022db9dddb8c2efa5acaae4a82a
+  BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
+
+jobs:
+  gate_b:
+    name: M19 disjoint consumed Gate B 100
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout orchestration/audit head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: orchestration
+          fetch-depth: 1
+
+      - name: Checkout exact M19 experiment code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.M19_EXPERIMENT_SHA }}
+          path: m19
+          fetch-depth: 1
+
+      - name: Checkout exact qualified V8 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.QUALIFIED_V8_SHA }}
+          path: baseline
+          fetch-depth: 1
+
+      - name: Prove immutable SHAs and Gate A artifacts
+        run: |
+          set -euo pipefail
+          test "$(git -C m19 rev-parse HEAD)" = "$M19_EXPERIMENT_SHA"
+          test "$(git -C baseline rev-parse HEAD)" = "$QUALIFIED_V8_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$GATE_A_EVIDENCE_ARTIFACT_ID" --jq .digest)" = "$GATE_A_EVIDENCE_ARTIFACT_DIGEST"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FROZEN_COHORT_ARTIFACT_ID" --jq .digest)" = "$FROZEN_COHORT_ARTIFACT_DIGEST"
+
+      - name: Verify completed Gate A manual audit unlock
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("orchestration/evaluation/v10_m19_gate_a_manual_audit.json")
+          a=json.loads(p.read_text())
+          assert a["schema_version"] == "v10_m19_gate_a_manual_audit_v1", a
+          assert a["workflow_run_id"] == 37670190338, a
+          assert a["artifact_id"] == 11505218381, a
+          assert a["artifact_digest"] == "sha256:45a9fb18b6c8e05e7f7d90106de223fc31cf71e50ba6306d9c72c95118503bc9", a
+          assert a["experiment_code_sha"] == "716cd229bcc3a4811b24209722ddce165d24b61c", a
+          assert a["qualified_v8_sha"] == "200f056a5a60cad23610a3958b6bec62dfb624a5", a
+          assert a["gate_a_manifest_sha256"] == "4a9ff2027bf1c5d17beb48742d717cfab2b143f8ed7abf892dbc3056cea3c7e6", a
+          assert a["sealed_gate_b_manifest_sha256"] == "3fc5fdd69ee4c650dc3e6daa32cde3bf5cb14022db9dddb8c2efa5acaae4a82a", a
+          assert a["manual_review"]["complete"] is True, a
+          assert a["manual_review"]["reviewed_rows"] == 1, a
+          assert a["manual_review"]["approved_rows"] == 1, a
+          assert a["manual_review"]["rejected_rows"] == 0, a
+          assert a["machine_result"]["recovered_organisation_numbers"] == ["877675122"], a
+          assert a["decision"] == "PASS_UNLOCK_PRE_FROZEN_GATE_B", a
+          assert a["production_promotion_authorized"] is False, a
+          assert a["fresh_qualification_authorized"] is False, a
+          print({"gate_a_manual_audit":"PASS","gate_b_unlocked":True})
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install exact runtimes and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          (cd baseline && uv sync --locked)
+          (cd m19 && uv sync --locked)
+
+      - name: Download exact pre-frozen Gate A/B artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 37670190338
+          name: v10-m19-transfer-frozen-cohorts
+          path: frozen
+
+      - name: Verify Gate B was frozen before Gate A observation
+        run: |
+          set -euo pipefail
+          test "$(sha256sum frozen/m19-transfer-gate-a-100.jsonl | awk '{print $1}')" = "$GATE_A_MANIFEST_SHA256"
+          test "$(sha256sum frozen/m19-transfer-gate-b-100.jsonl | awk '{print $1}')" = "$GATE_B_MANIFEST_SHA256"
+          test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("frozen/m19-transfer-freeze-report.json").read_text())
+          assert r["gate_a_manifest_sha256"] == "4a9ff2027bf1c5d17beb48742d717cfab2b143f8ed7abf892dbc3056cea3c7e6", r
+          assert r["gate_b_manifest_sha256"] == "3fc5fdd69ee4c650dc3e6daa32cde3bf5cb14022db9dddb8c2efa5acaae4a82a", r
+          assert r["gate_a_gate_b_disjoint"] is True, r
+          assert r["gate_a_companies"] == 100 and r["gate_b_companies"] == 100, r
+          assert r["fresh_companies_used"] == 0, r
+          print({"sealed_gate_b_manifest_sha256":r["gate_b_manifest_sha256"],"fresh_companies_used":0})
+          PY
+
+      - name: Run exact qualified V8 acquisition on Gate B only
+        run: |
+          mkdir -p baseline-out/work
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py             --organisations ../frozen/m19-transfer-gate-b-100.jsonl             --bulk ../frozen/brreg-enheter.csv             --output ../baseline-out/output.jsonl             --report ../baseline-out/report.json             --product-output ../baseline-out/product.html             --work-dir ../baseline-out/work             --run-id v10-m19-transfer-gate-b-qualified-v8             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Verify qualified V8 Gate B operating contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("baseline-out/report.json").read_text())
+          output=[json.loads(x) for x in Path("baseline-out/output.jsonl").read_text().splitlines() if x.strip()]
+          profiles=[json.loads(x) for x in Path("baseline-out/work/profiles.jsonl").read_text().splitlines() if x.strip()]
+          assert r["passed"] is True, r
+          assert len(output) == len(profiles) == 100
+          assert r["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, r
+          assert r["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, r
+          assert r["source_policy"]["third_party_cost_usd"] == 0.0, r
+          assert r["source_policy"]["search_api_requests"] == 0, r
+          assert r["runtime"]["wall_runtime_seconds"] <= 2400, r
+          print({
+              "observed_charge": r["request_budget"]["observed_conservative_challenge_request_charge"],
+              "theoretical_ceiling": r["request_budget"]["theoretical_challenge_request_charge_ceiling"],
+              "wall_runtime_seconds": r["runtime"]["wall_runtime_seconds"],
+          })
+          PY
+
+      - name: Replay only M19 composite identity on identical Gate B acquisition
+        run: |
+          mkdir -p result
+          cd m19
+          uv run python scripts/replay_v10_m19_registry_domain_identity.py             --baseline-output ../baseline-out/output.jsonl             --profiles ../baseline-out/work/profiles.jsonl             --challenger-output ../result/challenger-output.jsonl             --report ../result/m19-transfer-b-report.json             --manual-audit ../result/manual-audit-required.jsonl             --mode transfer_b             --minimum-recoveries 1
+
+      - name: Enforce predeclared Gate B decision contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/m19-transfer-b-report.json").read_text())
+          assert r["companies"] == 100, r
+          assert r["evaluation_mode"] == "transfer_b", r
+          assert r["development_cohort_only"] is False, r
+          assert r["minimum_recoveries"] == 1, r
+          assert r["network_requests_added_by_replay"] == 0, r
+          assert r["search_api_requests_added_by_replay"] == 0, r
+          assert r["third_party_cost_usd_added_by_replay"] == 0.0, r
+          assert r["fresh_companies_used"] == 0, r
+          assert not r["evidence_defects"], r
+          assert not r["validation_errors"], r
+          assert r["production_promotion_authorized"] is False, r
+          assert r["fresh_qualification_authorized"] is False, r
+          assert r["machine_decision"] in {"SHELVE_LOW_YIELD","TRANSFER_B_MANUAL_AUDIT_REQUIRED"}, r
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove UI/internal cache before upload
+        if: always()
+        run: |
+          rm -f baseline-out/product.html
+          rm -rf baseline-out/work/internal-envelopes.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m19-transfer-gate-b-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            frozen/m19-transfer-gate-b-100.jsonl
+            frozen/m19-transfer-freeze-report.json
+            baseline-out/output.jsonl
+            baseline-out/report.json
+            baseline-out/work/profiles.jsonl
+            result/

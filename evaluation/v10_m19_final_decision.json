@@ -1,0 +1,58 @@
+{
+  "schema_version": "v10_m19_final_decision_v1",
+  "milestone": "M19",
+  "experiment": "registry_domain_composite_identity_recovery",
+  "qualified_v8_sha": "200f056a5a60cad23610a3958b6bec62dfb624a5",
+  "experiment_code_sha": "716cd229bcc3a4811b24209722ddce165d24b61c",
+  "development": {
+    "companies": 100,
+    "net_new_verified_website_companies": 2,
+    "decision": "DEVELOPMENT_SIGNAL_REQUIRES_DISJOINT_TRANSFER",
+    "development_only": true
+  },
+  "transfer_gate_a": {
+    "workflow_run_id": 37670190338,
+    "evidence_artifact_id": 11505218381,
+    "evidence_artifact_digest": "sha256:45a9fb18b6c8e05e7f7d90106de223fc31cf71e50ba6306d9c72c95118503bc9",
+    "companies": 100,
+    "baseline_available_website_companies": 21,
+    "challenger_available_website_companies": 22,
+    "net_new_verified_website_companies": 1,
+    "recovered_organisation_numbers": ["877675122"],
+    "manual_audit": "PASS",
+    "manual_audit_attestation": "evaluation/v10_m19_gate_a_manual_audit.json"
+  },
+  "transfer_gate_b": {
+    "workflow_run_id": 37717545307,
+    "evidence_artifact_id": 11525046472,
+    "evidence_artifact_digest": "sha256:7439ace3eabb7ad3f951abb91396dac23e26cf04bd1e1d25f12ada625ceb4df6",
+    "companies": 100,
+    "baseline_available_website_companies": 11,
+    "challenger_available_website_companies": 11,
+    "net_new_verified_website_companies": 0,
+    "recovered_organisation_numbers": [],
+    "manual_review_rows": 0,
+    "machine_decision": "SHELVE_LOW_YIELD",
+    "observed_conservative_challenge_request_charge": 1342,
+    "theoretical_challenge_request_charge_ceiling": 2000,
+    "wall_runtime_seconds": 742.391,
+    "network_requests_added_by_replay": 0,
+    "search_api_requests_added_by_replay": 0,
+    "third_party_cost_usd_added_by_replay": 0.0,
+    "evidence_defects": [],
+    "validation_errors": []
+  },
+  "frozen_transfer_design": {
+    "prior_exclusion_union_companies": 428,
+    "remaining_uninspected_consumed_companies_before_gate_freeze": 572,
+    "gate_a_manifest_sha256": "4a9ff2027bf1c5d17beb48742d717cfab2b143f8ed7abf892dbc3056cea3c7e6",
+    "gate_b_manifest_sha256": "3fc5fdd69ee4c650dc3e6daa32cde3bf5cb14022db9dddb8c2efa5acaae4a82a",
+    "gate_a_gate_b_disjoint": true,
+    "fresh_companies_used": 0
+  },
+  "final_decision": "SHELVE_LOW_YIELD",
+  "reason": "The composite recovery showed a valid development signal and one manually verified disjoint Gate A transfer, but failed the predeclared independent Gate B transfer threshold with 0/100 recoveries. The rule is therefore too sparse to justify production promotion.",
+  "production_promotion_authorized": false,
+  "fresh_qualification_authorized": false,
+  "main_or_qualified_v8_modified": false
+}

@@ -1,0 +1,99 @@
+name: V10 M19 Registry Domain Composite Identity Replay
+
+on:
+  push:
+    branches:
+      - experiment/v10-m19-registry-domain-composite-identity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m19-registry-domain-composite-identity
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  M18_ARTIFACT_ID: "11503395644"
+  M18_ARTIFACT_DIGEST: "sha256:80fc31b8ad7fde76dd573d96b0c4eeac4a5b4a36034d8d9771a68037dda1de89"
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install locked runtime
+        run: uv sync --locked
+
+      - name: Run focused M19 tests and compile
+        run: |
+          uv run --with pytest pytest -q             tests/test_v10_m19_registry_domain_identity_recovery.py             tests/test_q8_social_declaration_identity_guard.py
+          python -m py_compile             src/norway_company_agent/registry_domain_identity_recovery.py             scripts/replay_v10_m19_registry_domain_identity.py
+
+      - name: Verify immutable M18/Q8 acquisition artifact
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$M18_ARTIFACT_ID" --jq .digest)" = "$M18_ARTIFACT_DIGEST"
+
+      - name: Recover exact already-consumed Q8 output and retained profiles
+        run: |
+          set -euo pipefail
+          mkdir -p frozen
+          gh run download 37664001754 --repo "$GITHUB_REPOSITORY"             --name v10-m18-careers-projection-replay --dir frozen
+          test "$(wc -l < frozen/baseline-out/output.jsonl)" -eq 100
+          test "$(wc -l < frozen/baseline-out/work/profiles.jsonl)" -eq 100
+
+      - name: Replay M19 composite identity only
+        run: |
+          mkdir -p result
+          uv run python scripts/replay_v10_m19_registry_domain_identity.py             --baseline-output frozen/baseline-out/output.jsonl             --profiles frozen/baseline-out/work/profiles.jsonl             --challenger-output result/challenger-output.jsonl             --report result/m19-report.json             --manual-audit result/manual-audit-required.jsonl
+
+      - name: Enforce development-only decision contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/m19-report.json").read_text())
+          assert r["companies"] == 100, r
+          assert r["development_cohort_only"] is True, r
+          assert r["minimum_development_recoveries"] == 2, r
+          assert r["network_requests_added_by_replay"] == 0, r
+          assert r["search_api_requests_added_by_replay"] == 0, r
+          assert r["third_party_cost_usd_added_by_replay"] == 0.0, r
+          assert r["fresh_companies_used"] == 0, r
+          assert r["non_website_claim_mutations_allowed"] is False, r
+          assert not r["evidence_defects"], r
+          assert not r["validation_errors"], r
+          assert r["production_promotion_authorized"] is False, r
+          assert r["fresh_qualification_authorized"] is False, r
+          assert r["machine_decision"] in {
+              "SHELVE_LOW_YIELD",
+              "DEVELOPMENT_SIGNAL_REQUIRES_DISJOINT_TRANSFER",
+          }, r
+          print(json.dumps(r, indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m19-registry-domain-composite-replay
+          retention-days: 30
+          if-no-files-found: warn
+          path: result/
