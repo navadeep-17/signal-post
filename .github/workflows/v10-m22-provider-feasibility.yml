@@ -1,0 +1,43 @@
+name: V10 M22 Provider Feasibility (Offline Only)
+
+on:
+  push:
+    branches:
+      - experiment/v10-m22-provider-feasibility
+    paths:
+      - '.github/workflows/v10-m22-provider-feasibility.yml'
+      - 'scripts/audit_v10_m22_search_slot_budget.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Verify 2,000-request theorem with zero network calls
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and exercise every bounded search/fallback branch
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/audit_v10_m22_search_slot_budget.py
+          python scripts/audit_v10_m22_search_slot_budget.py --output /tmp/v10-m22-budget.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('/tmp/v10-m22-budget.json').read_text())
+          assert r['baseline_theoretical_challenge_charge']==2000
+          assert r['naively_appended_search_plus_crawl_challenge_charge']==2600
+          assert r['scenario_count']==8
+          assert r['structurally_feasible_with_reallocation'] is True
+          assert not r['runtime_bound_for_provider_fully_proven']
+          assert not r['provider_usage_rights_verified']
+          assert not r['third_party_cost_zero_verified']
+          assert not r['live_provider_experiment_authorized']
+          assert not r['production_promotion_authorized']
+          assert not r['fresh_company_evaluation_authorized']
+          assert all(s['logical']<=4 for s in r['scenarios'])
+          print('M22 offline proof checks passed; live access remains blocked')
+          PY
