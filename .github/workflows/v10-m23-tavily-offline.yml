@@ -1,0 +1,43 @@
+name: V10 M23 Tavily Offline Boundary Tests
+
+on:
+  push:
+    branches:
+      - experiment/v10-m23-tavily-offline-adapter
+    paths:
+      - '.github/workflows/v10-m23-tavily-offline.yml'
+      - 'src/norway_company_agent/tavily_offline_candidate.py'
+      - 'tests/test_v10_m23_tavily_offline_candidate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    name: No-network Tavily candidate and exact-identity gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install pinned dependencies and test fixtures (no provider credentials)
+        run: uv sync --locked
+      - name: Compile and prove module has no provider HTTP client
+        run: |
+          python -m py_compile src/norway_company_agent/tavily_offline_candidate.py
+          python -m py_compile tests/test_v10_m23_tavily_offline_candidate.py
+          python - <<'PY'
+          from pathlib import Path
+          source=Path('src/norway_company_agent/tavily_offline_candidate.py').read_text()
+          for forbidden in ('urllib.request', 'requests.', 'httpx.', 'urlopen(', 'api.tavily.com', 'TAVILY_API_KEY'):
+              assert forbidden not in source, f'Forbidden provider integration in offline module: {forbidden}'
+          print('M23 module has no HTTP-provider or credential integration')
+          PY
+      - name: Run adversarial M23 + existing H1b regression tests
+        run: uv run --with pytest pytest -q tests/test_v10_m23_tavily_offline_candidate.py tests/test_search_discovery.py
