@@ -18,6 +18,8 @@ from norway_company_agent.canonical_projection import (  # noqa: E402
     project_canonical_profile,
     validate_canonical_projection,
 )
+from norway_company_agent.company_site_phone import attach_company_site_contact_phone_observations  # noqa: E402
+from norway_company_agent.external_contract import project_contact_phone_observations  # noqa: E402
 from norway_company_agent.external_precision_guard import project_external_precision_guard  # noqa: E402
 from norway_company_agent.first_party_feed_contract import project_first_party_feed_updates  # noqa: E402
 from norway_company_agent.output_contract import validate_contract_object  # noqa: E402
@@ -197,6 +199,8 @@ def _project_q4_feed_activity(
     synthesis_errors: list[dict[str, str]] = []
     feed_claims = 0
     feed_companies = 0
+    contact_phone_claims = 0
+    contact_phone_companies = 0
     precision_removed_claims = 0
     precision_removed_companies = 0
 
@@ -205,12 +209,32 @@ def _project_q4_feed_activity(
         profile = profiles_by_org.get(org)
         if profile is None:
             raise ValueError(f"V8 retained profile missing for {org}")
-        before = sum(
+        before_phone = sum(
             1
             for claim in row.get("claims") or []
+            if isinstance(claim, dict)
+            and claim.get("field") == "external.contact_phone"
+            and claim.get("availability") == "available"
+        )
+        profile = attach_company_site_contact_phone_observations(profile)
+        with_phone = project_contact_phone_observations(row, profile)
+        after_phone = sum(
+            1
+            for claim in with_phone.get("claims") or []
+            if isinstance(claim, dict)
+            and claim.get("field") == "external.contact_phone"
+            and claim.get("availability") == "available"
+        )
+        added_phone = max(0, after_phone - before_phone)
+        contact_phone_claims += added_phone
+        contact_phone_companies += int(added_phone > 0)
+
+        before = sum(
+            1
+            for claim in with_phone.get("claims") or []
             if isinstance(claim, dict) and claim.get("field") == "external.company_update"
         )
-        with_feed = project_first_party_feed_updates(row, profile)
+        with_feed = project_first_party_feed_updates(with_phone, profile)
         guarded = project_external_precision_guard(with_feed)
         removed = max(0, len(with_feed.get("claims") or []) - len(guarded.get("claims") or []))
         precision_removed_claims += removed
@@ -263,7 +287,35 @@ def _project_q4_feed_activity(
             "article URL is observed in the feed and is not represented as independently fetched"
         ),
     }
+    canonical_report["structured_contact_phone_projection"] = {
+        "claim_field": "external.contact_phone",
+        "canonical_type": "website.contact_phone",
+        "published_claims_added": contact_phone_claims,
+        "companies_with_new_published_claims": contact_phone_companies,
+        "network_requests_added_by_projection": 0,
+        "source_boundary": (
+            "already-retained exact company website -> exact schema.org Organization/ContactPoint "
+            "telephone field; no additional fetch"
+        ),
+    }
     report["canonical_projection"] = canonical_report
+
+    source_policy = report.setdefault("source_policy", {})
+    source_policy.update(
+        {
+            "company_page_structured_contact_phone_extraction_enabled": True,
+            "contact_phone_network_requests": 0,
+        }
+    )
+    external_signals = report.setdefault("external_signals", {})
+    external_signals.update(
+        {
+            "structured_contact_phone_claims_added": contact_phone_claims,
+            "companies_with_new_structured_contact_phones": contact_phone_companies,
+            "contact_phone_network_requests": 0,
+        }
+    )
+
     report["synthesis"] = {
         **dict(report.get("synthesis") or {}),
         "schema_version": SYNTHESIS_SCHEMA_VERSION,
@@ -290,6 +342,7 @@ def _project_q4_feed_activity(
 
     checks = report.setdefault("checks", {})
     checks["q4_feed_projection_contract_valid"] = not contract_errors
+    checks["structured_contact_phone_projection_zero_network"] = True
     checks["canonical_projection_valid"] = not canonical_errors
     checks["synthesis_valid"] = not synthesis_errors
     checks["q4_workspace_rebuild_valid"] = workspace_returncode == 0
