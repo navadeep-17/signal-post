@@ -1,9 +1,6 @@
 name: V10 M19 Disjoint Consumed Transfer Gate A
 
 on:
-  push:
-    branches:
-      - experiment/v10-m19-registry-domain-composite-identity
   workflow_dispatch:
 
 permissions:
