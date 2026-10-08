@@ -1,0 +1,351 @@
+name: V10 M20 Disjoint Consumed Transfer Gate A
+
+on:
+  push:
+    branches:
+      - experiment/v10-m20-structured-contact-port
+    paths:
+      - '.github/workflows/v10-m20-disjoint-transfer-gate-a.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v10-m20-disjoint-consumed-transfer
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  QUALIFIED_V8_SHA: 200f056a5a60cad23610a3958b6bec62dfb624a5
+  M20_BEHAVIOR_SHA: 16049f793925d45eaeea934a26e1254b4a09ac9d
+  M20_EVALUATION_SHA: 214f13b6f1a229b33bdbf001b67099a627bef347
+  M19_FINAL_SHA: 86babbe58f38d0313deb7dc38b50e4d91130a335
+  FROZEN_CONSUMED_SOURCE_SHA256: 80e8f5c88b2d2facc1a00c20677a0930240f40fc75a36a27bee16c54efa2de26
+  PRIOR_428_ORGS_SHA256: d41f2129147fc01f70efd145cb2fcf46b3cda398ffd6e9cc479ffd991ffb1451
+  M19_GATE_A_MANIFEST_SHA256: 4a9ff2027bf1c5d17beb48742d717cfab2b143f8ed7abf892dbc3056cea3c7e6
+  M19_GATE_B_MANIFEST_SHA256: 3fc5fdd69ee4c650dc3e6daa32cde3bf5cb14022db9dddb8c2efa5acaae4a82a
+  M19_FROZEN_ARTIFACT_DIGEST: sha256:c51ac8be9f7e325cf9eb9c8ef3bdba24416953ed4abd4255b160656838c9107c
+  BRREG_SNAPSHOT_SHA256: 1145bc28c54c6fe10be3a89e529a35832fd67cb34cd9933c0f4418d446512615
+
+jobs:
+  freeze:
+    name: Freeze M20 Gate A and sealed Gate B before profile observation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout orchestration head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: orchestration
+          fetch-depth: 1
+
+      - name: Checkout exact M20 evaluation code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.M20_EVALUATION_SHA }}
+          path: m20
+          fetch-depth: 1
+
+      - name: Checkout exact M19 final metadata
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.M19_FINAL_SHA }}
+          path: m19-final
+          fetch-depth: 1
+
+      - name: Prove immutable code and source artifacts
+        run: |
+          set -euo pipefail
+          test "$(git -C m20 rev-parse HEAD)" = "$M20_EVALUATION_SHA"
+          test "$(git -C m19-final rev-parse HEAD)" = "$M19_FINAL_SHA"
+          test "$(sha256sum m19-final/evaluation/v10_m19_prior_exclusion_orgs.txt | awk '{print $1}')" = "$PRIOR_428_ORGS_SHA256"
+          test "$(wc -l < m19-final/evaluation/v10_m19_prior_exclusion_orgs.txt)" -eq 428
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10508036929" --jq .digest)" =             'sha256:2f0fbb29ccb7c71b6b593f7e041b3ba4353256674cb404dfc2ebf56f50964a47'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/11503904766" --jq .digest)" =             "$M19_FROZEN_ARTIFACT_DIGEST"
+
+      - name: Recover exact consumed 1000 and M19 frozen transfer artifact
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/source frozen/m19
+
+          gh run download 35246833190 --repo "$GITHUB_REPOSITORY"             --name final-release-manifest-1000 --dir frozen/source
+          SOURCE="$(find frozen/source -type f -name 'final-release-1000.jsonl' | head -n1)"
+          test -n "$SOURCE"
+          cp "$SOURCE" frozen/consumed-1000.jsonl
+          test "$(wc -l < frozen/consumed-1000.jsonl)" -eq 1000
+          test "$(sha256sum frozen/consumed-1000.jsonl | awk '{print $1}')" = "$FROZEN_CONSUMED_SOURCE_SHA256"
+
+          gh run download 37670190338 --repo "$GITHUB_REPOSITORY"             --name v10-m19-transfer-frozen-cohorts --dir frozen/m19
+          A="$(find frozen/m19 -type f -name 'm19-transfer-gate-a-100.jsonl' | head -n1)"
+          B="$(find frozen/m19 -type f -name 'm19-transfer-gate-b-100.jsonl' | head -n1)"
+          BULK="$(find frozen/m19 -type f -name 'brreg-enheter.csv' | head -n1)"
+          test -n "$A"; test -n "$B"; test -n "$BULK"
+          cp "$A" frozen/m19-gate-a.jsonl
+          cp "$B" frozen/m19-gate-b.jsonl
+          cp "$BULK" frozen/brreg-enheter.csv
+          test "$(sha256sum frozen/m19-gate-a.jsonl | awk '{print $1}')" = "$M19_GATE_A_MANIFEST_SHA256"
+          test "$(sha256sum frozen/m19-gate-b.jsonl | awk '{print $1}')" = "$M19_GATE_B_MANIFEST_SHA256"
+          test "$(sha256sum frozen/brreg-enheter.csv | awk '{print $1}')" = "$BRREG_SNAPSHOT_SHA256"
+
+      - name: Freeze both M20 transfer gates from remaining consumed population
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          def read_jsonl(path):
+              return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          source=read_jsonl("frozen/consumed-1000.jsonl")
+          source_order=[str(x["organisation_number"]) for x in source]
+          source_set=set(source_order)
+          assert len(source_order) == len(source_set) == 1000
+
+          prior={
+              line.strip()
+              for line in Path("m19-final/evaluation/v10_m19_prior_exclusion_orgs.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          }
+          a={str(x["organisation_number"]) for x in read_jsonl("frozen/m19-gate-a.jsonl")}
+          b={str(x["organisation_number"]) for x in read_jsonl("frozen/m19-gate-b.jsonl")}
+          assert len(prior) == 428
+          assert len(a) == len(b) == 100
+          assert not (a & b)
+          assert not (prior & a)
+          assert not (prior & b)
+          excluded=prior | a | b
+          assert len(excluded) == 628, len(excluded)
+          assert excluded <= source_set
+
+          remaining=sorted(source_set - excluded)
+          assert len(remaining) == 372, len(remaining)
+          gate_a=remaining[:100]
+          gate_b=remaining[100:200]
+          assert len(gate_a) == len(gate_b) == 100
+          assert not (set(gate_a) & set(gate_b))
+
+          def write_gate(path, orgs, slice_name):
+              Path(path).write_text(
+                  "".join(json.dumps({
+                      "organisation_number": org,
+                      "evaluation_split": "v10_m20_consumed_transfer",
+                      "sample_slice": slice_name,
+                  }, sort_keys=True) + "\n" for org in orgs),
+                  encoding="utf-8",
+              )
+
+          write_gate("frozen/m20-transfer-gate-a-100.jsonl", gate_a, "m20_transfer_gate_a")
+          write_gate("frozen/m20-transfer-gate-b-100.jsonl", gate_b, "m20_transfer_gate_b")
+          report={
+              "screen_type":"v10_m20_consumed_disjoint_transfer_freeze_v1",
+              "source_population_companies":1000,
+              "source_manifest_sha256":sha("frozen/consumed-1000.jsonl"),
+              "prior_m13_m19_exclusion_companies":428,
+              "m19_gate_a_companies":100,
+              "m19_gate_b_companies":100,
+              "total_excluded_companies":628,
+              "remaining_uninspected_companies":372,
+              "gate_a_companies":100,
+              "gate_b_companies":100,
+              "gate_a_gate_b_disjoint":True,
+              "fresh_companies_used":0,
+              "gate_a_manifest_sha256":sha("frozen/m20-transfer-gate-a-100.jsonl"),
+              "gate_b_manifest_sha256":sha("frozen/m20-transfer-gate-b-100.jsonl"),
+              "selection_rule":[
+                  "start from exact frozen already-consumed 1000-company population",
+                  "subtract immutable prior M13-M19 exclusion union of 428 organisations",
+                  "subtract the already-observed M19 Gate A and Gate B manifests (100 + 100)",
+                  "sort the remaining 372 organisation numbers ascending",
+                  "freeze first 100 as M20 Gate A",
+                  "freeze next 100 as sealed M20 Gate B",
+                  "freeze both before any M20 transfer profile/output is observed",
+              ],
+          }
+          Path("frozen/m20-transfer-freeze-report.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v10-m20-transfer-frozen-cohorts
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            frozen/m20-transfer-gate-a-100.jsonl
+            frozen/m20-transfer-gate-b-100.jsonl
+            frozen/m20-transfer-freeze-report.json
+            frozen/brreg-enheter.csv
+
+  gate_a:
+    name: M20 disjoint consumed Gate A 100
+    needs: freeze
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact M20 evaluation code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.M20_EVALUATION_SHA }}
+          path: m20
+          fetch-depth: 1
+
+      - name: Checkout exact qualified V8 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.QUALIFIED_V8_SHA }}
+          path: baseline
+          fetch-depth: 1
+
+      - name: Prove exact immutable SHAs
+        run: |
+          test "$(git -C m20 rev-parse HEAD)" = "$M20_EVALUATION_SHA"
+          test "$(git -C baseline rev-parse HEAD)" = "$QUALIFIED_V8_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install exact runtimes and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+          (cd baseline && uv sync --locked)
+          (cd m20 && uv sync --locked)
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v10-m20-transfer-frozen-cohorts
+          path: frozen
+
+      - name: Verify frozen Gate A and sealed Gate B
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          r=json.loads(Path("frozen/m20-transfer-freeze-report.json").read_text())
+          assert r["total_excluded_companies"] == 628, r
+          assert r["remaining_uninspected_companies"] == 372, r
+          assert r["gate_a_companies"] == r["gate_b_companies"] == 100, r
+          assert r["gate_a_gate_b_disjoint"] is True, r
+          assert r["fresh_companies_used"] == 0, r
+          assert sha("frozen/m20-transfer-gate-a-100.jsonl") == r["gate_a_manifest_sha256"], r
+          assert sha("frozen/m20-transfer-gate-b-100.jsonl") == r["gate_b_manifest_sha256"], r
+          print({
+              "gate_a_manifest_sha256":r["gate_a_manifest_sha256"],
+              "sealed_gate_b_manifest_sha256":r["gate_b_manifest_sha256"],
+              "remaining_uninspected_companies":372,
+          })
+          PY
+
+      - name: Run exact qualified V8 acquisition on Gate A only
+        run: |
+          mkdir -p baseline-out/work
+          cd baseline
+          uv run python scripts/run_signalpost_v8.py             --organisations ../frozen/m20-transfer-gate-a-100.jsonl             --bulk ../frozen/brreg-enheter.csv             --output ../baseline-out/output.jsonl             --report ../baseline-out/report.json             --product-output ../baseline-out/product.html             --work-dir ../baseline-out/work             --run-id v10-m20-transfer-gate-a-qualified-v8             --expected-count 100             --workers 8 --site-timeout 6 --wikidata-timeout 8             --max-challenge-requests 2000             --max-third-party-cost-usd 0             --max-wall-runtime-seconds 2400             --annual-workforce-workers 4             --annual-workforce-timeout 60             --annual-workforce-min-start-interval 2.1             --annual-workforce-ocr-pages 8             --annual-workforce-ocr-dpi 110             --support-registry-timeout 420             --support-lookback-days 365             --support-events-per-company 5
+
+      - name: Verify qualified V8 Gate A operating contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("baseline-out/report.json").read_text())
+          output=[json.loads(x) for x in Path("baseline-out/output.jsonl").read_text().splitlines() if x.strip()]
+          profiles=[json.loads(x) for x in Path("baseline-out/work/profiles.jsonl").read_text().splitlines() if x.strip()]
+          assert r["passed"] is True, r
+          assert len(output) == len(profiles) == 100
+          assert r["request_budget"]["observed_conservative_challenge_request_charge"] <= 2000, r
+          assert r["request_budget"]["theoretical_challenge_request_charge_ceiling"] <= 2000, r
+          assert r["source_policy"]["third_party_cost_usd"] == 0.0, r
+          assert r["source_policy"]["search_api_requests"] == 0, r
+          assert r["runtime"]["wall_runtime_seconds"] <= 2400, r
+          print({
+              "observed_charge":r["request_budget"]["observed_conservative_challenge_request_charge"],
+              "theoretical_ceiling":r["request_budget"]["theoretical_challenge_request_charge_ceiling"],
+              "wall_runtime_seconds":r["runtime"]["wall_runtime_seconds"],
+          })
+          PY
+
+      - name: Replay only M20 structured contacts on identical retained Gate A profiles
+        run: |
+          mkdir -p result
+          cd m20
+          uv run python scripts/replay_v10_m20_structured_contacts.py             --profiles-dir ../baseline-out/work             --baseline-output ../baseline-out/output.jsonl             --challenger-output ../result/challenger-output.jsonl             --report ../result/m20-transfer-a-report.json             --manual-audit ../result/manual-audit-required.jsonl
+
+      - name: Enforce M20 Gate A transfer decision contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("result/m20-transfer-a-report.json").read_text())
+          audit=[json.loads(x) for x in Path("result/manual-audit-required.jsonl").read_text().splitlines() if x.strip()]
+          orgs={str(x["organisation_number"]) for x in audit}
+          assert r["companies"] == 100, r
+          assert r["network_requests_added"] == 0, r
+          assert r["third_party_cost_usd"] == 0.0, r
+          assert r["existing_contact_publications_lost"] == 0, r
+          assert r["non_contact_claims_changed"] == 0, r
+          assert r["contract_canonical_synthesis_errors"] == 0, r
+          assert r["new_contact_claims"] == len(audit), (r, len(audit))
+          positive = r["new_contact_claims"] >= 1 and len(orgs) >= 1
+          decision = "TRANSFER_A_MANUAL_AUDIT_REQUIRED" if positive else "SHELVE_LOW_YIELD"
+          out={
+              "milestone":"M20",
+              "evaluation_mode":"transfer_a",
+              "companies":100,
+              "machine_decision":decision,
+              "new_contact_claims":r["new_contact_claims"],
+              "new_contact_companies":len(orgs),
+              "net_new_contact_email_companies":r["net_new_contact_email_companies"],
+              "net_new_contact_phone_companies":r["net_new_contact_phone_companies"],
+              "net_new_any_external_contact_companies":r["net_new_any_external_contact_companies"],
+              "manual_review_rows":len(audit),
+              "manual_review_finalized":False,
+              "network_requests_added_by_replay":0,
+              "search_api_requests_added_by_replay":0,
+              "third_party_cost_usd_added_by_replay":0.0,
+              "fresh_companies_used":0,
+              "production_promotion_authorized":False,
+              "fresh_qualification_authorized":False,
+          }
+          Path("result/m20-transfer-a-decision.json").write_text(
+              json.dumps(out, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove UI/internal cache before upload
+        if: always()
+        run: |
+          rm -f baseline-out/product.html
+          rm -rf baseline-out/work/internal-envelopes.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v10-m20-transfer-gate-a-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            frozen/m20-transfer-gate-a-100.jsonl
+            frozen/m20-transfer-gate-b-100.jsonl
+            frozen/m20-transfer-freeze-report.json
+            baseline-out/output.jsonl
+            baseline-out/report.json
+            baseline-out/work/profiles.jsonl
+            result/
