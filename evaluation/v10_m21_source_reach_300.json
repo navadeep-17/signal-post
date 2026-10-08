@@ -1,0 +1,159 @@
+{
+  "cohort_disjoint": true,
+  "cohorts": [
+    {
+      "accessible_candidates_not_published": 16,
+      "artifact_id": 11505218381,
+      "artifact_zip_sha256": "45a9fb18b6c8e05e7f7d90106de223fc31cf71e50ba6306d9c72c95118503bc9",
+      "cohort": "M19 Gate A",
+      "companies": 100,
+      "frozen_manifest_sha256": "4a9ff2027bf1c5d17beb48742d717cfab2b143f8ed7abf892dbc3056cea3c7e6",
+      "h1g_attempts": 55,
+      "h1g_verified": 0,
+      "observed_conservative_request_charge": 1546,
+      "published_company_counts": {
+        "external.careers_page": 3,
+        "external.company_update": 1,
+        "external.contact_email": 10,
+        "external.job_posting": 0,
+        "external.profile_handle": 11,
+        "external.workforce_snapshot": 98,
+        "official.support_award": 13,
+        "official_website": 21
+      },
+      "search_api_requests": 0,
+      "theoretical_conservative_request_ceiling": 2000,
+      "third_party_cost_usd": 0,
+      "verified_website_companies": 21,
+      "wall_runtime_seconds": 857.198,
+      "website_evidence_status_counts": {
+        "available": 37,
+        "blocked": 6,
+        "not_found": 49,
+        "source_error": 8
+      },
+      "website_source_selection": {
+        "h1c_deterministic_domain": 6,
+        "none": 79,
+        "registry_website": 15
+      },
+      "wikidata_candidates": 1
+    },
+    {
+      "accessible_candidates_not_published": 1,
+      "artifact_id": 11525046472,
+      "artifact_zip_sha256": "7439ace3eabb7ad3f951abb91396dac23e26cf04bd1e1d25f12ada625ceb4df6",
+      "cohort": "M19 Gate B",
+      "companies": 100,
+      "frozen_manifest_sha256": "3fc5fdd69ee4c650dc3e6daa32cde3bf5cb14022db9dddb8c2efa5acaae4a82a",
+      "h1g_attempts": 77,
+      "h1g_verified": 0,
+      "observed_conservative_request_charge": 1342,
+      "published_company_counts": {
+        "external.careers_page": 1,
+        "external.company_update": 2,
+        "external.contact_email": 9,
+        "external.job_posting": 0,
+        "external.profile_handle": 9,
+        "external.workforce_snapshot": 98,
+        "official.support_award": 5,
+        "official_website": 11
+      },
+      "search_api_requests": 0,
+      "theoretical_conservative_request_ceiling": 2000,
+      "third_party_cost_usd": 0,
+      "verified_website_companies": 11,
+      "wall_runtime_seconds": 742.391,
+      "website_evidence_status_counts": {
+        "available": 12,
+        "blocked": 1,
+        "not_found": 86,
+        "source_error": 1
+      },
+      "website_source_selection": {
+        "h1c_deterministic_domain": 10,
+        "none": 89,
+        "registry_website": 1
+      },
+      "wikidata_candidates": 1
+    },
+    {
+      "accessible_candidates_not_published": 1,
+      "artifact_id": 11525304908,
+      "artifact_zip_sha256": "3d00b7fc2399fb7bbe6dd2d438ad689313dccd1850cc429b002d499fcb26e05a",
+      "cohort": "M20 Gate A",
+      "companies": 100,
+      "frozen_manifest_sha256": "8cc4e45c238cc446bf9d88e1f5268c33c9779a4b2a57bd60552c156fa4a9d6d2",
+      "h1g_attempts": 64,
+      "h1g_verified": 1,
+      "observed_conservative_request_charge": 1388,
+      "published_company_counts": {
+        "external.careers_page": 1,
+        "external.company_update": 0,
+        "external.contact_email": 3,
+        "external.job_posting": 0,
+        "external.profile_handle": 5,
+        "external.workforce_snapshot": 98,
+        "official.support_award": 3,
+        "official_website": 9
+      },
+      "search_api_requests": 0,
+      "theoretical_conservative_request_ceiling": 2000,
+      "third_party_cost_usd": 0,
+      "verified_website_companies": 9,
+      "wall_runtime_seconds": 722.862,
+      "website_evidence_status_counts": {
+        "available": 10,
+        "blocked": 1,
+        "not_found": 89
+      },
+      "website_source_selection": {
+        "h1c_deterministic_domain": 6,
+        "h1g_hyphenated_no": 1,
+        "none": 91,
+        "registry_website": 2
+      },
+      "wikidata_candidates": 0
+    }
+  ],
+  "email_share_given_qualified_site": 0.5366,
+  "fresh_companies_used": 0,
+  "qualified_website_share_of_300": 0.1367,
+  "screen": "M21_read_only_300_company_source_reach_diagnostic",
+  "social_share_given_qualified_site": 0.6098,
+  "totals": {
+    "accessible_candidates_not_published": 18,
+    "companies": 300,
+    "h1g_attempts": 196,
+    "h1g_verified": 1,
+    "observed_conservative_request_charge": 4276,
+    "published_company_counts": {
+      "external.careers_page": 5,
+      "external.company_update": 3,
+      "external.contact_email": 22,
+      "external.job_posting": 0,
+      "external.profile_handle": 25,
+      "external.workforce_snapshot": 294,
+      "official.support_award": 21,
+      "official_website": 41
+    },
+    "search_api_requests": 0,
+    "theoretical_conservative_request_ceiling": 6000,
+    "third_party_cost_usd": 0,
+    "verified_website_companies": 41,
+    "wall_runtime_seconds": 2322.451,
+    "website_evidence_status_counts": {
+      "available": 59,
+      "blocked": 8,
+      "not_found": 224,
+      "source_error": 9
+    },
+    "website_source_selection": {
+      "h1c_deterministic_domain": 22,
+      "h1g_hyphenated_no": 1,
+      "none": 259,
+      "registry_website": 18
+    },
+    "wikidata_candidates": 2
+  }
+}
