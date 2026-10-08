@@ -1,0 +1,78 @@
+name: V10 M24 Reproduce Consumed-Only Pilot Freeze
+
+on:
+  push:
+    branches:
+      - experiment/v10-m24-consumed-pilot-readiness
+    paths:
+      - '.github/workflows/v10-m24-freeze.yml'
+      - 'scripts/freeze_v10_m24_consumed_dev.py'
+      - 'evaluation/v10_m24_consumed_dev_20.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  reproduce:
+    name: Verify original consumed artifacts and frozen IDs (no company network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve immutable prior evidence, not fresh companies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m24-evidence
+          for spec in 'm19-a:11505218381' 'm19-b:11525046472' 'm20-a:11525304908'; do
+            name=${spec%%:*}; id=${spec##*:}
+            curl --fail --silent --show-error --location --retry 3 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/${id}/zip" \
+              -o "/tmp/m24-evidence/${name}.zip"
+          done
+      - name: Reproduce fixed 7/7/6 development-only manifest
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/freeze_v10_m24_consumed_dev.py
+          python scripts/freeze_v10_m24_consumed_dev.py \
+            --m19-a /tmp/m24-evidence/m19-a.zip \
+            --m19-b /tmp/m24-evidence/m19-b.zip \
+            --m20-a /tmp/m24-evidence/m20-a.zip \
+            --output /tmp/m24-evidence/recomputed.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          expected = json.loads(Path('evaluation/v10_m24_consumed_dev_20.json').read_text())
+          actual = json.loads(Path('/tmp/m24-evidence/recomputed.json').read_text())
+          assert actual['selected_per_cohort'] == expected['selected_per_cohort']
+          assert actual['selected_list_sha256'] == expected['selected_list_sha256']
+          assert actual['count'] == expected['count'] == 20
+          assert actual['fresh_companies_used'] == actual['new_external_requests'] == 0
+          assert not actual['live_provider_authorized']
+          assert not actual['production_promotion_authorized']
+          assert not expected['live_provider_authorized']
+          assert not expected['permission_to_merge']
+          assert len(actual['origin_artifacts']) == 3
+          assert sum(x['selected_count'] for x in actual['origin_artifacts']) == 20
+          assert all(x['eligible_before_selection'] >= x['selected_count'] for x in actual['origin_artifacts'])
+          print('M24 EXACT ARTIFACT REPRODUCTION PASS: 20 consumed / 0 fresh')
+          PY
+      - name: Corrupt ZIP must fail before selection
+        run: |
+          set -euo pipefail
+          cp /tmp/m24-evidence/m19-a.zip /tmp/m24-evidence/corrupted.zip
+          printf X >> /tmp/m24-evidence/corrupted.zip
+          if python scripts/freeze_v10_m24_consumed_dev.py \
+            --m19-a /tmp/m24-evidence/corrupted.zip \
+            --m19-b /tmp/m24-evidence/m19-b.zip \
+            --m20-a /tmp/m24-evidence/m20-a.zip \
+            --output /tmp/m24-evidence/SHOULD-NOT-EXIST.json; then
+            echo 'FAIL: modified archive was accepted'; exit 1
+          fi
+          test ! -e /tmp/m24-evidence/SHOULD-NOT-EXIST.json
+          echo 'M24 INTEGRITY NEGATIVE TEST PASS'

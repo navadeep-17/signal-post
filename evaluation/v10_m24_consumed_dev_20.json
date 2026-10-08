@@ -1,0 +1,39 @@
+{
+  "schema": "v10_m24_consumed_dev_20_v1",
+  "qualified_v8_sha": "200f056a5a60cad23610a3958b6bec62dfb624a5",
+  "type": "PRIOR_CONSUMED_ONLY_NOT_TRANSFER",
+  "selector": "has legal name and municipality; no BRREG site seed; no official_website available; SHA256(signalpost-v10-m24-consumed-development-v1|orgnr), 7/7/6",
+  "selected_per_cohort": {
+    "m19_a": [
+      "928949605",
+      "929359623",
+      "928238261",
+      "928028135",
+      "929055535",
+      "928785947",
+      "928785254"
+    ],
+    "m19_b": [
+      "931025368",
+      "931687964",
+      "932392372",
+      "931914669",
+      "930704555",
+      "930888184",
+      "931364405"
+    ],
+    "m20_a": [
+      "933585360",
+      "934989864",
+      "934384520",
+      "933781844",
+      "936065562",
+      "933342328"
+    ]
+  },
+  "selected_list_sha256": "3967c2a4b16e6645d3426168d32511944c5e196d19e147b65924925c69c6360e",
+  "count": 20,
+  "live_provider_authorized": false,
+  "permission_to_merge": false,
+  "third_party_cost_usd": 0
+}
