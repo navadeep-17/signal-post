@@ -1,0 +1,65 @@
+name: V10 M21 Reproduce Disjoint Source-Reach Audit
+
+on:
+  push:
+    branches:
+      - experiment/v10-m21-source-reach-diagnostic
+    paths:
+      - '.github/workflows/v10-m21-source-reach-audit.yml'
+      - 'scripts/audit_v10_m21_source_reach.py'
+      - 'evaluation/v10_m21_source_reach_300.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    name: Replay immutable M19/M20 evidence only
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve exact existing evidence ZIPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/11505218381/zip" \
+            -o evidence/m19-a.zip
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/11525046472/zip" \
+            -o evidence/m19-b.zip
+          curl --fail --silent --show-error --location --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/11525304908/zip" \
+            -o evidence/m20-a.zip
+      - name: Recompute published claims and test exact committed report
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/audit_v10_m21_source_reach.py
+          python scripts/audit_v10_m21_source_reach.py \
+            --m19-a evidence/m19-a.zip \
+            --m19-b evidence/m19-b.zip \
+            --m20-a evidence/m20-a.zip \
+            --output evidence/recomputed.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          expected = json.loads(Path('evaluation/v10_m21_source_reach_300.json').read_text())
+          actual = json.loads(Path('evidence/recomputed.json').read_text())
+          assert actual == expected, 'M21 checked-in report differs from pinned evidence'
+          assert actual['fresh_companies_used'] == 0
+          assert actual['totals']['companies'] == 300
+          assert actual['totals']['website_source_selection']['none'] == 259
+          assert actual['totals']['published_company_counts']['official_website'] == 41
+          print('M21 read-only exact-artifact reproduction: PASS')
+          PY
