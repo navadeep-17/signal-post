@@ -180,6 +180,10 @@ def run_pilot(
 ) -> dict[str, Any]:
     if len(profiles) != MAX_BATCH:
         raise ValueError("Pilot must use exactly 20 frozen development records")
+    orgs = [str(p.get("organisation_number") or "") for p in profiles]
+    if (len(set(orgs)) != MAX_BATCH or
+            hashlib.sha256("\\n".join(orgs).encode()).hexdigest() != EXPECTED_SHA):
+        raise ValueError("Pilot must preserve M24's exact frozen IDs and ordering")
     if not live and api_key:
         # A preview never needs credentials, even if accidentally supplied.
         api_key = ""
