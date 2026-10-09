@@ -38,7 +38,7 @@ jobs:
           # Exclude this self-check script; its assertions intentionally name
           # forbidden credential references and live flags as literal strings.
           begin=y.index('      - name: Verify preview-only design excludes live mode and provider credentials')
-          end=y.index('      - uses: actions/setup-python@v5', begin)
+          end=y.index('\n      - uses: actions/setup-python@v5\n', begin)
           y=y[:begin]+y[end:]
           assert 'TAVILY_API_KEY' not in y
           assert 'SIGNALPOST_PILOT_REPORT_KEY' not in y
