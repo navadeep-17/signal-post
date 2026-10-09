@@ -88,3 +88,79 @@ def test_four_mock_searches_never_exceed_ceiling():
     assert x["ceiling_first_party_logical_http"]==8
     assert x["ceiling_challenge_charge"]==24
     assert x["reserved_logical_http"]==4 and x["new_published_claims"]==0
+
+def test_private_funnel_records_nomination_but_never_provider_snippets():
+    from run_v10_m33_consumed4_diagnostic import _result_categories
+    url="https://nordlysmarin.no/"
+    calls=[]
+    def search(*a,**kw):
+        calls.append("search")
+        return SearchResult("ok_transient_candidates_only",1,2,{
+            "results":[{"url":"https://proff.no/selskap/example",
+                        "title":"Nordlys Marin Teknologi AS","content":"directory"},
+                       {"url":url,"title":"NORDLYS MARIN TEKNOLOGI AS",
+                        "content":"UNTRUSTED_PROVIDER_SNIPPET",
+                        "raw_content":"UNTRUSTED_PROVIDER_RAW"}],
+            "answer":"UNTRUSTED_PROVIDER_ANSWER"})
+    def fetched(site,**kw):
+        assert site==url
+        calls.append("fetch")
+        text="NORDLYS MARIN TEKNOLOGI AS. Organisasjonsnummer 928949605. Tromso."
+        return {"status":"available","source_url":url,"value":{
+            "requested_url":url,"final_url":url,"title":"NORDLYS MARIN TEKNOLOGI AS",
+            "description":"","identity_text_excerpt":text,
+            "main_text_excerpt":text,"structured_organisations":[],
+            "pages":[],"social_links":[],"content_sha256":"synthetic_hash"}}, {"requests":2}
+    x=diagnose_one(profiles()[0],api_key="synthetic",search_fn=search,
+                   fetch_fn=fetched)
+    assert calls==["search","fetch"]
+    assert x["raw_result_count"]==2
+    assert x["baseline_nominated"] is False
+    assert x["challenger_nominated"] is True
+    assert x["url_categories"]["directory_or_social_host"]==1
+    assert x["url_categories"]["safe_root_https_homepage"]==1
+    assert x["site_logical_reserved"]==3
+    assert x["conservative_request_charge_reserved"]==6
+    assert x["published_company_claims"]==0
+    assert "UNTRUSTED_PROVIDER" not in str(x)
+
+
+def test_wrong_organisation_number_never_qualifies():
+    url="https://nordlysmarin.no/"
+    def search(*a,**kw):
+        return SearchResult("ok_transient_candidates_only",1,2,{
+            "results":[{"url":url,"title":"NORDLYS MARIN TEKNOLOGI AS",
+                        "content":"Marine technology"}]})
+    def wrong(site,**kw):
+        text="NORDLYS MARIN TEKNOLOGI AS. Organisasjonsnummer 987654321. Tromso."
+        return {"status":"available","source_url":url,"value":{
+            "requested_url":url,"final_url":url,"title":"NORDLYS MARIN TEKNOLOGI AS",
+            "description":"","identity_text_excerpt":text,
+            "main_text_excerpt":text,"structured_organisations":[],
+            "pages":[],"social_links":[]}}, {"requests":2}
+    x=diagnose_one(profiles()[0],api_key="synthetic",search_fn=search,
+                   fetch_fn=wrong)
+    assert x["first_party_fetch_attempted"] is True
+    assert x["manual_review_candidate"] is False
+    assert x["status"]=="identity_rejected"
+    assert x["published_company_claims"]==0
+
+
+def test_four_searches_eight_first_party_slots_max():
+    url="https://nordlysmarin.no/"
+    calls=[]
+    def search(*a,**kw):
+        calls.append("search")
+        return SearchResult("ok_transient_candidates_only",1,2,{
+            "results":[{"url":url,"title":"NORDLYS MARIN TEKNOLOGI AS",
+                        "content":"Marine technology"}]})
+    def fetch(site,**kw):
+        calls.append("fetch")
+        return {"status":"unavailable"}, {"requests":2}
+    x=diagnostic(profiles(),history(),live=True,api_key="synthetic",
+                 search_fn=search,fetch_fn=fetch)
+    assert calls==["search","fetch"]*4
+    assert x["requested"]==4 and x["attempted"]==4
+    assert x["reserved_logical_http"]==12
+    assert x["reserved_conservative_challenge_charge"]==24
+    assert x["new_published_claims"]==0
