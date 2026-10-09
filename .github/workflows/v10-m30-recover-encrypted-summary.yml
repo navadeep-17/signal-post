@@ -1,0 +1,125 @@
+name: M30 Recover Encrypted Pilot Summary Without Saved Key
+
+# The user's Fernet key was placed in Actions Secrets but not retained locally.
+# Runs only in the experiment. No Tavily connection, company fetch, or main merge.
+on:
+  push:
+    branches:
+      - experiment/v10-m28-no-main-manual-pilot
+    paths:
+      - .github/workflows/v10-m30-recover-encrypted-summary.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  safe-summary:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m28-no-main-manual-pilot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify this workflow never executes a collection or provider CLI
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          y=Path('.github/workflows/v10-m30-recover-encrypted-summary.yml').read_text()
+          assert 'workflow_dispatch:' not in y
+          assert 'repository_dispatch:' not in y
+          assert 'TAVILY_API_KEY' not in y
+          assert 'run_signalpost_v8.py' not in y
+          assert 'run_v10_m26_consumed_pilot.py' not in y
+          assert 'tavily_bounded_transport' not in y
+          assert '--execute-live' not in y
+          print('M30 recovery contains no provider transport or live runner')
+          PY
+      - name: Set up Python and Fernet support
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download original encrypted artifact (already produced; no new evaluation)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 20 --max-time 120 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/11591051792/zip' \
+            -o /tmp/m30-original-encrypted-artifact.zip
+          python - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          z=ZipFile('/tmp/m30-original-encrypted-artifact.zip')
+          names=z.namelist()
+          assert len(names)==1, 'Unexpected archive member count'
+          assert names[0].endswith('m27-consumed-encrypted-report.fernet'), 'Unexpected archive entry'
+          info=z.getinfo(names[0])
+          assert 100 < info.file_size < 1_000_000, 'Encrypted payload size out of bounds'
+          data=z.read(names[0])
+          assert data.startswith(b'gAAAA'), 'Not a Fernet ciphertext'
+          Path('/tmp/m30-rescued-encrypted-report.fernet').write_bytes(data)
+          print('Existing encrypted ciphertext recovered without exposing plaintext')
+          PY
+      - name: Re-upload ciphertext ONLY as a private seven-day backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: m30-rescued-encrypted-pilot-report
+          path: /tmp/m30-rescued-encrypted-report.fernet
+          retention-days: 7
+          if-no-files-found: error
+      - name: Decrypt IN MEMORY with retained GitHub secret; print summary only
+        env:
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          python -m pip -q install 'cryptography>=45,<47'
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          try:
+              key=os.environ.get('SIGNALPOST_PILOT_REPORT_KEY', '')
+              if not key:
+                  raise ValueError('Stored encryption key is unavailable')
+              ciphertext=Path('/tmp/m30-rescued-encrypted-report.fernet').read_bytes()
+              report=json.loads(Fernet(key.encode()).decrypt(ciphertext))
+              assert report['schema']=='m26_consumed_development_manual_review_only'
+              assert report['type']=='PREVIOUSLY_CONSUMED_NOT_FRESH'
+              assert report['selection_sha256']=='3967c2a4b16e6645d3426168d32511944c5e196d19e147b65924925c69c6360e'
+              assert report['requested_companies']==20
+              assert len(report['rows']) <= 20
+              assert report['published_company_claims']==0
+              assert report['qualified_v8_modified'] is False
+              attempted=report['attempted_companies']
+              reviewable=report['manually_reviewable_exact_org_sites']
+              aborted=report['aborted']
+              assert type(attempted)==int and 0 <= attempted <= 20
+              assert type(reviewable)==int and 0 <= reviewable <= attempted
+              assert type(aborted)==bool
+              assert reviewable==sum(row.get('status')=='manual_exact_org_site_review_required' for row in report['rows'])
+              # Provider-neutral summary: no provider score, key, org number or URL.
+              summary=(f'Previously consumed companies attempted: {attempted}/20; '
+                       f'unverified website candidates requiring manual legal-entity audit: {reviewable}; '
+                       f'pilot stopped early: {aborted}; published claims: 0.')
+              print('M30 encrypted-report recovery: SUCCESS')
+              print(summary)
+              if 'GITHUB_STEP_SUMMARY' in os.environ:
+                  with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as handle:
+                      handle.write('### Signalpost private consumed-development recovery\n\n'+summary+'\n\n')
+                      handle.write('These are candidate counts, NOT verified lift or an official challenge score.\n')
+          except Exception:
+              # Keep failure messages generic and never print a secret or record.
+              print('M30 key/report validation failed. Ciphertext-only backup remains available.')
+              raise SystemExit(1)
+          PY
+      - name: Destroy working copies
+        if: always()
+        run: rm -f /tmp/m30-original-encrypted-artifact.zip /tmp/m30-rescued-encrypted-report.fernet
