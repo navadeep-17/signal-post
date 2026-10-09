@@ -1,0 +1,57 @@
+name: M32 Offline Crawl Nomination Challenger
+
+on:
+  push:
+    branches:
+      - experiment/v10-m32-offline-crawl-nomination
+    paths:
+      - 'src/norway_company_agent/v10_m32_offline_nomination.py'
+      - 'tests/test_v10_m32_offline_nomination.py'
+      - '.github/workflows/v10-m32-offline-nomination.yml'
+      - 'docs/V10_M32_NOMINATION_OFFLINE_REVIEW.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-no-provider-requests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install pinned project dependencies
+        run: uv sync --locked
+      - name: Verify challenger is isolated from production and contains no HTTP calls
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('src/norway_company_agent/v10_m32_offline_nomination.py').read_text()
+          forbidden=['urlopen(', '.open(', 'requests.get(', 'requests.post(',
+                     'httpx.', 'api.tavily.com', 'TAVILY_API_KEY', 'os.environ',
+                     'run_signalpost_v8.py', 'execute_bounded_search(']
+          for token in forbidden:
+              assert token not in s, f'Experimental module contains forbidden network hook: {token}'
+          for name in ('scripts/run_signalpost_v8.py', 'scripts/run_signalpost_v7.py',
+                       'scripts/run_signalpost_final.py',
+                       'src/norway_company_agent/discovery.py',
+                       'src/norway_company_agent/tavily_offline_candidate.py'):
+              assert Path(name).is_file()
+          print('M32 only adds isolated synthetic-only module; no live provider runtime')
+          PY
+      - name: Run synthetic M32 and original M23/M25/M26/search regressions
+        run: |
+          uv run --with pytest pytest -q \
+            tests/test_v10_m32_offline_nomination.py \
+            tests/test_v10_m23_tavily_offline_candidate.py \
+            tests/test_v10_m25_tavily_transport.py \
+            tests/test_v10_m26_consumed_pilot.py \
+            tests/test_search_discovery.py
