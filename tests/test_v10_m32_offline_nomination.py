@@ -15,7 +15,7 @@ from norway_company_agent.v10_m32_offline_nomination import (
 
 COMPANY = "NORDLYS MARIN TEKNOLOGI AS"
 ORG = "123456789"
-SITE = "https://nordlysmarinteknologi.no/"
+SITE = "https://nordlysmarin.no/"
 
 
 def profile(*, name=COMPANY, org=ORG, website=""):
@@ -59,6 +59,22 @@ def test_challenger_nominates_first_party_homepage_without_organisation_snippet(
     assert selected["path"] == "offline_strict_root_domain_with_full_title"
     assert selected["selected"]["url"] == SITE
     assert selected["published_claims"] == 0
+
+
+def test_full_legal_name_domain_was_already_nominated_by_baseline():
+    old=result(url="https://nordlysmarinteknologi.no/")
+    picked=choose_search_candidate(profile(),[old])
+    assert picked["selected"] is not None
+    selected=nominate_offline(profile(),[old])
+    assert selected["path"]=="baseline_unchanged"
+
+
+def test_unsafe_hostname_substring_looks_accepted_to_legacy_but_is_rejected_here():
+    deceptive=result(url="https://nordlysmarinteknologi.no.attacker.com/")
+    # An unsafe historical fetch nomination is not a true legal-entity claim,
+    # but it should not be inherited by a more conservative new experiment.
+    assert choose_search_candidate(profile(),[deceptive])["selected"] is not None
+    assert nominate_offline(profile(),[deceptive])["selected"] is None
 
 
 def test_challenger_never_replaces_existing_baseline_candidate():
@@ -276,7 +292,7 @@ def test_provider_results_never_persist_in_challenger_audit():
         profile(),payload=provider_payload(),
         independently_fetched=webpage()
     )
-    assert "nordlysmarinteknologi.no" not in str(item)
+    assert "nordlysmarin.no" not in str(item)
     assert ORG not in str(item)
     assert "UNTRUSTED_RAW_PROVIDER_OUTPUT" not in str(item)
     assert "UNTRUSTED_AI_SUMMARY" not in str(item)
