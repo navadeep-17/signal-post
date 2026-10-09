@@ -17,6 +17,21 @@ on:
         description: 'For LIVE only, type exactly: RUN_FROZEN_CONSUMED_20_ONLY'
         required: false
         type: string
+      confirm_pay_as_you_go_off:
+        description: 'I just verified pay-as-you-go is OFF (required for live)'
+        required: false
+        type: boolean
+        default: false
+      confirm_at_least_20_credits:
+        description: 'I just verified 20+ free Basic Search credits remain (live only)'
+        required: false
+        type: boolean
+        default: false
+      confirm_server_side_only:
+        description: 'I confirm no key or private results will be published (live only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,11 +52,17 @@ jobs:
           MODE: ${{ inputs.mode }}
           LIVE_CONFIRMATION: ${{ inputs.live_confirmation }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          PAYG_OFF: ${{ inputs.confirm_pay_as_you_go_off }}
+          FREE_CREDITS: ${{ inputs.confirm_at_least_20_credits }}
+          SERVER_SIDE: ${{ inputs.confirm_server_side_only }}
         run: |
           set -euo pipefail
           if [ "$MODE" = live ]; then
             test "$LIVE_CONFIRMATION" = 'RUN_FROZEN_CONSUMED_20_ONLY' || { echo 'Missing exact live confirmation'; exit 1; }
             test "$RUN_ATTEMPT" = 1 || { echo 'Live run retry is forbidden (prevents duplicate credit spending)'; exit 1; }
+            test "$PAYG_OFF" = true || { echo 'Live mode requires fresh PAYG-OFF confirmation'; exit 1; }
+            test "$FREE_CREDITS" = true || { echo 'Live mode requires fresh free-credit balance confirmation'; exit 1; }
+            test "$SERVER_SIDE" = true || { echo 'Live mode requires server-only handling confirmation'; exit 1; }
           else
             test "$MODE" = preview || { echo 'Unknown execution mode'; exit 1; }
           fi
