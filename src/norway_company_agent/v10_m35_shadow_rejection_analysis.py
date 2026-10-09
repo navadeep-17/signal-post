@@ -23,6 +23,7 @@ from .v10_m32_offline_nomination import _safe_first_party_homepage, nominate_off
 # No third-party result can be accepted as proof of exact entity identity.
 # A title using a DIFFERENT registered business name is a strong collision cue.
 TITLE_LEGAL_MARKERS = frozenset({"as", "asa", "ab", "ans", "nuf", "ltd", "limited", "inc"})
+TITLE_COLLISION_MARKERS = frozenset({"holding", "holdings", "konsern", "parent", "group", "gruppen", "subsidiary", "datterselskap", "directory", "listing"})
 # These labels are only INTERNAL classification flags; do not log source text.
 ALLOWED_SHADOW_ROOT_STRENGTHS = frozenset({"exact", "multi"})
 
@@ -144,7 +145,7 @@ def shadow_nominate_for_fixture_only(
         if tokens[0] not in title_tokens or len(overlap) < 2 or len(overlap) == len(set(tokens)):
             continue  # existing M32 must handle complete titles; no score inflation
         # A different incorporated legal-name title is a hard collision signal.
-        if title_tokens & TITLE_LEGAL_MARKERS:
+        if title_tokens & (TITLE_LEGAL_MARKERS | TITLE_COLLISION_MARKERS):
             continue
         # Strong municipality corroboration helps avoid content farm headlines.
         snippet_tokens = set(_tokens(item.get("snippet")))
