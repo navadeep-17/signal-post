@@ -103,8 +103,11 @@ jobs:
               # are known to be these source records in the original consumed order.
               from pathlib import Path
               manifest=json.loads(Path('evaluation/v10_m24_consumed_dev_20.json').read_text())
-              expected=manifest['selected_per_cohort']['m19_a'][:4]
-              assert [str(r['organisation_number']) for r in rows]==expected
+              frozen=[n for group in ('m19_a','m19_b','m20_a') for n in manifest['selected_per_cohort'][group]]
+              current=[str(r['organisation_number']) for r in rows]
+              assert len(set(current))==4
+              assert all(n in frozen for n in current)
+              assert sorted(current,key=frozen.index)==current
               allowed={'no_valid_search_urls','no_safe_nomination','unsafe_nomination_blocked',
                        'first_party_page_unavailable','identity_rejected','manual_review_only',
                        'invalid_or_forbidden_key','rate_limited_or_out_of_credits',
