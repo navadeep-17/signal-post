@@ -1,0 +1,142 @@
+name: M31 Signalpost Internal Pipeline Stage Diagnosis (Existing Evidence Only)
+
+# A push to this new workflow file starts only a secret-safe internal diagnostic.
+# It uses an EXISTING encrypted pilot report, never any provider API or company fetch.
+on:
+  push:
+    branches:
+      - experiment/v10-m28-no-main-manual-pilot
+    paths:
+      - .github/workflows/v10-m31-stage-diagnosis.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  stage-diagnosis:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m28-no-main-manual-pilot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout immutable report-verification definitions
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Audit workflow has no provider client, site fetch or production runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          y=Path('.github/workflows/v10-m31-stage-diagnosis.yml').read_text()
+          begin=y.index('      - name: Audit workflow has no provider client, site fetch or production runner')
+          end=y.index('\n      - name: Set up Python\n',begin)
+          y=y[:begin]+y[end:]
+          for denied in ('TAVILY_API_KEY','run_v10_m26_consumed_pilot.py','--execute-live',
+                         'api.tavily.com', 'run_signalpost_v8.py', 'run_signalpost_final.py'):
+              assert denied not in y, 'Forbidden provider or production command'
+          assert 'workflow_dispatch:' not in y
+          assert 'actions/upload-artifact' not in y
+          print('M31: diagnostics restricted to existing encrypted report')
+          PY
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve EXISTING seven-day encrypted backup from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --connect-timeout 20 --max-time 120 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/11589949864/zip' \
+            -o /tmp/m31-existing-encrypted-backup.zip
+          python - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          z=ZipFile('/tmp/m31-existing-encrypted-backup.zip')
+          files=z.namelist()
+          assert len(files)==1
+          assert files[0]=='m30-rescued-encrypted-report.fernet'
+          assert 100 < z.getinfo(files[0]).file_size < 1000000
+          data=z.read(files[0])
+          assert data.startswith(b'gAAAA')
+          Path('/tmp/m31-ciphertext.fernet').write_bytes(data)
+          print('Existing private ciphertext validated; no research performed')
+          PY
+      - name: Derive only provider-neutral Signalpost pipeline rejection-stage counts
+        env:
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          python -m pip -q install 'cryptography>=45,<47'
+          python - <<'PY'
+          import collections, hashlib, json, os
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          try:
+              key=os.environ.get('SIGNALPOST_PILOT_REPORT_KEY','')
+              assert key
+              report=json.loads(Fernet(key.encode()).decrypt(Path('/tmp/m31-ciphertext.fernet').read_bytes()))
+              assert report['schema']=='m26_consumed_development_manual_review_only'
+              assert report['type']=='PREVIOUSLY_CONSUMED_NOT_FRESH'
+              assert report['selection_sha256']=='3967c2a4b16e6645d3426168d32511944c5e196d19e147b65924925c69c6360e'
+              assert report['requested_companies']==20 and report['attempted_companies']==20
+              assert report['aborted'] is False
+              assert report['published_company_claims']==0
+              assert report['qualified_v8_modified'] is False
+              rows=report['rows']
+              assert len(rows)==20
+              ids=[str(r['organisation_number']) for r in rows]
+              assert len(set(ids))==20
+              assert hashlib.sha256('\n'.join(ids).encode()).hexdigest()==report['selection_sha256']
+              groups={
+                'no_candidate_qualified_for_independent_fetch':'candidate_gate_no_nomination',
+                'invalid_candidate_url':'candidate_gate_no_nomination',
+                'first_party_page_unavailable':'independent_website_unavailable',
+                'independent_fetch_budget_violation':'independent_website_unavailable',
+                'first_party_identity_rejected':'legal_identity_proof_rejected',
+                'cross_domain_redirect_rejected':'legal_identity_proof_rejected',
+                'exact_org_number_missing_from_fetched_page':'legal_identity_proof_rejected',
+                'manual_exact_org_site_review_required':'manual_review_candidate_only',
+                'invalid_or_forbidden_key':'upstream_or_transport_failure',
+                'rate_limited_or_out_of_credits':'upstream_or_transport_failure',
+                'provider_http_error':'upstream_or_transport_failure',
+                'redirect_blocked':'upstream_or_transport_failure',
+                'unexpected_response_origin':'upstream_or_transport_failure',
+                'transport_error':'upstream_or_transport_failure',
+                'oversized_provider_response':'upstream_or_transport_failure',
+                'invalid_json_response':'upstream_or_transport_failure',
+                'invalid_search_response':'upstream_or_transport_failure',
+                'no_key_no_request':'upstream_or_transport_failure',
+              }
+              summary=collections.Counter()
+              for row in rows:
+                  status=row.get('status')
+                  assert status in groups, 'Unexpected internal stage'
+                  assert row['published_claims']==0
+                  used=row['site_logical_requests_reserved']
+                  assert used in (1,3)
+                  assert row['conservative_charge_reserved']==used*2
+                  summary[groups[status]]+=1
+              assert sum(summary.values())==20
+              assert sum(r['site_logical_requests_reserved'] for r in rows)==report['logical_requests_reserved']
+              assert sum(r['conservative_charge_reserved'] for r in rows)==report['conservative_charge_reserved']
+              assert summary['manual_review_candidate_only']==0
+              print('M31: recovered 20-item existing Signalpost evaluation report')
+              print('Signalpost internal pipeline stage totals (no provider rankings, URLs, org IDs or source results):')
+              keys=['candidate_gate_no_nomination','independent_website_unavailable',
+                    'legal_identity_proof_rejected','upstream_or_transport_failure',
+                    'manual_review_candidate_only']
+              for name in keys:
+                  print(f'{name}: {summary[name]}')
+              print('Interpretation caveat: the report did not retain raw search results, so their count cannot be established')
+          except Exception:
+              print('M31 encrypted diagnostic failed its private integrity or key validation')
+              raise SystemExit(1)
+          PY
+      - name: Delete original and private temporary files
+        if: always()
+        run: rm -f /tmp/m31-existing-encrypted-backup.zip /tmp/m31-ciphertext.fernet
