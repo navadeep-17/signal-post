@@ -35,6 +35,11 @@ jobs:
           from pathlib import Path
           path=Path('.github/workflows/v10-m28-zero-credit-preview.yml')
           y=path.read_text()
+          # Exclude this self-check script; its assertions intentionally name
+          # forbidden credential references and live flags as literal strings.
+          begin=y.index('      - name: Verify preview-only design excludes live mode and provider credentials')
+          end=y.index('      - uses: actions/setup-python@v5', begin)
+          y=y[:begin]+y[end:]
           assert 'TAVILY_API_KEY' not in y
           assert 'SIGNALPOST_PILOT_REPORT_KEY' not in y
           assert 'secrets.' not in y
