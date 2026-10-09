@@ -1,0 +1,183 @@
+name: M34 Read M33 Private Aggregate Diagnostic (Existing Report Only)
+
+# Only a one-shot read-only analysis of the already completed M33 experiment.
+# Does not call the provider, perform independent GETs or change production.
+on:
+  push:
+    branches:
+      - experiment/v10-m32-offline-crawl-nomination
+    paths:
+      - .github/workflows/v10-m34-m33-existing-report-summary.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect-existing-encrypted-report:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m32-offline-crawl-nomination'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout experimental files only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify summary workflow contains no provider calls or production integration
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          y=Path('.github/workflows/v10-m34-m33-existing-report-summary.yml').read_text()
+          start=y.index('      - name: Verify summary workflow contains no provider calls or production integration')
+          end=y.index('\n      - uses: actions/setup-python@v5\n',start)
+          clean=y[:start]+y[end:]
+          for needle in ('TAVILY_API_KEY','--execute-live','run_v10_m33_actions_wrapper.py','api.tavily.com','run_signalpost_v8.py','workflow_dispatch:', 'requests.post('):
+              assert needle not in clean, 'Refuse diagnostic if a provider call is wired in'
+          assert '11592869227' in clean
+          print('Existing encrypted artifact ONLY. Zero external search/company-page calls.')
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download existing M33 ciphertext (no new experiment)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 \
+            --connect-timeout 15 --max-time 90 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/11592869227/zip' \
+            -o /tmp/m34-m33-existing.zip
+          python - <<'PY'
+          from zipfile import ZipFile
+          from pathlib import Path
+          with ZipFile('/tmp/m34-m33-existing.zip') as z:
+              assert z.namelist()==['m33-frozen-four-ciphertext.fernet']
+              info=z.getinfo(z.namelist()[0])
+              assert 100 < info.file_size < 500000
+              encrypted=z.read(z.namelist()[0])
+          assert encrypted.startswith(b'gAAAA')
+          Path('/tmp/m34-existing.fernet').write_bytes(encrypted)
+          print('Verified sealed existing ciphertext; no provider result text read in logs')
+          PY
+
+      - name: Decrypt IN MEMORY and publish only internal Signalpost stage counts
+        env:
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          python -m pip -q install 'cryptography>=45,<47'
+          python - <<'PY'
+          import json,os
+          from collections import Counter
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+
+          try:
+              key=os.environ.get('SIGNALPOST_PILOT_REPORT_KEY','')
+              assert key, 'Private key missing'
+              data=Path('/tmp/m34-existing.fernet').read_bytes()
+              report=json.loads(Fernet(key.encode()).decrypt(data))
+              assert report['schema']=='m33_consumed4_funnel_minimal_private_v1'
+              assert report['source']=='PREVIOUSLY_CONSUMED_M24_20_ONLY'
+              assert report['m24_digest']=='3967c2a4b16e6645d3426168d32511944c5e196d19e147b65924925c69c6360e'
+              assert report['requested']==4 and report['attempted']==4
+              assert report['aborted'] is False
+              assert report['new_published_claims']==0
+              assert report['qualified_v8_modified'] is False
+              assert report['manual_audit_complete'] is False
+              assert report['official_score_measured'] is False
+              assert report['ceiling_search_basic_requests']==4
+              assert report['ceiling_first_party_logical_http']==8
+              assert report['ceiling_challenge_charge']==24
+              rows=report['rows']
+              assert type(rows)==list and len(rows)==4
+              # Exact frozen M24 selection: first four historical early abstainers
+              # are known to be these source records in the original consumed order.
+              from pathlib import Path
+              manifest=json.loads(Path('evaluation/v10_m24_consumed_dev_20.json').read_text())
+              frozen=[n for group in ('m19_a','m19_b','m20_a') for n in manifest['selected_per_cohort'][group]]
+              current=[str(r['organisation_number']) for r in rows]
+              assert len(set(current))==4
+              assert all(n in frozen for n in current)
+              assert sorted(current,key=frozen.index)==current
+              allowed={'no_valid_search_urls','no_safe_nomination','unsafe_nomination_blocked',
+                       'first_party_page_unavailable','identity_rejected','manual_review_only',
+                       'invalid_or_forbidden_key','rate_limited_or_out_of_credits',
+                       'provider_http_error','transport_error','invalid_search_response',
+                       'invalid_json_response','oversized_provider_response',
+                       'redirect_blocked','unexpected_response_origin','fetch_budget_violation'}
+              for r in rows:
+                  assert r['status'] in allowed
+                  assert r['published_company_claims']==0
+                  assert type(r['raw_result_count'])==int and 0<=r['raw_result_count']<=10
+                  assert type(r['normalized_url_result_count'])==int and 0<=r['normalized_url_result_count']<=r['raw_result_count']
+                  assert r['site_logical_reserved'] in (1,3)
+                  assert r['conservative_request_charge_reserved']==2*r['site_logical_reserved']
+                  assert type(r['url_categories'])==dict
+                  assert set(r['url_categories'])<={
+                    'invalid_url','directory_or_social_host','not_safe_root_https_homepage',
+                    'safe_root_https_homepage'}
+                  assert all(type(n)==int and 0<=n<=10 for n in r['url_categories'].values())
+                  assert sum(r['url_categories'].values())==r['normalized_url_result_count']
+                  assert all(type(r[k])==bool for k in
+                    ('baseline_nominated','challenger_nominated','nominated_for_crawl',
+                     'first_party_fetch_attempted','first_party_page_available','manual_review_candidate'))
+                  assert r['first_party_page_available']<=r['first_party_fetch_attempted']
+                  assert r['manual_review_candidate']<=r['first_party_page_available']
+              logical=sum(r['site_logical_reserved'] for r in rows)
+              charged=sum(r['conservative_request_charge_reserved'] for r in rows)
+              assert logical==report['reserved_logical_http'] and 4<=logical<=12
+              assert charged==report['reserved_conservative_challenge_charge'] and 8<=charged<=24
+              assert sum(r['nominated_for_crawl'] for r in rows)<=4
+              statuses=Counter(r['status'] for r in rows)
+              summaries={
+                'cohort_companies': len(rows),
+                'without_usable_normalized_candidate_urls':sum(r['normalized_url_result_count']==0 for r in rows),
+                'with_usable_normalized_candidate_urls':sum(r['normalized_url_result_count']>0 for r in rows),
+                'original_selector_nominated':sum(r['baseline_nominated'] for r in rows),
+                'challenger_only_nominated':sum(r['challenger_nominated'] for r in rows),
+                'first_party_websites_fetch_attempted':sum(r['first_party_fetch_attempted'] for r in rows),
+                'first_party_websites_available':sum(r['first_party_page_available'] for r in rows),
+                'first_party_legal_identity_rejected':statuses['identity_rejected'],
+                'candidate_sites_for_private_manual_audit':sum(r['manual_review_candidate'] for r in rows),
+                'companies_with_no_safe_nomination':statuses['no_safe_nomination'],
+                # Internal Signalpost URL-type categories only; no URL titles,
+                # provider scores, identities, ranks, or source response text.
+                'companies_with_any_plausible_https_root':sum(
+                    r['url_categories'].get('safe_root_https_homepage',0)>0 for r in rows),
+                'companies_with_any_directory_social':sum(
+                    r['url_categories'].get('directory_or_social_host',0)>0 for r in rows),
+                'companies_with_any_unsafe_or_deep_url':sum(
+                    r['url_categories'].get('not_safe_root_https_homepage',0)>0 for r in rows),
+                'companies_with_only_directory_social':sum(
+                    r['normalized_url_result_count']>0 and
+                    r['url_categories'].get('directory_or_social_host',0)==r['normalized_url_result_count']
+                    for r in rows),
+                'companies_with_safe_root_but_no_nomination':sum(
+                    r['url_categories'].get('safe_root_https_homepage',0)>0 and
+                    not r['nominated_for_crawl'] for r in rows),
+                'reserved_logical_requests':logical,
+                'reserved_conservative_charges':charged,
+                'published_claims':0,
+              }
+              print('M34 PASS: encrypted M33 development experiment verified.')
+              print('Provider-neutral internal Signalpost processing stages (no names, URLs, rankings or source content):')
+              for key,value in summaries.items():
+                  print(key+': '+str(value))
+              print('These are developer funnel counts, NOT provider benchmark, official challenge score or verified release improvement.')
+          except Exception:
+              print('M34 encrypted diagnostic integrity check failed: no private details exposed')
+              raise SystemExit(1)
+          PY
+
+      - name: Delete sensitive temporary ciphertext
+        if: always()
+        run: rm -f /tmp/m34-m33-existing.zip /tmp/m34-existing.fernet

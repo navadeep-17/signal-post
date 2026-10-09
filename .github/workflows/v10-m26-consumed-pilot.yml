@@ -1,0 +1,82 @@
+name: V10 M26 Consumed-20 Pilot Readiness (No Live Provider Calls)
+
+on:
+  push:
+    branches:
+      - experiment/v10-m26-consumed-live-pilot-runner
+    paths:
+      - '.github/workflows/v10-m26-consumed-pilot.yml'
+      - 'scripts/run_v10_m26_consumed_pilot.py'
+      - 'scripts/freeze_v10_m24_consumed_dev.py'
+      - 'src/norway_company_agent/tavily_offline_candidate.py'
+      - 'src/norway_company_agent/tavily_bounded_transport.py'
+      - 'evaluation/v10_m24_consumed_dev_20.json'
+      - 'tests/test_v10_m26_consumed_pilot.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  offline:
+    name: Freeze archives, prove preview cannot call provider, test identity gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install pinned dependencies
+        run: uv sync --locked
+      - name: Run all mock-only M26/M25/M23/search discovery tests
+        run: uv run --with pytest pytest -q tests/test_v10_m26_consumed_pilot.py tests/test_v10_m25_tavily_transport.py tests/test_v10_m23_tavily_offline_candidate.py tests/test_search_discovery.py
+      - name: Retrieve THREE already-consumed artifact ZIPs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m26-consumed
+          for item in 'm19-a:11505218381' 'm19-b:11525046472' 'm20-a:11525304908'; do
+            label=${item%%:*}; id=${item##*:}
+            curl --fail --silent --show-error --location --retry 2 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/${id}/zip" \
+              -o "/tmp/m26-consumed/${label}.zip"
+          done
+      - name: Run frozen development pilot in PREVIEW (no search provider / company HTTP)
+        run: |
+          set -euo pipefail
+          env -u TAVILY_API_KEY uv run python scripts/run_v10_m26_consumed_pilot.py \
+            --m19-a /tmp/m26-consumed/m19-a.zip \
+            --m19-b /tmp/m26-consumed/m19-b.zip \
+            --m20-a /tmp/m26-consumed/m20-a.zip \
+            --output out/private-m26-ci-preview.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('out/private-m26-ci-preview.json').read_text())
+          assert r['requested_companies'] == 20
+          assert r['attempted_companies'] == 0
+          assert r['published_company_claims'] == 0
+          assert r['logical_requests_reserved'] == 0
+          assert r['conservative_charge_reserved'] == 0
+          assert len(r['rows']) == 20
+          assert all(x['status'] == 'dry_run_no_network' for x in r['rows'])
+          print('M26 EXACT CONSUMED SOURCE AND NO-PROVIDER PREVIEW: PASS')
+          PY
+      - name: Assert live mode without explicit flags cannot start even if key exists
+        run: |
+          set -euo pipefail
+          if TAVILY_API_KEY=FAKE_TEST_ONLY uv run python scripts/run_v10_m26_consumed_pilot.py \
+            --m19-a /tmp/m26-consumed/m19-a.zip \
+            --m19-b /tmp/m26-consumed/m19-b.zip \
+            --m20-a /tmp/m26-consumed/m20-a.zip \
+            --execute-live \
+            --output out/private-m26-must-not-exist.json > /tmp/m26-attempt.txt 2>&1; then
+            echo 'Unsafe automatic live execution was accepted'; exit 1
+          fi
+          test ! -e out/private-m26-must-not-exist.json
+          echo 'M26 live flag + bogus key but absent affirmative confirmations: DENIED'
