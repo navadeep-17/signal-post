@@ -149,6 +149,21 @@ jobs:
                 'first_party_legal_identity_rejected':statuses['identity_rejected'],
                 'candidate_sites_for_private_manual_audit':sum(r['manual_review_candidate'] for r in rows),
                 'companies_with_no_safe_nomination':statuses['no_safe_nomination'],
+                # Internal Signalpost URL-type categories only; no URL titles,
+                # provider scores, identities, ranks, or source response text.
+                'companies_with_any_plausible_https_root':sum(
+                    r['url_categories'].get('safe_root_https_homepage',0)>0 for r in rows),
+                'companies_with_any_directory_social':sum(
+                    r['url_categories'].get('directory_or_social_host',0)>0 for r in rows),
+                'companies_with_any_unsafe_or_deep_url':sum(
+                    r['url_categories'].get('not_safe_root_https_homepage',0)>0 for r in rows),
+                'companies_with_only_directory_social':sum(
+                    r['normalized_url_result_count']>0 and
+                    r['url_categories'].get('directory_or_social_host',0)==r['normalized_url_result_count']
+                    for r in rows),
+                'companies_with_safe_root_but_no_nomination':sum(
+                    r['url_categories'].get('safe_root_https_homepage',0)>0 and
+                    not r['nominated_for_crawl'] for r in rows),
                 'reserved_logical_requests':logical,
                 'reserved_conservative_charges':charged,
                 'published_claims':0,
