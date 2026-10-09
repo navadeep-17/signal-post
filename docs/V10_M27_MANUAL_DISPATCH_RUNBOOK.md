@@ -2,7 +2,7 @@
 
 Status: **DRAFT / NOT ACTIVATED ON DEFAULT BRANCH / NO CREDITS SPENT**.
 Reviewer decision required before merging the dispatcher to main.
-Qualified V8 remains immutable at commit \`200f056a5a60cad23610a3958b6bec62dfb624a5\`. The dispatcher is CI-only; it does not change the evaluator or production website code.
+Qualified V8 remains immutable at commit `200f056a5a60cad23610a3958b6bec62dfb624a5`. The dispatcher is CI-only; it does not change the evaluator or production website code.
 
 ## GitHub manual-run constraint
 
@@ -16,22 +16,22 @@ Therefore a workflow file in an experimental PR branch **does not produce a work
 - Workflow: .github/workflows/v10-m27-manual-consumed-pilot.yml
 - Trigger: **workflow_dispatch ONLY**. No PR, push, schedule, workflow_run, reusable caller, or externally supplied code ref.
 - Dispatch allowed only from main on exact repo navadeep-17/signal-post.
-- Checkout exact reviewed M26 commit \`649aa9dcb0ceecf5947d2271ee846b0dc9d76e13\` (immutable SHA; no input-based ref selection).
+- Checkout exact reviewed M26 commit `649aa9dcb0ceecf5947d2271ee846b0dc9d76e13` (immutable SHA; no input-based ref selection).
 - Default mode **preview**: 20 previously consumed IDs, all archived SHA-256 checks, **no provider or company HTTP**, no secrets passed to code.
-- LIVE requires manual choice \`live\`, exact typed phrase \`RUN_FROZEN_CONSUMED_20_ONLY\`, and three affirmative boxes: current pay-as-you-go off, 20+ current free credits, and server-side/private handling.
+- LIVE requires manual choice `live`, exact typed phrase `RUN_FROZEN_CONSUMED_20_ONLY`, and three affirmative boxes: current pay-as-you-go off, 20+ current free credits, and server-side/private handling.
 - LIVE allowed only on initial run_attempt=1. Clicking "Re-run" cannot rerun live and spend credits twice.
-- Both modes use readonly \`contents\` and \`actions\` permissions. GitHub credentials are not persisted by checkout. Existing three consumed evidence ZIPs are downloaded read-only.
-- The API secret \`TAVILY_API_KEY\` appears **only in the live validation and execution steps** as an environment variable; no value is echoed, and actual pilot stdout/stderr are kept in private runner temporary files.
+- Both modes use readonly `contents` and `actions` permissions. GitHub credentials are not persisted by checkout. Existing three consumed evidence ZIPs are downloaded read-only.
+- The API secret `TAVILY_API_KEY` appears **only in the live validation and execution steps** as an environment variable; no value is echoed, and actual pilot stdout/stderr are kept in private runner temporary files.
 - M26 limits 20 exact IDs, one Basic search + one independent robots/homepage path per ID, stops on provider failures; each possible result requires first-party exact nine-digit Norwegian organisation-number proof, and is manual-review-only with 0 claims published.
-- Live report is encrypted using authenticated Fernet before upload. **Never upload the JSON directly**. Encryption key supplied only through second GitHub Actions secret \`SIGNALPOST_PILOT_REPORT_KEY\`; only encrypted binary is uploaded, with 1-day artifact retention. The action deletes plaintext on the ephemeral runner.
+- Live report is encrypted using authenticated Fernet before upload. **Never upload the JSON directly**. Encryption key supplied only through second GitHub Actions secret `SIGNALPOST_PILOT_REPORT_KEY`; only encrypted binary is uploaded, with 1-day artifact retention. The action deletes plaintext on the ephemeral runner.
 - If live search aborts, it still tries to encrypt any existing report for offline triage; failures are visible only as generic job failure. No Tavily-specific benchmark details are logged publicly.
 - No provider production integration or official Builderr evaluator key is established by this dispatcher.
 
 ## Additional security prerequisite — independent report encryption key
 
-In addition to your already-added repo secret \`TAVILY_API_KEY\`, **create another GitHub Actions secret** named:
+In addition to your already-added repo secret `TAVILY_API_KEY`, **create another GitHub Actions secret** named:
 
-\`SIGNALPOST_PILOT_REPORT_KEY\`
+`SIGNALPOST_PILOT_REPORT_KEY`
 
 Generate a unique 32-byte random, Fernet-compatible key **locally**, for example (Python standard library):
 
@@ -44,11 +44,11 @@ Prefer a narrowly scoped GitHub Actions **environment secret** with required rev
 ## After the M27 dispatcher PR has been reviewed and merged
 
 1. In Actions, open **M27 Manual Frozen-20 Pilot (Encrypted Report Only)**.
-2. First choose \`preview\` (default). It must pass without consuming any Tavily credits.
+2. First choose `preview` (default). It must pass without consuming any Tavily credits.
 3. Before live: check the dashboard again. Researcher plan, pay-as-you-go OFF and at least 20 free Basic credits must be true **at the time you click live**. Old screenshots are not a current-credit guarantee.
-4. Choose \`live\`, type \`RUN_FROZEN_CONSUMED_20_ONLY\`, check all 3 affirmations, and explicitly run the workflow. This may consume up to 20 free Basic Search credits. Never invoke it twice casually.
-5. Download the **encrypted** \`m27-consumed-encrypted-manual-review\` artifact promptly (1-day retention) to your private computer. Never upload decrypted files back to public GitHub, chat or search logs.
-6. Decrypt privately with a Fernet-capable Python environment, using the *second secret* from your password manager as the local \`SIGNALPOST_PILOT_REPORT_KEY\`. Example command (Python package cryptography required):
+4. Choose `live`, type `RUN_FROZEN_CONSUMED_20_ONLY`, check all 3 affirmations, and explicitly run the workflow. This may consume up to 20 free Basic Search credits. Never invoke it twice casually.
+5. Download the **encrypted** `m27-consumed-encrypted-manual-review` artifact promptly (1-day retention) to your private computer. Never upload decrypted files back to public GitHub, chat or search logs.
+6. Decrypt privately with a Fernet-capable Python environment, using the *second secret* from your password manager as the local `SIGNALPOST_PILOT_REPORT_KEY`. Example command (Python package cryptography required):
 
     python -c "import os;from pathlib import Path;from cryptography.fernet import Fernet; p=Path('m27-consumed-encrypted-report.fernet'); Path('private-m27-report.json').write_bytes(Fernet(os.environ['SIGNALPOST_PILOT_REPORT_KEY'].encode()).decrypt(p.read_bytes()))"
 
