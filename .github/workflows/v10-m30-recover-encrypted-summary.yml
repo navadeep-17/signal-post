@@ -30,6 +30,11 @@ jobs:
           from pathlib import Path
           import re
           y=Path('.github/workflows/v10-m30-recover-encrypted-summary.yml').read_text()
+          # Remove this self-check block, whose assertions intentionally name
+          # prohibited transports and credentials as literal strings.
+          start=y.index('      - name: Verify this workflow never executes a collection or provider CLI')
+          end=y.index('\n      - name: Set up Python and Fernet support\n',start)
+          y=y[:start]+y[end:]
           assert 'workflow_dispatch:' not in y
           assert 'repository_dispatch:' not in y
           assert 'TAVILY_API_KEY' not in y
