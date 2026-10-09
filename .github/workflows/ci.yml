@@ -2,6 +2,35 @@ name: Baseline CI
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Default preview (zero Tavily/company requests) or intentional live pilot'
+        required: true
+        type: choice
+        default: preview
+        options:
+          - preview
+          - live
+      live_confirmation:
+        description: 'For LIVE only, type exactly: RUN_FROZEN_CONSUMED_20_ONLY'
+        required: false
+        type: string
+      confirm_pay_as_you_go_off:
+        description: 'I just verified pay-as-you-go is OFF (required for live)'
+        required: false
+        type: boolean
+        default: false
+      confirm_at_least_20_credits:
+        description: 'I just verified 20+ free Basic Search credits remain (live only)'
+        required: false
+        type: boolean
+        default: false
+      confirm_server_side_only:
+        description: 'I confirm no key or private results will be published (live only)'
+        required: false
+        type: boolean
+        default: false
+
   pull_request:
   push:
     branches:
@@ -9,7 +38,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -65,3 +94,175 @@ jobs:
           assert report['idempotent_rerun'] is True, report
           print('Refresh replay qualification passed.')
           PY
+
+  # Experiment-only: this job is in the BRANCH variant of ci.yml, not main.
+  experimental-consumed-20:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m28-no-main-manual-pilot'
+    concurrency:
+      group: signalpost-m28-frozen20
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Deny unconfirmed, nondefault or repeated live runs before secrets are used
+        env:
+          MODE: ${{ inputs.mode }}
+          LIVE_CONFIRMATION: ${{ inputs.live_confirmation }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          PAYG_OFF: ${{ inputs.confirm_pay_as_you_go_off }}
+          FREE_CREDITS: ${{ inputs.confirm_at_least_20_credits }}
+          SERVER_SIDE: ${{ inputs.confirm_server_side_only }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = live ]; then
+            test "$LIVE_CONFIRMATION" = 'RUN_FROZEN_CONSUMED_20_ONLY' || { echo 'Missing exact live confirmation'; exit 1; }
+            test "$RUN_ATTEMPT" = 1 || { echo 'Live run retry is forbidden (prevents duplicate credit spending)'; exit 1; }
+            test "$PAYG_OFF" = true || { echo 'Live mode requires fresh PAYG-OFF confirmation'; exit 1; }
+            test "$FREE_CREDITS" = true || { echo 'Live mode requires fresh free-credit balance confirmation'; exit 1; }
+            test "$SERVER_SIDE" = true || { echo 'Live mode requires server-only handling confirmation'; exit 1; }
+          else
+            test "$MODE" = preview || { echo 'Unknown execution mode'; exit 1; }
+          fi
+          echo 'Manual trigger and execution mode validated'
+
+      - name: Checkout exact reviewed M26 experiment revision, never an arbitrary ref
+        uses: actions/checkout@v4
+        with:
+          ref: 649aa9dcb0ceecf5947d2271ee846b0dc9d76e13
+          persist-credentials: false
+
+      - name: Set up Python and pinned V8+M26 dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install lockfile and run fixture-based regressions (no Tavily)
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v10_m26_consumed_pilot.py tests/test_v10_m25_tavily_transport.py tests/test_v10_m23_tavily_offline_candidate.py tests/test_search_discovery.py
+
+      - name: Read-only download of three PINNED already-consumed evidence ZIPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m27-consumed
+          for entry in 'm19-a:11505218381' 'm19-b:11525046472' 'm20-a:11525304908'; do
+            label=${entry%%:*}; id=${entry##*:}
+            curl --fail --silent --show-error --location --retry 2 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/${id}/zip" \
+              -o "/tmp/m27-consumed/${label}.zip"
+          done
+
+      - name: Reproduce frozen M24 preview BEFORE any possible Tavily call
+        run: |
+          set -euo pipefail
+          env -u TAVILY_API_KEY uv run python scripts/run_v10_m26_consumed_pilot.py \
+            --m19-a /tmp/m27-consumed/m19-a.zip \
+            --m19-b /tmp/m27-consumed/m19-b.zip \
+            --m20-a /tmp/m27-consumed/m20-a.zip \
+            --output out/m27-preview.json >/tmp/m27-preview-stdout.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('out/m27-preview.json').read_text())
+          assert r['requested_companies']==20
+          assert r['attempted_companies']==0
+          assert r['logical_requests_reserved']==0
+          assert r['conservative_charge_reserved']==0
+          assert r['published_company_claims']==0
+          assert len(r['rows'])==20
+          print('M27 archived consumed-20 preview succeeded: ZERO provider/company calls')
+          PY
+
+      - name: Check both secrets and encryption-key format (LIVE ONLY, no network)
+        if: inputs.mode == 'live'
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          uv run --with 'cryptography>=45,<47' python - <<'PY'
+          import os
+          from cryptography.fernet import Fernet
+          assert os.environ.get('TAVILY_API_KEY'), 'Missing TAVILY_API_KEY secret'
+          key=os.environ.get('SIGNALPOST_PILOT_REPORT_KEY','')
+          assert key, 'Missing encrypted-artifact report key secret'
+          Fernet(key.encode())
+          print('Live provider and encrypted-review prerequisites present (values never printed)')
+          PY
+
+      - name: Execute frozen M26 live search ONLY after explicit confirmation
+        id: pilot
+        if: inputs.mode == 'live'
+        continue-on-error: true
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          # No API response, company URL or raw error appears in public workflow logs.
+          uv run python scripts/run_v10_m26_consumed_pilot.py \
+            --m19-a /tmp/m27-consumed/m19-a.zip \
+            --m19-b /tmp/m27-consumed/m19-b.zip \
+            --m20-a /tmp/m27-consumed/m20-a.zip \
+            --output out/m27-private-report.json \
+            --execute-live \
+            --confirm-pay-as-you-go-off \
+            --confirm-credits-at-least-20 \
+            --confirm-server-side-use \
+            >/tmp/m27-private.stdout 2>/tmp/m27-private.stderr
+
+      - name: Encrypt private review material before any artifact upload
+        id: encrypted_report
+        if: always() && inputs.mode == 'live'
+        env:
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          test -s out/m27-private-report.json || { echo 'Pilot did not save a report; no plaintext published'; exit 1; }
+          uv run --with 'cryptography>=45,<47' python - <<'PY'
+          import os
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          key=os.environ['SIGNALPOST_PILOT_REPORT_KEY'].encode()
+          report=Path('out/m27-private-report.json')
+          encrypted=Fernet(key).encrypt(report.read_bytes())
+          Path('/tmp/m27-consumed-encrypted-report.fernet').write_bytes(encrypted)
+          report.unlink()
+          print('Private report encrypted, original deleted; no URLs or results printed')
+          PY
+
+      - name: Upload ONLY authenticated encrypted ciphertext, never plaintext
+        if: inputs.mode == 'live' && steps.encrypted_report.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m27-consumed-encrypted-manual-review
+          path: /tmp/m27-consumed-encrypted-report.fernet
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Remove private local files on ephemeral runner
+        if: always()
+        run: |
+          rm -rf out /tmp/m27-consumed /tmp/m27-consumed-encrypted-report.fernet
+          rm -f /tmp/m27-private.stdout /tmp/m27-private.stderr /tmp/m27-preview-stdout.txt
+          echo 'Private local files removed'
+
+      - name: Fail closed if live search aborted or encryption failed
+        if: always() && inputs.mode == 'live'
+        env:
+          PILOT_OUTCOME: ${{ steps.pilot.outcome }}
+          REPORT_OUTCOME: ${{ steps.encrypted_report.outcome }}
+        run: |
+          set -euo pipefail
+          test "$PILOT_OUTCOME" = success || { echo 'Pilot did not finish successfully. Review the encrypted artifact if present.'; exit 1; }
+          test "$REPORT_OUTCOME" = success || { echo 'No encrypted report was produced; live outcome cannot be accepted'; exit 1; }
+          echo 'Live development-only pilot completed: encrypted manual review REQUIRED, zero claims published'

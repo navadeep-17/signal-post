@@ -1,0 +1,123 @@
+name: M28 Preview Only - Frozen Consumed Twenty (Zero Search Credits)
+
+# This workflow is intentionally push-triggered ONLY in the experimental branch.
+# It NEVER passes provider secrets and NEVER adds live mode. No main changes.
+on:
+  push:
+    branches:
+      - experiment/v10-m28-no-main-manual-pilot
+    paths:
+      - '.github/workflows/v10-m28-zero-credit-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: m28-zero-credit-preview
+  cancel-in-progress: false
+
+jobs:
+  frozen-consumed-only-preview:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m28-no-main-manual-pilot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout M28 experimental branch; never checkout main release
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify preview-only design excludes live mode and provider credentials
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('.github/workflows/v10-m28-zero-credit-preview.yml')
+          y=path.read_text()
+          # Exclude this self-check script; its assertions intentionally name
+          # forbidden credential references and live flags as literal strings.
+          begin=y.index('      - name: Verify preview-only design excludes live mode and provider credentials')
+          end=y.index('\n      - uses: actions/setup-python@v5\n', begin)
+          y=y[:begin]+y[end:]
+          assert 'TAVILY_API_KEY' not in y
+          assert 'SIGNALPOST_PILOT_REPORT_KEY' not in y
+          assert 'secrets.' not in y
+          assert '--execute-live' not in y
+          assert '--confirm-pay-as-you-go-off' not in y
+          assert 'actions/upload-artifact' not in y
+          assert "github.ref == 'refs/heads/experiment/v10-m28-no-main-manual-pilot'" in y
+          print('Preview-only, zero-provider-secret contract: PASS')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install frozen dependencies and run isolated safety tests
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_v10_m26_consumed_pilot.py \
+            tests/test_v10_m25_tavily_transport.py \
+            tests/test_v10_m23_tavily_offline_candidate.py \
+            tests/test_v10_m28_branch_only_workflow.py \
+            tests/test_search_discovery.py
+      - name: Fetch ONLY the three previously consumed archive evidence files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m28-frozen
+          for source in 'm19-a:11505218381' 'm19-b:11525046472' 'm20-a:11525304908'; do
+            label=${source%%:*}; id=${source##*:}
+            curl --fail --silent --show-error --location --retry 2 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/${id}/zip" \
+              -o "/tmp/m28-frozen/${label}.zip"
+          done
+      - name: Execute EXACT frozen-20 preview without any live flags or key
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m26_consumed_pilot.py \
+            --m19-a /tmp/m28-frozen/m19-a.zip \
+            --m19-b /tmp/m28-frozen/m19-b.zip \
+            --m20-a /tmp/m28-frozen/m20-a.zip \
+            --output out/private-m28-preview.json
+      - name: Assert 20 frozen IDs, all abstained, zero live provider/website requests
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('out/private-m28-preview.json').read_text(encoding='utf-8'))
+          assert r['schema']=='m26_consumed_development_manual_review_only'
+          assert r['type']=='PREVIOUSLY_CONSUMED_NOT_FRESH'
+          assert r['selection_sha256']=='3967c2a4b16e6645d3426168d32511944c5e196d19e147b65924925c69c6360e'
+          assert r['requested_companies']==20
+          assert r['attempted_companies']==0
+          assert r['aborted'] is False
+          assert len(r['rows'])==20
+          assert len({v['organisation_number'] for v in r['rows']})==20
+          assert all(v['status']=='dry_run_no_network' for v in r['rows'])
+          assert all(v['published_claims']==0 for v in r['rows'])
+          assert r['logical_requests_reserved']==0
+          assert r['conservative_charge_reserved']==0
+          assert r['manually_reviewable_exact_org_sites']==0
+          assert r['published_company_claims']==0
+          assert r['verified_new_sites_published']==0
+          assert r['independent_manual_audit_completed'] is False
+          assert r['qualified_v8_modified'] is False
+          summary='M28 preview PASS: 20 consumed records; 0 searches; 0 company page requests; 0 paid credits; 0 published claims; V8 untouched.'
+          print(summary)
+          with Path(__import__('os').environ['GITHUB_STEP_SUMMARY']).open('a') as f:
+              f.write('### '+summary+'\n')
+          PY
+      - name: Delete local preview and evidence (never publish review artifacts)
+        if: always()
+        run: |
+          rm -rf /tmp/m28-frozen out/private-m28-preview.json
+          echo 'No raw or encrypted artifact uploaded by preview job'
