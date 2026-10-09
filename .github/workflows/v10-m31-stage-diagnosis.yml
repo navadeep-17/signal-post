@@ -132,6 +132,16 @@ jobs:
                     'manual_review_candidate_only']
               for name in keys:
                   print(f'{name}: {summary[name]}')
+              # These are LOCAL PIPELINE outcomes, not provider rankings or performance comparisons.
+              details=collections.Counter(r['status'] for r in rows)
+              for code in ('no_candidate_qualified_for_independent_fetch',
+                           'invalid_candidate_url',
+                           'first_party_identity_rejected',
+                           'cross_domain_redirect_rejected',
+                           'exact_org_number_missing_from_fetched_page'):
+                  print(f'internal_{code}: {details[code]}')
+              page_attempts=sum(r['site_logical_requests_reserved']==3 for r in rows)
+              print(f'independent_company_websites_fetched_or_attempted: {page_attempts}')
               print('Interpretation caveat: the report did not retain raw search results, so their count cannot be established')
           except Exception:
               print('M31 encrypted diagnostic failed its private integrity or key validation')
