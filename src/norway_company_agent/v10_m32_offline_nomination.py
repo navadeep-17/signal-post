@@ -96,12 +96,17 @@ def nominate_offline(
     if str(profile.get("website") or "").strip():
         return {"status": "existing_registry_site_seed", "selected": None,
                 "path": "none", "published_claims": 0}
-    selected = choose_search_candidate(profile, parsed_results).get("selected")
-    if selected:
-        return {"status": "baseline_nomination", "selected": selected,
-                "path": "baseline_unchanged", "published_claims": 0}
-
     name_tokens = _distinctive_name_tokens(profile)
+    selected = choose_search_candidate(profile, parsed_results).get("selected")
+    # M32 must not inherit unsafe URL syntax from the historical v2 scorer,
+    # which compares a legal-name substring against the WHOLE hostname.
+    # E.g. company.no.attacker.com can otherwise look company-aligned.
+    # A single-token legal name without exact registry-number corroboration
+    # is also too ambiguous to accept as a new experimental website.
+    if selected and _safe_first_party_homepage(selected.get("url")):
+        if (len(set(name_tokens)) >= 2 and len("".join(name_tokens)) >= 9) or selected.get("org_match"):
+            return {"status": "baseline_nomination", "selected": selected,
+                    "path": "baseline_unchanged", "published_claims": 0}
     if len(set(name_tokens)) < 2 or len("".join(name_tokens)) < 9:
         return {"status": "weak_legal_name", "selected": None,
                 "path": "none", "published_claims": 0}
