@@ -2,6 +2,29 @@ name: Baseline CI
 
 on:
   workflow_dispatch:
+    inputs:
+      m33_mode:
+        description: "M33 four-company consumed development diagnostic"
+        required: true
+        type: choice
+        options: [preview, live]
+        default: preview
+      m33_live_confirmation:
+        description: "Type RUN_FROZEN_CONSUMED_4_ONLY for one live diagnostic"
+        type: string
+        default: ""
+      m33_payg_off:
+        description: "Current Tavily pay-as-you-go OFF"
+        type: boolean
+        default: false
+      m33_credits_four:
+        description: "At least FOUR free Basic Search credits currently available"
+        type: boolean
+        default: false
+      m33_private:
+        description: "Server-side use and encrypted private report only"
+        type: boolean
+        default: false
   pull_request:
   push:
     branches:
@@ -65,3 +88,96 @@ jobs:
           assert report['idempotent_rerun'] is True, report
           print('Refresh replay qualification passed.')
           PY
+
+
+  experimental-m33-consumed-four:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m32-offline-crawl-nomination'
+    concurrency:
+      group: signalpost-m33-consumed-four
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require exact one-time live confirmation and fresh free-credit conditions
+        env:
+          MODE: ${{ inputs.m33_mode }}
+          CONFIRMATION: ${{ inputs.m33_live_confirmation }}
+          PAYG_OFF: ${{ inputs.m33_payg_off }}
+          FREE_CREDITS: ${{ inputs.m33_credits_four }}
+          PRIVATE: ${{ inputs.m33_private }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = live ]; then
+            test "$ATTEMPT" = 1 || { echo 'Live workflow rerun blocked'; exit 1; }
+            test "$CONFIRMATION" = RUN_FROZEN_CONSUMED_4_ONLY || { echo 'Live typed confirmation missing'; exit 1; }
+            test "$PAYG_OFF" = true || { echo 'Live requires current PAYG off'; exit 1; }
+            test "$FREE_CREDITS" = true || { echo 'Live requires >=4 remaining free Basic credits'; exit 1; }
+            test "$PRIVATE" = true || { echo 'Live private/server-side handling not confirmed'; exit 1; }
+          else
+            test "$MODE" = preview || { echo 'Unknown M33 execution mode'; exit 1; }
+          fi
+          echo 'Frozen four-company manual diagnostic input gate passed'
+
+      - name: Checkout reviewed M33 revision only, never main
+        uses: actions/checkout@v4
+        with:
+          ref: d095ef4bb556d487dc8b3dfe5edbf07b50b2750a
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install pinned dependencies; test mock transport and wrong-org veto
+        run: |
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v10_m33_consumed4_diagnostic.py tests/test_v10_m32_offline_nomination.py tests/test_v10_m26_consumed_pilot.py tests/test_v10_m25_tavily_transport.py
+
+      - name: Read-only preview from three exact previously-consumed SHA-pinned archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --with 'cryptography>=45,<47' python scripts/run_v10_m33_actions_wrapper.py --preview
+
+      - name: Four bounded live searches, independent page checks, ciphertext ONLY
+        id: m33_live
+        if: inputs.m33_mode == 'live'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          uv run --with 'cryptography>=45,<47' python scripts/run_v10_m33_actions_wrapper.py --live
+
+      - name: Upload encrypted report, never provider or company plaintext
+        if: inputs.m33_mode == 'live' && steps.m33_live.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m33-four-consumed-encrypted-only
+          path: ${{ runner.temp }}/m33-frozen-four-ciphertext.fernet
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Destroy private ciphertext on ephemeral GitHub runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/m33-frozen-four-ciphertext.fernet"
+
+      - name: Reject aborted, failed or repeated live diagnostic after preserving encrypted report
+        if: always() && inputs.m33_mode == 'live'
+        env:
+          OUTCOME: ${{ steps.m33_live.outcome }}
+          ABORTED: ${{ steps.m33_live.outputs.aborted }}
+        run: |
+          test "$OUTCOME" = success || { echo 'M33 failed closed; no private details logged'; exit 1; }
+          test "$ABORTED" = false || { echo 'M33 stopped early; review encrypted report, no automatic retry'; exit 1; }
+          echo 'M33 completed within four-company bounds; ZERO published company claims'

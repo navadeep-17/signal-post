@@ -1,0 +1,48 @@
+name: V10 M25 Tavily Transport Offline Contract
+
+on:
+  push:
+    branches:
+      - experiment/v10-m25-tavily-transport-preflight
+    paths:
+      - '.github/workflows/v10-m25-tavily-transport.yml'
+      - 'src/norway_company_agent/tavily_bounded_transport.py'
+      - 'tests/test_v10_m25_tavily_transport.py'
+      - 'src/norway_company_agent/tavily_offline_candidate.py'
+      - 'tests/test_v10_m23_tavily_offline_candidate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-only:
+    name: Bounded Tavily request fixture tests; no live provider access
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Install pinned baseline dependencies
+        run: uv sync --locked
+      - name: Compile offline M25 modules
+        run: |
+          python -m py_compile src/norway_company_agent/tavily_bounded_transport.py
+          python -m py_compile tests/test_v10_m25_tavily_transport.py
+      - name: Ensure no experimental module auto-executes an API call on import
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          m=Path('src/norway_company_agent/tavily_bounded_transport.py').read_text()
+          assert 'def execute_bounded_search(' in m
+          assert 'if __name__' not in m
+          assert 'os.environ' not in m
+          assert 'TAVILY_API_KEY' not in m
+          assert 'NoRedirect()' in m
+          assert 'urllib.request.ProxyHandler({})' in m
+          print('M25 imported module has no live-run entrypoint or key auto-discovery')
+          PY
+      - name: Run all M25 fixtures plus M23 and H1b regression cases
+        run: uv run --with pytest pytest -q tests/test_v10_m25_tavily_transport.py tests/test_v10_m23_tavily_offline_candidate.py tests/test_search_discovery.py
