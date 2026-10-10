@@ -180,6 +180,7 @@ def score_evidence_family_reach(
     # offline to distinguish lost projection from evidence-veto abstention.
     by_contract={row["organisation_number"]:row for row in contracts}
     replay_added_companies=0
+    replay_net_new_companies=0
     replay_lost_companies=0
     surface_unclaimed_companies=0
     surface_ineligible_companies=0
@@ -206,6 +207,8 @@ def score_evidence_family_reach(
             surface_ineligible_companies+=1
         if generated-current:
             replay_added_companies+=1
+        if generated and not current:
+            replay_net_new_companies+=1
         if current-generated:
             replay_lost_companies+=1
     careers_replay={
@@ -213,6 +216,7 @@ def score_evidence_family_reach(
         "homepage_careers_link_without_existing_claim":surface_unclaimed_companies,
         "homepage_careers_link_not_projection_eligible":surface_ineligible_companies,
         "strict_existing_careers_projector_new_claim_company_candidates":replay_added_companies,
+        "strict_existing_careers_projector_net_new_company_coverage_candidates":replay_net_new_companies,
         "strict_existing_careers_projector_existing_claim_regression_candidates":replay_lost_companies,
         "additional_network_requests":0,
         "automatically_publishable_new_claims":0,
