@@ -191,3 +191,19 @@ def test_m39_module_has_no_http_secret_or_production_call():
         "os.environ",
     ):
         assert blocked not in source
+
+
+def test_m39_broad_consumed_cohort_counts_missing_registry_identity_without_hiding_rows():
+    rows=[
+        company(org="111222333"),
+        company(org="222333444")|{"municipality":""},
+        company(org="333444555",name=""),
+    ]
+    with pytest.raises(ValueError):
+        aggregate_existing_signals(rows)
+    out=aggregate_existing_signals(rows,allow_missing_identity_fields=True)
+    assert out["profiles_inspected"]==3
+    assert out["profiles_with_complete_registry_identity"]==1
+    assert out["profiles_ineligible_missing_registry_identity"]==2
+    assert out["non_exclusive_company_flags"]["legal_name_compact_guess_available"]==1
+    assert out["verified_new_websites"]==0
