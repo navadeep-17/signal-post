@@ -233,3 +233,48 @@ def test_m40_unverified_website_surfaces_do_not_inflate_opportunities():
     }}}
     result=score_evidence_family_reach([contract()],[x])
     assert all(value==0 for value in result["pre_existing_exact_site_source_surfaces"].values())
+
+
+def test_m40_strict_careers_replay_distinguishes_missing_provenance_from_real_projection():
+    p=profile()
+    final_url="https://private-fixture.no/"
+    home_hash="b"*64
+    p["evidence"]={"website":{
+        "status":"available","source_url":final_url,
+        "content_sha256":home_hash,"retrieved_at":"2026-10-01T10:00:00Z",
+        "value":{
+            "final_url":final_url,
+            "identity_assessment":{"publishable":True},
+            "careers_links":[{
+                "url":"https://private-fixture.no/karriere",
+                "homepage_url":final_url,
+                "homepage_content_sha256":home_hash,
+                "evidence_span":"Company homepage career link",
+                "claim_scope":"Homepage links to careers surface, not job vacancy",
+            }],
+        },
+    }}
+    result=score_evidence_family_reach([contract()],[p])
+    replay=result["existing_careers_projection_replay"]
+    assert replay["homepage_careers_link_without_existing_claim"]==1
+    assert replay["homepage_careers_link_not_projection_eligible"]==0
+    assert replay["strict_existing_careers_projector_new_claim_company_candidates"]==1
+    assert replay["automatically_publishable_new_claims"]==0
+    assert result["company_counts_by_typed_family"]["company_careers_link"]==0
+    assert result["company_counts_by_typed_family"]["concrete_job_posting"]==0
+    assert "private-fixture.no" not in str(result)
+
+
+def test_m40_strict_careers_replay_abstains_if_homepage_provenance_missing():
+    p=profile()
+    p["evidence"]={"website":{"status":"available","value":{
+        "final_url":"https://private-fixture.no/",
+        "identity_assessment":{"publishable":True},
+        "careers_links":[{"url":"https://private-fixture.no/jobber"}],
+    }}}
+    result=score_evidence_family_reach([contract()],[p])
+    replay=result["existing_careers_projection_replay"]
+    assert replay["homepage_careers_link_without_existing_claim"]==1
+    assert replay["homepage_careers_link_not_projection_eligible"]==1
+    assert replay["strict_existing_careers_projector_new_claim_company_candidates"]==0
+    assert replay["automatically_publishable_new_claims"]==0
