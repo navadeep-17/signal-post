@@ -130,6 +130,49 @@ def score_evidence_family_reach(
     observed["labeled_independent_sentiment_input"]=len(sentiment_orgs)
     observed["two_verified_external_profile_platforms"]=len(two_platform_orgs)
     assert all(0<=count<=n for count in observed.values())
+
+    # Measure existing first-party *source opportunity*, not publication.
+    # Only already-verified webpages are eligible for these indicators.
+    # Presence of a link/marker does not establish an active job or a
+    # company-authored dated update, even if the URL looks persuasive.
+    retained_surfaces=Counter()
+    for profile in profiles:
+        evidence=profile.get("evidence") or {}
+        if not isinstance(evidence,dict):
+            raise ValueError("Malformed profile evidence")
+        website=evidence.get("website") or {}
+        if not isinstance(website,dict):
+            raise ValueError("Malformed retained website evidence")
+        value=website.get("value") or {}
+        if not isinstance(value,dict):
+            raise ValueError("Malformed website content")
+        assessment=value.get("identity_assessment") or {}
+        if not isinstance(assessment,dict):
+            raise ValueError("Malformed website identity")
+        if website.get("status")!="available" or assessment.get("publishable") is not True:
+            continue
+        retained_surfaces["already_exact_verified_homepages"]+=1
+        for flag,field in (
+            ("retained_careers_links","careers_links"),
+            ("retained_news_detail_links","news_detail_links"),
+            ("retained_job_listing_candidates","job_listing_candidates"),
+        ):
+            if value.get(field):
+                retained_surfaces[flag]+=1
+        hiring=value.get("active_hiring_signal") or {}
+        if isinstance(hiring,dict) and hiring.get("active_vacancies"):
+            retained_surfaces["retained_active_hiring_marker"]+=1
+    surface_names=(
+        "already_exact_verified_homepages",
+        "retained_careers_links",
+        "retained_news_detail_links",
+        "retained_job_listing_candidates",
+        "retained_active_hiring_marker",
+    )
+    retained={name:retained_surfaces[name] for name in surface_names}
+    assert all(0<=count<=n for count in retained.values())
+    assert all(retained[name]<=retained["already_exact_verified_homepages"]
+               for name in surface_names[1:])
     # Positive mapped families are mutually NONexclusive, never a total score.
     return {
         "schema":"m40_consumed_exact_family_reach_v1",
@@ -137,6 +180,7 @@ def score_evidence_family_reach(
         "companies":n,
         "company_counts_by_typed_family":dict(sorted(observed.items())),
         "companies_with_publishable_external_observations":len(validated_external_orgs),
+        "pre_existing_exact_site_source_surfaces":retained,
         "published_site_claims_added":0,
         "new_verified_coverage":0,
         "official_builderr_recall_measured":False,
