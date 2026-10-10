@@ -193,3 +193,43 @@ def test_m40_no_provider_credentials_http_or_production_hooks():
                           "api.tavily.com","requests.get(","urllib.request","requests.post(",
                           "openai.api_key","os.environ"):
             assert forbidden not in code
+
+
+def test_m40_retained_page_link_is_only_source_opportunity_not_verified_job():
+    one=profile()
+    one["evidence"]={"website":{"status":"available","value":{
+        "identity_assessment":{"publishable":True},
+        "careers_links":[{"url":"https://PRIVATE.example/jobs"}],
+        "news_detail_links":[{"url":"https://PRIVATE.example/news"}],
+        "job_listing_candidates":[{"title":"PRIVATE Internship"}],
+        "active_hiring_signal":{"active_vacancies":True},
+    }}}
+    two=profile("987654321")
+    two["evidence"]={"website":{"status":"available","value":{
+        "identity_assessment":{"publishable":False},
+        "careers_links":[{"url":"https://fake.example/jobs"}],
+        "job_listing_candidates":[{"title":"Fake"}],
+    }}}
+    result=score_evidence_family_reach([
+        contract("123456789"),contract("987654321")
+    ],[one,two])
+    flags=result["pre_existing_exact_site_source_surfaces"]
+    assert flags["already_exact_verified_homepages"]==1
+    assert flags["retained_careers_links"]==1
+    assert flags["retained_news_detail_links"]==1
+    assert flags["retained_job_listing_candidates"]==1
+    assert flags["retained_active_hiring_marker"]==1
+    assert result["company_counts_by_typed_family"]["concrete_job_posting"]==0
+    assert result["company_counts_by_typed_family"]["first_party_company_update"]==0
+    assert "PRIVATE Internship" not in str(result)
+    assert "PRIVATE.example" not in str(result)
+
+
+def test_m40_unverified_website_surfaces_do_not_inflate_opportunities():
+    x=profile()
+    x["evidence"]={"website":{"status":"blocked","value":{
+        "identity_assessment":{"publishable":True},
+        "careers_links":[{"url":"https://fake.example/jobs"}],
+    }}}
+    result=score_evidence_family_reach([contract()],[x])
+    assert all(value==0 for value in result["pre_existing_exact_site_source_surfaces"].values())
