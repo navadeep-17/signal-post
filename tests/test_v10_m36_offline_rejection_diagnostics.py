@@ -161,7 +161,8 @@ def test_m36_output_no_urls_org_numbers_queries_or_search_rank():
     ])
     assert output["real_site_lift_verified"] is False
     assert output["production_modified"] is False
-    assert "url" not in output and "rows" not in output and "provider" not in output
+    assert "url" not in output and "rows" not in output
+    assert set(output["reasons"])==set(REASON_FIELDS)
     assert "TOP_SECRET" not in str(output)
     assert ORG not in str(output)
 
