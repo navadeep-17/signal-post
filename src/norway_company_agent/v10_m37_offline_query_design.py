@@ -47,8 +47,15 @@ class OfflineQueryHypothesis:
 def _legal_name_and_registry(profile: dict[str, Any]) -> tuple[str, str, str]:
     if not isinstance(profile, dict):
         raise ValueError("Expected registry company profile")
-    name = " ".join(str(profile.get("name") or "").split())
-    municipality = " ".join(str(profile.get("municipality") or "").split())
+    raw_name = str(profile.get("name") or "")
+    raw_municipality = str(profile.get("municipality") or "")
+    # Reject controls *before* whitespace normalization (which would erase
+    # newline injection attempts and conceal the original field).
+    for raw in (raw_name, raw_municipality):
+        if any(ord(ch) < 32 for ch in raw):
+            raise ValueError("Control characters are forbidden in query inputs")
+    name = " ".join(raw_name.split())
+    municipality = " ".join(raw_municipality.split())
     org = str(profile.get("organisation_number") or "")
     if not (len(org) == 9 and org.isascii() and org.isdecimal()):
         raise ValueError("Require exact nine-digit Norwegian organisation number")
