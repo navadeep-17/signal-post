@@ -1,0 +1,187 @@
+name: M38 Existing Encrypted Report Aggregate Review
+
+# Read ONLY the completed M38 and prior M33 artifacts; zero provider requests.
+on:
+  push:
+    branches:
+      - experiment/v10-m38-pre-registered-4-homepage-query
+    paths:
+      - .github/workflows/v10-m38-read-existing-private-summary.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  existing-ciphertext-review:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m38-pre-registered-4-homepage-query'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit no live calls or report exports
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('.github/workflows/v10-m38-read-existing-private-summary.yml').read_text()
+          p=s.index('      - name: Audit no live calls or report exports')
+          q=s.index('\n      - name: Fetch two pre-existing encrypted artifacts',p)
+          clean=s[:p]+s[q:]
+          assert '11660093735' in clean and '11592869227' in clean
+          for bad in ('TAVILY_API_KEY','--live','workflow_dispatch:',
+                      'run_signalpost_v8.py','run_v10_m38_actions_wrapper.py',
+                      'actions/upload-artifact','api.tavily.com'):
+              assert bad not in clean, 'Provider execution or export forbidden'
+          print('M38 readonly aggregate review: no provider or company HTTP')
+          PY
+      - name: Fetch two pre-existing encrypted artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 100 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' 'https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/11660093735/zip' -o /tmp/m38-existing-report.zip
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 100 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' 'https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/11592869227/zip' -o /tmp/m33-previous-report.zip
+          echo 'Existing encrypted development artifacts downloaded; no company/search HTTP'
+      - name: Verify private historical comparison and print internal Signalpost counters only
+        env:
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          python -m pip -q install 'cryptography>=45,<47'
+          python - <<'PY'
+          import collections,hashlib,json,os
+          from zipfile import ZipFile
+          from pathlib import Path
+          from cryptography.fernet import Fernet
+          try:
+              k=os.environ.get('SIGNALPOST_PILOT_REPORT_KEY','')
+              assert k
+              cipher=Fernet(k.encode())
+              def load(path,member):
+                  with ZipFile(path) as z:
+                      assert z.namelist()==[member]
+                      info=z.getinfo(member)
+                      assert 100<info.file_size<1_000_000
+                      raw=z.read(member)
+                  assert raw.startswith(b'gAAAA')
+                  doc=json.loads(cipher.decrypt(raw))
+                  assert isinstance(doc,dict)
+                  return doc
+              report=load('/tmp/m38-existing-report.zip','m38-private-consumed-four-ciphertext.fernet')
+              previous=load('/tmp/m33-previous-report.zip','m33-frozen-four-ciphertext.fernet')
+              manifest=json.loads(Path('evaluation/v10_m24_consumed_dev_20.json').read_text())
+              expected_sha=manifest['selected_list_sha256']
+              assert expected_sha=='3967c2a4b16e6645d3426168d32511944c5e196d19e147b65924925c69c6360e'
+              assert report['schema']=='m38_private_frozen_four_single_query_v1'
+              assert report['source']=='PREVIOUSLY_CONSUMED_M24_20_AND_M33_4'
+              assert report['selection_sha256']==expected_sha
+              assert report['query_variant']=='legal_name_municipality_homepage'
+              assert report['published_company_claims']==0
+              assert report['production_modified'] is False and report['fresh_holdout_used'] is False
+              assert report['provider_search_content_persisted'] is False
+              assert report['independent_manual_audit_completed'] is False
+              assert report['official_score_measured'] is False
+              assert report['historical_m33_original_nominations']==0
+              assert report['historical_m33_m32_nominations']==0
+              assert report['historical_m33_first_party_fetch_attempts']==0
+              assert report['historical_m33_companies_with_normalized_urls']==4
+              assert previous['schema']=='m33_consumed4_funnel_minimal_private_v1'
+              assert previous['m24_digest']==expected_sha and previous['requested']==4
+              assert previous['attempted']==4 and previous['aborted'] is False
+              old=previous['rows']
+              assert len(old)==4 and all(not x['first_party_fetch_attempted'] for x in old)
+              d=report['query_alt_diagnostic']
+              assert d['schema']=='m33_consumed4_funnel_minimal_private_v1'
+              assert d['source']=='PREVIOUSLY_CONSUMED_M24_20_ONLY'
+              assert d['m24_digest']==expected_sha
+              assert d['requested']==4 and d['attempted']==4 and d['aborted'] is False
+              assert d['new_published_claims']==0 and d['qualified_v8_modified'] is False
+              assert d['ceiling_search_basic_requests']==4
+              assert d['ceiling_first_party_logical_http']==8
+              assert d['ceiling_challenge_charge']==24
+              rows=d['rows']
+              assert len(rows)==4
+              ids=[str(x['organisation_number']) for x in rows]
+              assert ids==[str(x['organisation_number']) for x in old]
+              assert hashlib.sha256('\n'.join(ids).encode()).hexdigest()==report['frozen_original_four_ids_sha256']
+              assert len(set(ids))==4
+              allowed={'no_valid_search_urls','no_safe_nomination','unsafe_nomination_blocked',
+                       'first_party_page_unavailable','identity_rejected','manual_review_only',
+                       'invalid_or_forbidden_key','rate_limited_or_out_of_credits',
+                       'provider_http_error','transport_error','invalid_search_response',
+                       'invalid_json_response','oversized_provider_response',
+                       'redirect_blocked','unexpected_response_origin','fetch_budget_violation'}
+              assert all(r['status'] in allowed for r in rows)
+              assert all(r['published_company_claims']==0 for r in rows)
+              for r in rows:
+                  assert type(r['raw_result_count'])==int and 0<=r['raw_result_count']<=10
+                  assert type(r['normalized_url_result_count'])==int
+                  assert 0<=r['normalized_url_result_count']<=r['raw_result_count']
+                  assert r['site_logical_reserved'] in (1,3)
+                  assert r['conservative_request_charge_reserved']==2*r['site_logical_reserved']
+                  assert type(r['private_internal_m36_reason_counts'])==dict
+                  assert type(r['private_internal_result_items_inspected'])==int
+                  assert 0<=r['private_internal_result_items_inspected']<=10
+                  assert r['published_company_claims']==0
+                  assert all(type(r[k])==bool for k in ('baseline_nominated','challenger_nominated',
+                      'nominated_for_crawl','first_party_fetch_attempted',
+                      'first_party_page_available','manual_review_candidate'))
+                  assert r['first_party_page_available']<=r['first_party_fetch_attempted']
+                  assert r['manual_review_candidate']<=r['first_party_page_available']
+                  assert r['first_party_fetch_attempted']==r['nominated_for_crawl']
+              logical=sum(x['site_logical_reserved'] for x in rows)
+              conservative=sum(x['conservative_request_charge_reserved'] for x in rows)
+              assert logical==d['reserved_logical_http'] and 4<=logical<=12
+              assert conservative==d['reserved_conservative_challenge_charge'] and 8<=conservative<=24
+              counts=collections.Counter(r['status'] for r in rows)
+              reasons=report['reason_counts']
+              assert isinstance(reasons,dict) and 0<=reasons['inspected_total']<=40
+              valid_reasons={'inspected_total','safe_https_root','directory_or_social_host',
+                             'unsafe_or_non_root_url','invalid_or_missing_url',
+                             'full_legal_name_title_missing','deterministic_domain_alias_missing',
+                             'both_title_and_alias_missing','m32_per_result_fetch_nomination',
+                             'm35_shadow_per_result_fetch_nomination'}
+              assert set(reasons)==valid_reasons
+              assert all(type(x)==int and 0<=x<=40 for x in reasons.values())
+              assert reasons['inspected_total']==sum(r['private_internal_result_items_inspected'] for r in rows)
+              assert reasons['inspected_total']==sum(reasons[k] for k in ('safe_https_root','directory_or_social_host','unsafe_or_non_root_url','invalid_or_missing_url'))
+              summary={
+                  'development_companies':4,
+                  'companies_with_normalized_candidate_urls':sum(r['normalized_url_result_count']>0 for r in rows),
+                  'companies_with_https_root_candidate':sum(r['url_categories'].get('safe_root_https_homepage',0)>0 for r in rows),
+                  'original_algorithm_fetch_nominations':sum(r['baseline_nominated'] for r in rows),
+                  'm32_algorithm_fetch_nominations':sum(r['challenger_nominated'] for r in rows),
+                  'independent_website_fetch_attempts':sum(r['first_party_fetch_attempted'] for r in rows),
+                  'independent_websites_available':sum(r['first_party_page_available'] for r in rows),
+                  'first_party_identity_rejections':counts['identity_rejected'],
+                  'candidates_for_private_manual_audit':sum(r['manual_review_candidate'] for r in rows),
+                  'companies_with_no_safe_nomination':counts['no_safe_nomination'],
+                  'company_pages_unavailable':counts['first_party_page_unavailable'],
+                  'internal_results_inspected':reasons['inspected_total'],
+                  'internal_results_with_root_url_shape':reasons['safe_https_root'],
+                  'internal_rejections_full_title_missing':reasons['full_legal_name_title_missing'],
+                  'internal_rejections_domain_alias_missing':reasons['deterministic_domain_alias_missing'],
+                  'internal_rejections_both_title_and_alias_missing':reasons['both_title_and_alias_missing'],
+                  'm35_shadow_nomination_flag_count_only':reasons['m35_shadow_per_result_fetch_nomination'],
+                  'reserved_logical_requests':logical,
+                  'reserved_conservative_charges':conservative,
+                  'published_company_claims':0
+              }
+              print('M38 private encrypted report integrity PASS; historical four-company match PASS.')
+              print('Internal Signalpost development funnel only; NO provider performance ranking:')
+              for name,value in summary.items():
+                  print(name+': '+str(value))
+              print('Status: manual audit NOT completed, release score NOT measured, main unchanged.')
+          except Exception:
+              print('M38 encrypted report summary/integrity check failed; no private details shown')
+              raise SystemExit(1)
+          PY
+      - name: Delete locally cached encrypted evidence
+        if: always()
+        run: rm -f /tmp/m38-existing-report.zip /tmp/m33-previous-report.zip

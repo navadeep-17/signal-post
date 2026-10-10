@@ -1,0 +1,67 @@
+name: M38 Zero-Credit Real-Cohort Preflight
+
+# This workflow runs once on its creation/update on the experimental branch.
+# No provider key, no live flags, no company HTTP. Pinned artifacts: M24,
+# original 20-company encrypted M26, and four-company encrypted M33.
+on:
+  push:
+    branches:
+      - experiment/v10-m38-pre-registered-4-homepage-query
+    paths:
+      - .github/workflows/v10-m38-zero-credit-preflight.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  private-historical-archive-preflight:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m38-pre-registered-4-homepage-query'
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - name: Checkout reviewed experimental branch only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Full M38 and prior pipeline mocked regression suite
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_v10_m38_pre_registered_pilot.py \
+            tests/test_v10_m37_offline_query_design.py \
+            tests/test_v10_m36_offline_rejection_diagnostics.py \
+            tests/test_v10_m35_shadow_rejection_analysis.py \
+            tests/test_v10_m33_consumed4_diagnostic.py \
+            tests/test_v10_m32_offline_nomination.py \
+            tests/test_v10_m26_consumed_pilot.py \
+            tests/test_v10_m25_tavily_transport.py
+      - name: Verify no provider client or production entrypoint is called by preflight
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          y=Path('.github/workflows/v10-m38-zero-credit-preflight.yml').read_text()
+          start=y.index('      - name: Verify no provider client or production entrypoint is called by preflight')
+          end=y.index('\n      - name: Preview actual archived previously-consumed four-company query eligibility',start)
+          code=y[:start]+y[end:]
+          for forbidden in ('TAVILY_API_KEY','--live','--execute-live','run_signalpost_v8.py','api.tavily.com/search'):
+              assert forbidden not in code, 'Provider use forbidden in M38 preview workflow'
+          assert 'workflow_dispatch:' not in code
+          print('M38 preflight: no live provider steps or workflow dispatch configured')
+          PY
+      - name: Preview actual archived previously-consumed four-company query eligibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          uv run --with 'cryptography>=45,<47' python scripts/run_v10_m38_actions_wrapper.py --preview
+          echo 'M38 zero-credit preflight passed: 4 historical companies, 0 search/site calls'
