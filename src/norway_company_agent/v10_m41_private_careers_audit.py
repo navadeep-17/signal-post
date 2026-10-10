@@ -141,7 +141,7 @@ def audit_one_archived_careers_candidate(
     canonical=project_canonical_profile(proposed)
     canonical_errors=validate_canonical_projection(canonical)
     synth=build_company_synthesis(canonical)
-    synthesis_errors=validate_company_synthesis(synth)
+    synthesis_errors=validate_company_synthesis({**canonical,"synthesis":synth})
     flags={
         "candidate_net_new_companies":int(bool(new_claims)),
         "retained_site_exact_publishable":int(root_proof),
