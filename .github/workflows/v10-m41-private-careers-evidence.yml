@@ -1,0 +1,83 @@
+name: M41 Archived Private Careers Evidence Check
+
+on:
+  push:
+    branches:
+      - experiment/v10-m41-private-careers-evidence-gate
+    paths:
+      - .github/workflows/v10-m41-private-careers-evidence.yml
+      - scripts/run_v10_m41_private_careers_audit.py
+      - src/norway_company_agent/v10_m41_private_careers_audit.py
+      - tests/test_v10_m41_private_careers_audit.py
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  archived-private-evidence-only:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m41-private-careers-evidence-gate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout isolated experiment
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Verify only old GitHub artifacts are accessible, no provider or site calls
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('.github/workflows/v10-m41-private-careers-evidence.yml').read_text()
+          start=text.index('      - name: Verify only old GitHub artifacts are accessible, no provider or site calls')
+          end=text.index('\n      - name: Install locked deps and test exact-entity careers evidence handling',start)
+          safe=text[:start]+text[end:]
+          for forbidden in ('TAVILY_API_KEY','SIGNALPOST_PILOT_REPORT_KEY',
+                            'api.tavily.com','--live','workflow_dispatch:',
+                            'actions/upload-artifact','run_signalpost_v8.py'):
+              assert forbidden not in safe
+          assert all(x in safe for x in ('11505218381','11525046472','11525304908'))
+          print('M41 archive-read-only checks in place.')
+          PY
+      - name: Install locked deps and test exact-entity careers evidence handling
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q \
+            tests/test_v10_m41_private_careers_audit.py \
+            tests/test_v10_m40_offline_family_reach.py \
+            tests/test_output_contract.py \
+            tests/test_canonical_projection.py \
+            tests/test_synthesis.py \
+            tests/test_v7_m4b2_careers_signal_ui.py
+      - name: Download only three original consumed artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m41-original-archives
+          for pair in m19-a:11505218381 m19-b:11525046472 m20-a:11525304908; do
+            name=$(echo "$pair" | cut -d: -f1)
+            id=$(echo "$pair" | cut -d: -f2)
+            curl --fail --silent --show-error --location \
+              --connect-timeout 15 --max-time 100 \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/$id/zip" \
+              -o "/tmp/m41-original-archives/$name.zip"
+          done
+      - name: Gate original one candidate against exact homepage and contract evidence
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m41_private_careers_audit.py \
+            --m19-a /tmp/m41-original-archives/m19-a.zip \
+            --m19-b /tmp/m41-original-archives/m19-b.zip \
+            --m20-a /tmp/m41-original-archives/m20-a.zip
+      - name: Delete downloaded archives even on failure
+        if: always()
+        run: rm -rf /tmp/m41-original-archives
