@@ -62,9 +62,17 @@ def inspect_existing_profile_signals(profile: dict[str, Any]) -> dict[str, bool]
         raise ValueError("Profile lacks legal name")
     if not str(profile.get("municipality") or "").strip():
         raise ValueError("Profile lacks municipality")
-    evidence=profile.get("evidence") or {}
+    evidence=profile.get("evidence",{})
+    if evidence is None:
+        evidence={}
     if not isinstance(evidence,dict):
         raise ValueError("Malformed evidence structure")
+    if any(key in evidence and not isinstance(evidence[key],dict)
+           for key in ("registry","registry_live","website","website_email_discovery")):
+        raise ValueError("Malformed source evidence record")
+    if ("registry" in evidence and evidence["registry"].get("value") is not None
+        and not isinstance(evidence["registry"].get("value"),dict)):
+        raise ValueError("Malformed BRREG registry value")
 
     root=str(profile.get("website") or "").strip()
     bulk=_evidence_value(evidence,"registry")
