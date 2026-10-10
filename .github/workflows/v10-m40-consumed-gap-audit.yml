@@ -1,0 +1,80 @@
+name: M40 Prior-Consumed Evidence Family Gap
+
+on:
+  push:
+    branches:
+      - experiment/v10-m40-undercovered-family-feasibility
+    paths:
+      - '.github/workflows/v10-m40-consumed-gap-audit.yml'
+      - 'scripts/run_v10_m40_consumed_family_gap.py'
+      - 'src/norway_company_agent/v10_m40_offline_family_reach.py'
+      - 'tests/test_v10_m40_offline_family_reach.py'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  read-only-typed-family-screen:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m40-undercovered-family-feasibility'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Self-check no external data collection or secrets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          code=Path('.github/workflows/v10-m40-consumed-gap-audit.yml').read_text()
+          start=code.index('      - name: Self-check no external data collection or secrets')
+          end=code.index('\n      - name: Run synthetic rights, type, cross-entity and source purity tests',start)
+          safe=code[:start]+code[end:]
+          assert "workflow_dispatch:" not in safe
+          for item in ("TAVILY_API_KEY","SIGNALPOST_PILOT_REPORT_KEY",
+                       "api.tavily.com", "run_signalpost_v8.py",
+                       "--live","actions/upload-artifact"):
+              assert item not in safe
+          assert "11505218381" in safe and "11525046472" in safe and "11525304908" in safe
+          print("M40 read-only prior consumed source screen; zero company/provider requests")
+          PY
+      - name: Run synthetic rights, type, cross-entity and source purity tests
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q \
+            tests/test_v10_m40_offline_family_reach.py \
+            tests/test_external_gap_audit.py \
+            tests/test_company_site_social.py \
+            tests/test_company_site_contact.py
+      - name: Fetch three immutable prior-consumed archives from GitHub only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m40-consumed-archives
+          for pair in m19-a:11505218381 m19-b:11525046472 m20-a:11525304908; do
+            name=$(echo "$pair" | cut -d: -f1)
+            id=$(echo "$pair" | cut -d: -f2)
+            curl --fail --silent --show-error --location --connect-timeout 15 --max-time 100 \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/$id/zip" \
+              -o "/tmp/m40-consumed-archives/$name.zip"
+          done
+      - name: Reconstruct strict original 300 and print only typed aggregate counts
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m40_consumed_family_gap.py \
+            --m19-a /tmp/m40-consumed-archives/m19-a.zip \
+            --m19-b /tmp/m40-consumed-archives/m19-b.zip \
+            --m20-a /tmp/m40-consumed-archives/m20-a.zip
+      - name: Delete prior-consumed private archive material
+        if: always()
+        run: rm -rf /tmp/m40-consumed-archives
