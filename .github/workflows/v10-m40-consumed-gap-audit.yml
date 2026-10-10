@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           uv sync --locked
-          uv run --with pytest pytest -q \
+          PYTHONPATH=src uv run --with pytest pytest -q \
             tests/test_v10_m40_offline_family_reach.py \
             tests/test_external_gap_audit.py \
             tests/test_company_site_social.py \
