@@ -1,0 +1,73 @@
+name: M33 Zero-Credit Frozen-Four Preflight
+
+on:
+  push:
+    branches:
+      - experiment/v10-m32-offline-crawl-nomination
+    paths:
+      - '.github/workflows/v10-m33-zero-credit-preflight.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  preview-only:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m32-offline-crawl-nomination'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e01d45bbeadc8c885db74be2d5fc4156164d5a71
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Verify offline-only preflight with no secrets or API calls
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --with pytest pytest -q tests/test_v10_m33_consumed4_diagnostic.py tests/test_v10_m32_offline_nomination.py tests/test_v10_m26_consumed_pilot.py tests/test_v10_m25_tavily_transport.py
+          uv run python - <<'PY'
+          from pathlib import Path
+          x=Path('scripts/run_v10_m33_actions_wrapper.py').read_text()
+          assert 'if args.preview:' in x
+          assert 'if not provider_key or not key:' in x
+          assert 'PREVIOUS_PRIVATE_REPORT_ARTIFACT_ID=11589949864' in x
+          w=Path('.github/workflows/ci.yml').read_text()
+          assert "github.event_name == 'workflow_dispatch'" in w
+          assert "github.ref == 'refs/heads/experiment/v10-m32-offline-crawl-nomination'" in w
+          assert "test \"$ATTEMPT\" = 1" in w
+          assert "test \"$PAYG_OFF\" = true" in w
+          assert "test \"$FREE_CREDITS\" = true" in w
+          assert "test \"$PRIVATE\" = true" in w
+          print('M33 manual live secrets gated; preview/test only; main untouched')
+          PY
+      - name: Read-only existing archives, SHA-pinned frozen 20 cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m33-preflight
+          for item in m19-a:11505218381 m19-b:11525046472 m20-a:11525304908; do
+            label=$(echo "$item" | cut -d: -f1)
+            id=$(echo "$item" | cut -d: -f2)
+            curl --fail --silent --show-error --location -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" -o "/tmp/m33-preflight/$label.zip"
+          done
+          uv run python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          from run_v10_m26_consumed_pilot import load_consumed_cohort
+          p=[Path('/tmp/m33-preflight/'+q+'.zip') for q in ('m19-a','m19-b','m20-a')]
+          arr=load_consumed_cohort(p,Path('evaluation/v10_m24_consumed_dev_20.json'))
+          assert len(arr)==20
+          print('M33 SHA-pinned consumed cohort preflight PASS; zero Tavily and company HTTP')
+          PY
+      - name: Remove archives
+        if: always()
+        run: rm -rf /tmp/m33-preflight

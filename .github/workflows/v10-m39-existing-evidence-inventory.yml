@@ -1,0 +1,79 @@
+name: M39 Offline Existing Evidence Inventory (Consumed Archives)
+
+on:
+  push:
+    branches:
+      - experiment/v10-m39-consumed-evidence-inventory
+    paths:
+      - .github/workflows/v10-m39-existing-evidence-inventory.yml
+      - src/norway_company_agent/v10_m39_offline_existing_evidence_inventory.py
+      - scripts/run_v10_m39_consumed_source_inventory.py
+      - tests/test_v10_m39_offline_existing_evidence_inventory.py
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  archive-only-evidence-inventory:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m39-consumed-evidence-inventory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 11
+    steps:
+      - name: Checkout experimental source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: No provider, company HTTP or production calls allowed
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          y=Path('.github/workflows/v10-m39-existing-evidence-inventory.yml').read_text()
+          start=y.index('      - name: No provider, company HTTP or production calls allowed')
+          end=y.index('\n      - name: Install deps and run M39 plus existing entity regressions',start)
+          other=y[:start]+y[end:]
+          for denied in ('TAVILY_API_KEY','SIGNALPOST_PILOT_REPORT_KEY','api.tavily.com',
+                        '--live','workflow_dispatch:', 'run_signalpost_v8.py',
+                        'actions/upload-artifact','--execute-live'):
+              assert denied not in other, 'Unsafe operation on zero-network source inventory'
+          print('M39 limited to already-consumed SHA-pinned GitHub artifacts')
+          PY
+      - name: Install deps and run M39 plus existing entity regressions
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_v10_m39_offline_existing_evidence_inventory.py \
+            tests/test_domain_discovery.py \
+            tests/test_zero_cost_discovery.py \
+            tests/test_zero_cost_registry_guard.py
+      - name: Download 3 SHA-pinned prior-consumed GitHub evidence archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m39-prior-archives
+          for entry in m19-a:11505218381 m19-b:11525046472 m20-a:11525304908; do
+            name=$(echo "$entry" | cut -d: -f1)
+            id=$(echo "$entry" | cut -d: -f2)
+            curl --fail --silent --show-error --location --connect-timeout 15 --max-time 90 \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/$id/zip" \
+              -o "/tmp/m39-prior-archives/$name.zip"
+          done
+      - name: Audit original consumed 300 and missing-website 20, print counts only
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m39_consumed_source_inventory.py \
+            --m19-a /tmp/m39-prior-archives/m19-a.zip \
+            --m19-b /tmp/m39-prior-archives/m19-b.zip \
+            --m20-a /tmp/m39-prior-archives/m20-a.zip
+      - name: Remove ephemeral consumed evidence
+        if: always()
+        run: rm -rf /tmp/m39-prior-archives
