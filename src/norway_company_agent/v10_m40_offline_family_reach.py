@@ -17,6 +17,7 @@ from collections import Counter,defaultdict
 from typing import Any
 
 from .external_footprint import publishable_observation
+from .careers_contract import project_careers_page_claims
 
 FAMILY_CLAIM_FIELDS = {
     "verified_company_site":frozenset({"official_website"}),
@@ -173,6 +174,49 @@ def score_evidence_family_reach(
     assert all(0<=count<=n for count in retained.values())
     assert all(retained[name]<=retained["already_exact_verified_homepages"]
                for name in surface_names[1:])
+
+    # A link appearing in retained HTML is not equivalent to an admissible
+    # careers-page claim. Replay the EXISTING strict projection entirely
+    # offline to distinguish lost projection from evidence-veto abstention.
+    by_contract={row["organisation_number"]:row for row in contracts}
+    replay_added_companies=0
+    replay_lost_companies=0
+    surface_unclaimed_companies=0
+    surface_ineligible_companies=0
+    for profile in profiles:
+        org=profile["organisation_number"]
+        raw=(profile.get("evidence") or {}).get("website") or {}
+        value=raw.get("value") or {}
+        qualified=raw.get("status")=="available" and (
+            (value.get("identity_assessment") or {}).get("publishable") is True
+        )
+        if not qualified or not value.get("careers_links"):
+            continue
+        original=by_contract[org]
+        current={str(c.get("value",{}).get("url") or "") for c in original.get("claims",[])
+                 if isinstance(c,dict) and c.get("field")=="external.careers_page"
+                 and c.get("availability")=="available" and isinstance(c.get("value"),dict)}
+        proposed=project_careers_page_claims(original,profile)
+        generated={str(c.get("value",{}).get("url") or "") for c in proposed.get("claims",[])
+                   if isinstance(c,dict) and c.get("field")=="external.careers_page"
+                   and c.get("availability")=="available" and isinstance(c.get("value"),dict)}
+        if not current:
+            surface_unclaimed_companies+=1
+        if not generated:
+            surface_ineligible_companies+=1
+        if generated-current:
+            replay_added_companies+=1
+        if current-generated:
+            replay_lost_companies+=1
+    careers_replay={
+        "exact_site_homepage_careers_link_companies":retained["retained_careers_links"],
+        "homepage_careers_link_without_existing_claim":surface_unclaimed_companies,
+        "homepage_careers_link_not_projection_eligible":surface_ineligible_companies,
+        "strict_existing_careers_projector_new_claim_company_candidates":replay_added_companies,
+        "strict_existing_careers_projector_existing_claim_regression_candidates":replay_lost_companies,
+        "additional_network_requests":0,
+        "automatically_publishable_new_claims":0,
+    }
     # Positive mapped families are mutually NONexclusive, never a total score.
     return {
         "schema":"m40_consumed_exact_family_reach_v1",
@@ -181,6 +225,7 @@ def score_evidence_family_reach(
         "company_counts_by_typed_family":dict(sorted(observed.items())),
         "companies_with_publishable_external_observations":len(validated_external_orgs),
         "pre_existing_exact_site_source_surfaces":retained,
+        "existing_careers_projection_replay":careers_replay,
         "published_site_claims_added":0,
         "new_verified_coverage":0,
         "official_builderr_recall_measured":False,
