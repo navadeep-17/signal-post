@@ -50,7 +50,7 @@ def run_inventory(archive_paths:list[Path],manifest_path:Path)->dict:
     assert len(rows300)==300
     assert len({str(p["organisation_number"]) for p in rows300})==300
     summary20=aggregate_existing_signals(frozen20)
-    summary300=aggregate_existing_signals(rows300)
+    summary300=aggregate_existing_signals(rows300,allow_missing_identity_fields=True)
     assert summary20["profiles_inspected"]==20
     assert summary300["profiles_inspected"]==300
     assert 0<=previous_site_claims<=300
