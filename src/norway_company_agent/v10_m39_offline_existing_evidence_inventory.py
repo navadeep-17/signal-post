@@ -142,8 +142,16 @@ def inspect_existing_profile_signals(profile: dict[str, Any]) -> dict[str, bool]
     return flags
 
 
-def aggregate_existing_signals(profiles: list[dict[str, Any]]) -> dict[str, Any]:
-    """Fixed-schema privacy-minimal cross-profile summary; no provider calls."""
+def aggregate_existing_signals(
+    profiles: list[dict[str, Any]], *,
+    allow_missing_identity_fields: bool = False,
+) -> dict[str, Any]:
+    """Fixed-schema privacy-minimal cross-profile summary; no provider calls.
+
+    Only the 300-company baseline may include legally incomplete profiles:
+    count them explicitly as ineligible, never silently promote or substitute.
+    The targeted frozen 20 must have complete registry identity.
+    """
     if not isinstance(profiles,list) or not profiles:
         raise ValueError("Nonempty consumed profile cohort required")
     if len(profiles)>300:
@@ -152,13 +160,25 @@ def aggregate_existing_signals(profiles: list[dict[str, Any]]) -> dict[str, Any]
     if len(ids)!=len(set(ids)):
         raise ValueError("Profiles must have unique organisation numbers")
     counters=Counter()
+    missing_identity=0
     for profile in profiles:
+        if (
+            isinstance(profile,dict) and _valid_org(profile)
+            and (not str(profile.get("name") or "").strip()
+                 or not str(profile.get("municipality") or "").strip())
+        ):
+            if not allow_missing_identity_fields:
+                raise ValueError("Frozen cohort has incomplete registry identity")
+            missing_identity+=1
+            continue
         signals=inspect_existing_profile_signals(profile)
         counters.update(key for key,value in signals.items() if value)
     return {
         "schema":"m39_offline_existing_source_inventory_v1",
         "type":"PREVIOUSLY_CONSUMED_PROFILES_ONLY",
         "profiles_inspected":len(profiles),
+        "profiles_with_complete_registry_identity":len(profiles)-missing_identity,
+        "profiles_ineligible_missing_registry_identity":missing_identity,
         "non_exclusive_company_flags":{key:counters[key] for key in FIELDS},
         "company_ownership_inferred":False,
         "independent_site_fetch_performed":False,
