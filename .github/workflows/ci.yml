@@ -25,6 +25,28 @@ on:
         description: "Server-side use and encrypted private report only"
         type: boolean
         default: false
+      m38_mode:
+        description: "M38 pre-registered consumed four, preview or one-time live"
+        required: true
+        type: choice
+        options: [preview, live]
+        default: preview
+      m38_exact_live_confirmation:
+        description: "Type RUN_M38_FROZEN_FOUR_SINGLE_HOMEPAGE_QUERY"
+        type: string
+        default: ""
+      m38_payg_off:
+        description: "Confirm CURRENT Tavily pay-as-you-go is off"
+        type: boolean
+        default: false
+      m38_free_basic_four:
+        description: "Confirm at least four CURRENT free Basic Search credits"
+        type: boolean
+        default: false
+      m38_server_side_only:
+        description: "Private server-side use, ciphertext-only report"
+        type: boolean
+        default: false
   pull_request:
   push:
     branches:
@@ -32,7 +54,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -181,3 +203,110 @@ jobs:
           test "$OUTCOME" = success || { echo 'M33 failed closed; no private details logged'; exit 1; }
           test "$ABORTED" = false || { echo 'M33 stopped early; review encrypted report, no automatic retry'; exit 1; }
           echo 'M33 completed within four-company bounds; ZERO published company claims'
+
+
+  m38-frozen-four-alternative-homepage:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m38-pre-registered-4-homepage-query'
+    concurrency:
+      group: signalpost-m38-frozen-consumed-four
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Reject unconfirmed live run, repeat attempts or unknown modes
+        env:
+          MODE: ${{ inputs.m38_mode }}
+          EXACT: ${{ inputs.m38_exact_live_confirmation }}
+          PAYG_OFF: ${{ inputs.m38_payg_off }}
+          CREDITS: ${{ inputs.m38_free_basic_four }}
+          PRIVATE: ${{ inputs.m38_server_side_only }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = live ]; then
+            test "$ATTEMPT" = 1 || { echo 'Live rerun forbidden'; exit 1; }
+            test "$EXACT" = RUN_M38_FROZEN_FOUR_SINGLE_HOMEPAGE_QUERY || { echo 'Incorrect live confirmation'; exit 1; }
+            test "$PAYG_OFF" = true || { echo 'Current no-PAYG confirmation required'; exit 1; }
+            test "$CREDITS" = true || { echo 'Current minimum four free Basic credits required'; exit 1; }
+            test "$PRIVATE" = true || { echo 'Current ciphertext-only/server-side confirmation required'; exit 1; }
+          else
+            test "$MODE" = preview || { echo 'Unknown M38 mode'; exit 1; }
+          fi
+          echo 'M38 reviewed exact four-company experiment; guarded mode validated'
+
+      - name: Checkout immutable reviewed M38 runner instead of production or moving branch
+        uses: actions/checkout@v4
+        with:
+          ref: 82dd81a65297291a76d24c32a7649fb9e9810380
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Install pinned dependencies and run mocked M38 plus strict historical tests
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run --with pytest pytest -q \
+            tests/test_v10_m38_pre_registered_pilot.py \
+            tests/test_v10_m37_offline_query_design.py \
+            tests/test_v10_m36_offline_rejection_diagnostics.py \
+            tests/test_v10_m35_shadow_rejection_analysis.py \
+            tests/test_v10_m33_consumed4_diagnostic.py \
+            tests/test_v10_m32_offline_nomination.py \
+            tests/test_v10_m26_consumed_pilot.py \
+            tests/test_v10_m25_tavily_transport.py
+
+      - name: Always validate SHA-frozen historical encrypted artifacts, zero external research
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          uv run --with 'cryptography>=45,<47' python scripts/run_v10_m38_actions_wrapper.py --preview
+          echo 'M38 cohort and query validated without provider or company requests'
+
+      - name: M38 live four Basic searches and independent checks (only after fresh confirmations)
+        id: m38_live
+        if: inputs.m38_mode == 'live'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNALPOST_PILOT_REPORT_KEY: ${{ secrets.SIGNALPOST_PILOT_REPORT_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          set -euo pipefail
+          set +x
+          uv run --with 'cryptography>=45,<47' python scripts/run_v10_m38_actions_wrapper.py --live
+
+      - name: Upload only encrypted M38 private report with seven-day retention
+        if: inputs.m38_mode == 'live' && steps.m38_live.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m38-private-encrypted-consumed-four
+          path: ${{ runner.temp }}/m38-private-consumed-four-ciphertext.fernet
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Remove the ephemeral encrypted report even after failure
+        if: always()
+        run: rm -f "$RUNNER_TEMP/m38-private-consumed-four-ciphertext.fernet"
+
+      - name: Refuse a passed outcome for aborted or incomplete live diagnostic
+        if: always() && inputs.m38_mode == 'live'
+        env:
+          RESULT: ${{ steps.m38_live.outcome }}
+          ABORTED: ${{ steps.m38_live.outputs.aborted }}
+        run: |
+          test "$RESULT" = success || { echo 'M38 failed closed; no private source details logged'; exit 1; }
+          test "$ABORTED" = false || { echo 'M38 diagnostic stopped early; do not automatically retry'; exit 1; }
+          echo 'M38 four-company alternate query completed; no claim published or score established'
