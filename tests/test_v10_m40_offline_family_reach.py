@@ -259,6 +259,7 @@ def test_m40_strict_careers_replay_distinguishes_missing_provenance_from_real_pr
     assert replay["homepage_careers_link_without_existing_claim"]==1
     assert replay["homepage_careers_link_not_projection_eligible"]==0
     assert replay["strict_existing_careers_projector_new_claim_company_candidates"]==1
+    assert replay["strict_existing_careers_projector_net_new_company_coverage_candidates"]==1
     assert replay["automatically_publishable_new_claims"]==0
     assert result["company_counts_by_typed_family"]["company_careers_link"]==0
     assert result["company_counts_by_typed_family"]["concrete_job_posting"]==0
