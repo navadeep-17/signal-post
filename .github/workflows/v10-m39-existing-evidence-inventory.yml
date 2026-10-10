@@ -6,6 +6,9 @@ on:
       - experiment/v10-m39-consumed-evidence-inventory
     paths:
       - .github/workflows/v10-m39-existing-evidence-inventory.yml
+      - src/norway_company_agent/v10_m39_offline_existing_evidence_inventory.py
+      - scripts/run_v10_m39_consumed_source_inventory.py
+      - tests/test_v10_m39_offline_existing_evidence_inventory.py
 
 permissions:
   contents: read
