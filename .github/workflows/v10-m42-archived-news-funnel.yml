@@ -8,7 +8,10 @@ on:
       - .github/workflows/v10-m42-archived-news-funnel.yml
       - scripts/run_v10_m42_archived_news_funnel.py
       - src/norway_company_agent/v10_m42_archived_news_funnel.py
+      - src/norway_company_agent/v10_m43_archived_news_source_failures.py
+      - scripts/run_v10_m43_archived_news_source_failures.py
       - tests/test_v10_m42_archived_news_funnel.py
+      - tests/test_v10_m43_archived_news_source_failures.py
 
 permissions:
   contents: read
@@ -51,6 +54,7 @@ jobs:
           uv sync --locked
           PYTHONPATH=src uv run --with pytest pytest -q \
             tests/test_v10_m42_archived_news_funnel.py \
+            tests/test_v10_m43_archived_news_source_failures.py \
             tests/test_v10_m40_offline_family_reach.py \
             tests/test_c12_dated_first_party_news.py \
             tests/test_q4_first_party_feed.py \
@@ -74,6 +78,13 @@ jobs:
         run: |
           set -euo pipefail
           uv run python scripts/run_v10_m42_archived_news_funnel.py \
+            --m19-a /tmp/m42-consumed/m19-a.zip \
+            --m19-b /tmp/m42-consumed/m19-b.zip \
+            --m20-a /tmp/m42-consumed/m20-a.zip
+      - name: Determine evidence-backed first-party news source failure categories
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m43_archived_news_source_failures.py \
             --m19-a /tmp/m42-consumed/m19-a.zip \
             --m19-b /tmp/m42-consumed/m19-b.zip \
             --m20-a /tmp/m42-consumed/m20-a.zip
