@@ -1,0 +1,83 @@
+name: M44 Archived Homepage News Card Proof Gate
+
+on:
+  push:
+    branches:
+      - experiment/v10-m44-archived-news-card-proof-gate
+    paths:
+      - .github/workflows/v10-m44-homepage-news-card-gate.yml
+      - scripts/run_v10_m44_homepage_news_proof_gate.py
+      - src/norway_company_agent/v10_m44_homepage_news_proof_gate.py
+      - tests/test_v10_m44_homepage_news_proof_gate.py
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  original-frozen-homepage-proof:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m44-archived-news-card-proof-gate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Confirm no provider or company API run paths
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          wf=Path(".github/workflows/v10-m44-homepage-news-card-gate.yml").read_text()
+          start=wf.index("      - name: Confirm no provider or company API run paths")
+          end=wf.index("\n      - name: Run adversarial source proof tests",start)
+          safe=wf[:start]+wf[end:]
+          for forbidden in ("workflow_dispatch:", "actions/upload-artifact",
+                            "TAVILY_API_KEY", "api.tavily.com",
+                            "SIGNALPOST_PILOT_REPORT_KEY", "run_signalpost_v8.py"):
+              assert forbidden not in safe
+          for archive_id in ("11505218381","11525046472","11525304908"):
+              assert archive_id in safe
+          print("Strict M44 original archive only; zero company HTTP requests.")
+          PY
+      - name: Run adversarial source proof tests and prior strict checks
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q \
+            tests/test_v10_m44_homepage_news_proof_gate.py \
+            tests/test_v10_m43_archived_news_source_failures.py \
+            tests/test_v10_m42_archived_news_funnel.py \
+            tests/test_v10_m40_offline_family_reach.py \
+            tests/test_c12_dated_first_party_news.py \
+            tests/test_q4_first_party_feed.py \
+            tests/test_q4_feed_projection_hardening.py
+      - name: Download only immutable prior-consumed originals
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m44-archive
+          for pair in m19-a:11505218381 m19-b:11525046472 m20-a:11525304908; do
+            name=$(echo "$pair" | cut -d: -f1)
+            id=$(echo "$pair" | cut -d: -f2)
+            curl --fail --silent --show-error --location --connect-timeout 15 --max-time 100 \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/$id/zip" \
+              -o "/tmp/m44-archive/$name.zip"
+          done
+      - name: Count source-backed nominations without publishing claims
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m44_homepage_news_proof_gate.py \
+            --m19-a /tmp/m44-archive/m19-a.zip \
+            --m19-b /tmp/m44-archive/m19-b.zip \
+            --m20-a /tmp/m44-archive/m20-a.zip
+      - name: Delete original archived sources from temporary runner
+        if: always()
+        run: rm -rf /tmp/m44-archive
