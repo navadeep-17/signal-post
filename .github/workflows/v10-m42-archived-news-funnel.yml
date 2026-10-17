@@ -1,0 +1,93 @@
+name: M42 Archived Dated News Root Cause
+
+on:
+  push:
+    branches:
+      - experiment/v10-m42-consumed-news-root-cause
+    paths:
+      - .github/workflows/v10-m42-archived-news-funnel.yml
+      - scripts/run_v10_m42_archived_news_funnel.py
+      - src/norway_company_agent/v10_m42_archived_news_funnel.py
+      - src/norway_company_agent/v10_m43_archived_news_source_failures.py
+      - scripts/run_v10_m43_archived_news_source_failures.py
+      - tests/test_v10_m42_archived_news_funnel.py
+      - tests/test_v10_m43_archived_news_source_failures.py
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  archived-offline-news:
+    if: github.repository == 'navadeep-17/signal-post' && github.ref == 'refs/heads/experiment/v10-m42-consumed-news-root-cause'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - name: Confirm archive-only design
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          wf=Path(".github/workflows/v10-m42-archived-news-funnel.yml").read_text()
+          mark1=wf.index("      - name: Confirm archive-only design")
+          mark2=wf.index("\n      - name: Test exact-company stage audit and pre-existing projectors",mark1)
+          safe=wf[:mark1]+wf[mark2:]
+          for word in ("workflow_dispatch:", "actions/upload-artifact",
+                       "TAVILY_API_KEY", "api.tavily.com",
+                       "SIGNALPOST_PILOT_REPORT_KEY", "run_signalpost_v8.py"):
+              assert word not in safe
+          for ident in ("11505218381","11525046472","11525304908"):
+              assert ident in safe
+          print("M42 archive-only, $0 company/provider requests")
+          PY
+      - name: Test exact-company stage audit and pre-existing projectors
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          PYTHONPATH=src uv run --with pytest pytest -q \
+            tests/test_v10_m42_archived_news_funnel.py \
+            tests/test_v10_m43_archived_news_source_failures.py \
+            tests/test_v10_m40_offline_family_reach.py \
+            tests/test_c12_dated_first_party_news.py \
+            tests/test_q4_first_party_feed.py \
+            tests/test_q4_feed_projection_hardening.py \
+            tests/test_q8_feed_activity_precision.py
+      - name: Download only previously consumed SHA-pinned archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m42-consumed
+          for pair in m19-a:11505218381 m19-b:11525046472 m20-a:11525304908; do
+            name=$(echo "$pair" | cut -d: -f1)
+            id=$(echo "$pair" | cut -d: -f2)
+            curl --fail --silent --show-error --location --connect-timeout 15 --max-time 100 \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/navadeep-17/signal-post/actions/artifacts/$id/zip" \
+              -o "/tmp/m42-consumed/$name.zip"
+          done
+      - name: Audit only original 300 prior-consumed companies
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m42_archived_news_funnel.py \
+            --m19-a /tmp/m42-consumed/m19-a.zip \
+            --m19-b /tmp/m42-consumed/m19-b.zip \
+            --m20-a /tmp/m42-consumed/m20-a.zip
+      - name: Determine evidence-backed first-party news source failure categories
+        run: |
+          set -euo pipefail
+          uv run python scripts/run_v10_m43_archived_news_source_failures.py \
+            --m19-a /tmp/m42-consumed/m19-a.zip \
+            --m19-b /tmp/m42-consumed/m19-b.zip \
+            --m20-a /tmp/m42-consumed/m20-a.zip
+      - name: Wipe temporary private source archives
+        if: always()
+        run: rm -rf /tmp/m42-consumed
