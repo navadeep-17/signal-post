@@ -35,7 +35,7 @@ jobs:
           from pathlib import Path
           wf=Path(".github/workflows/v10-m42-archived-news-funnel.yml").read_text()
           mark1=wf.index("      - name: Confirm archive-only design")
-          mark2=wf.index("      - name: Test exact-company stage audit",mark1)
+          mark2=wf.index("\n      - name: Test exact-company stage audit and pre-existing projectors",mark1)
           safe=wf[:mark1]+wf[mark2:]
           for word in ("workflow_dispatch:", "actions/upload-artifact",
                        "TAVILY_API_KEY", "api.tavily.com",
