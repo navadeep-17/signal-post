@@ -61,7 +61,7 @@ def test_validated_homepage_nomination_is_only_human_review_candidate():
     ({"nomination":{"url":"https://other.example.no/aktuelt/contract"}},"article_url_not_same_exact_https_host"),
     ({"nomination":{"url":"http://corp.example.no/aktuelt/contract"}},"article_url_not_same_exact_https_host"),
     ({"nomination":{"anchor_text":"Les mer"}},"no_specific_anchor_title"),
-    ({"nomination":{"dated_context":"Unspecified week Signed major new logistics contract"}},"no_homepage_card_local_date"),
+    ({"nomination":{"dated_context":"Unspecified week Signed major new logistics contract"}},"card_date_missing_ambiguous_future_or_stale"),
     ({"nomination":{"dated_context":"2026-09-15 and 2026-09-16 Signed major new logistics contract"}},"card_date_missing_ambiguous_future_or_stale"),
     ({"nomination":{"dated_context":"2026-11-01 Signed major new logistics contract"}},"card_date_missing_ambiguous_future_or_stale"),
     ({"nomination":{"dated_context":"2026-09-15 Totally unrelated news"}},"anchor_title_not_in_local_dated_card"),
