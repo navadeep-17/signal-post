@@ -59,7 +59,7 @@ No responsible publication can be made from the historical snapshots, even if th
 - CLI: `scripts/run_v10_m44_homepage_news_proof_gate.py`.
 - Adversarial tests: `tests/test_v10_m44_homepage_news_proof_gate.py`.
 - CI workflow: `.github/workflows/v10-m44-homepage-news-card-gate.yml`; branch push only, no manual trigger, no source archive upload, wipes temporary archive copies.
-- Baseline full CI: link to exact-head passing run appended after final verification.
+- Full code-head [Baseline CI run #39005905071](https://github.com/navadeep-17/signal-post/actions/runs/39005905071): **585 tests + 5 subtests PASS**. Subsequent documentation-only metadata cannot change evaluated production behavior.
 
 ## Next decision
 
